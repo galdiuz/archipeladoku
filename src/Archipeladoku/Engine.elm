@@ -1,7 +1,6 @@
 module Archipeladoku.Engine exposing (..)
 
 import Dict exposing (Dict)
-import MultiDict exposing (MultiDict)
 import Random
 import Random.List
 import Set exposing (Set)
@@ -19,8 +18,8 @@ type alias Game =
 
 
 type alias Board =
-    { solution : MultiDict Int Int
-    , current : MultiDict Int CellValue
+    { solution : Dict ( Int, Int ) Int
+    , current : Dict ( Int, Int ) CellValue
     , blockSize : Int
     , puzzleAreas : List PuzzleAreas
     }
@@ -54,8 +53,8 @@ generate args =
     if args.blockSize < 2 || args.blockSize > 5 then
         Err "Block size must be between 2 and 5."
 
-    else if args.overlap < 0 || args.overlap >= args.blockSize * args.blockSize then
-        Err "Overlap must be non-negative and less than the board size."
+    else if args.overlap < 0 || args.overlap > args.blockSize then
+        Err "Overlap must be non-negative and less than or equal to block size."
 
     else if args.numberOfBoards < 1 then
         Err "Number of boards must be at least 1."
@@ -83,7 +82,7 @@ generateWithValidArgs args =
                 )
                 positions
 
-        cellAreas : MultiDict Int (List Area)
+        cellAreas : Dict ( Int, Int ) (List Area)
         cellAreas =
             List.foldl
                 (\area acc ->
@@ -93,14 +92,14 @@ generateWithValidArgs args =
                             getAreaCells area
                     in
                     List.foldl
-                        (\( row, col ) acc2 ->
+                        (\cell acc2 ->
                             let
                                 existingAreas : List Area
                                 existingAreas =
-                                    MultiDict.get row col acc2
+                                    Dict.get cell acc2
                                         |> Maybe.withDefault []
                             in
-                            MultiDict.insert row col (area :: existingAreas) acc2
+                            Dict.insert cell (area :: existingAreas) acc2
                         )
                         acc
                         areaCells
@@ -113,61 +112,51 @@ generateWithValidArgs args =
                     puzzleAreas
                 )
 
-        cells : Dict String ( Int, Int )
+        cells : Set ( Int, Int )
         cells =
             List.foldl
-                (\( startRow, startCol ) dict1 ->
+                (\( startRow, startCol ) set1 ->
                     List.foldl
-                        (\row dict2 ->
+                        (\row set2 ->
                             List.foldl
-                                (\col dict3 ->
-                                    MultiDict.insert row col ( row, col ) dict3
+                                (\col set3 ->
+                                    Set.insert ( row, col ) set3
                                 )
-                                dict2
+                                set2
                                 (List.range startCol (startCol + boardSize - 1))
                         )
-                        dict1
+                        set1
                         (List.range startRow (startRow + boardSize - 1))
                 )
-                Dict.empty
+                Set.empty
                 positions
-                |> Dict.values
-                |> List.concatMap Dict.values
-                |> List.foldl
-                    (\cell acc ->
-                        Dict.insert
-                            (positionToKey cell)
-                            cell
-                            acc
-                    )
-                    Dict.empty
 
         allNumbersForSize : Set Int
         allNumbersForSize =
             allNumbers args.blockSize
 
-        initialPossibilities : Dict String ( ( Int, Int ), (Set Int) )
+        initialPossibilities : Possibilities
         initialPossibilities =
-            Dict.foldl
-                (\cellKey cell map ->
+            Set.foldl
+                (\cell acc ->
                     Dict.insert
-                        cellKey
-                        ( cell, allNumbersForSize )
-                        map
+                        cell
+                        allNumbersForSize
+                        acc
                 )
                 Dict.empty
                 cells
 
-        peerMap : Dict String (Set String)
+        peerMap : Dict ( Int, Int ) (Set ( Int, Int ))
         peerMap =
-            Dict.foldl
-                (\cellKey cell map ->
-                    Dict.insert cellKey (getPeers cellAreas cell) map
+            Set.foldl
+                (\cell acc ->
+                    Dict.insert cell (getPeers cellAreas cell) acc
                 )
                 Dict.empty
                 cells
 
-        solutionResult : Result String (MultiDict Int Int)
+        solutionResult : Result String (Dict ( Int, Int ) Int)
         solutionResult =
             tryPlacingNumbers
                 { blockSize = args.blockSize
@@ -180,7 +169,7 @@ generateWithValidArgs args =
     Result.map
         (\solution ->
             { solution = solution
-            , current = MultiDict.map Given solution
+            , current = Dict.map (\_ -> Given) solution
             , blockSize = args.blockSize
             , puzzleAreas = puzzleAreas
             }
@@ -188,19 +177,13 @@ generateWithValidArgs args =
         solutionResult
 
 
-getPeers : MultiDict Int (List Area) -> ( Int, Int ) -> Set String
-getPeers cellAreas ( row, col ) =
-    MultiDict.get row col cellAreas
+getPeers : Dict ( Int, Int ) (List Area) -> ( Int, Int ) -> Set ( Int, Int )
+getPeers cellAreas cell =
+    Dict.get cell cellAreas
         |> Maybe.withDefault []
         |> List.concatMap getAreaCells
-        |> List.map positionToKey
         |> Set.fromList
-        |> Set.remove (positionToKey ( row, col ))
-
-
-positionToKey : ( Int, Int ) -> String
-positionToKey ( row, col ) =
-    String.fromInt row ++ "," ++ String.fromInt col
+        |> Set.remove cell
 
 
 positionBoards : Int -> Int -> Int -> List ( Int, Int )
@@ -311,31 +294,31 @@ buildPuzzleAreas blockSize startRow startCol =
 
 type alias PlaceNumberArgs =
     { blockSize : Int
-    , peerMap : Dict String (Set String)
-    , placed : MultiDict Int Int
+    , peerMap : Dict ( Int, Int ) (Set ( Int, Int ))
+    , placed : Dict ( Int, Int ) Int
     , possibilities : Possibilities
     , seed : Random.Seed
     }
 
 
 type alias Possibilities =
-    Dict String ( ( Int, Int ), Set Int )
+    Dict ( Int, Int ) (Set Int)
 
 
-tryPlacingNumbers : PlaceNumberArgs -> Result String (MultiDict Int Int)
+tryPlacingNumbers : PlaceNumberArgs -> Result String (Dict ( Int, Int ) Int)
 tryPlacingNumbers args =
     case findBestCell args.possibilities of
         Nothing ->
             Ok args.placed
 
-        Just cell ->
+        Just { cell, numbers } ->
             let
                 ( shuffledNumbers, nextSeed ) =
-                    Random.step (Random.List.shuffle cell.numbers) args.seed
+                    Random.step (Random.List.shuffle numbers) args.seed
 
-                peers : Set String
+                peers : Set ( Int, Int )
                 peers =
-                    Dict.get cell.key args.peerMap
+                    Dict.get cell args.peerMap
                         |> Maybe.withDefault Set.empty
             in
             List.foldl
@@ -348,7 +331,7 @@ tryPlacingNumbers args =
                             let
                                 possibilitiesWithoutSelf : Possibilities
                                 possibilitiesWithoutSelf =
-                                    Dict.remove cell.key args.possibilities
+                                    Dict.remove cell args.possibilities
                             in
                             case propagateConstraint peers number possibilitiesWithoutSelf of
                                 Nothing ->
@@ -357,7 +340,7 @@ tryPlacingNumbers args =
                                 Just propagatedPossibilities ->
                                     tryPlacingNumbers
                                         { args
-                                            | placed = MultiDict.insert cell.row cell.col number args.placed
+                                            | placed = Dict.insert cell number args.placed
                                             , possibilities = propagatedPossibilities
                                             , seed = nextSeed
                                         }
@@ -366,10 +349,10 @@ tryPlacingNumbers args =
                 shuffledNumbers
 
 
-findBestCell : Possibilities -> Maybe { key : String, row : Int, col : Int, numbers : List Int }
+findBestCell : Possibilities -> Maybe { cell : ( Int, Int ), numbers : List Int }
 findBestCell possibilities =
     Dict.foldl
-        (\cellKey ( ( row, col ), numbers ) currentBest ->
+        (\cell numbers currentBest ->
             let
                 setSize : Int
                 setSize =
@@ -378,9 +361,7 @@ findBestCell possibilities =
             case currentBest of
                 Nothing ->
                     Just
-                        { key = cellKey
-                        , row = row
-                        , col = col
+                        { cell = cell
                         , numbers = numbers
                         , bestSize = setSize
                         }
@@ -388,9 +369,7 @@ findBestCell possibilities =
                 Just best ->
                     if setSize < best.bestSize then
                         Just
-                            { key = cellKey
-                            , row = row
-                            , col = col
+                            { cell = cell
                             , numbers = numbers
                             , bestSize = setSize
                             }
@@ -402,26 +381,24 @@ findBestCell possibilities =
         possibilities
         |> Maybe.map
             (\record ->
-                { key = record.key
-                , row = record.row
-                , col = record.col
+                { cell = record.cell
                 , numbers = Set.toList record.numbers
                 }
             )
 
 
-propagateConstraint : Set String -> Int -> Possibilities -> Maybe Possibilities
+propagateConstraint : Set ( Int, Int ) -> Int -> Possibilities -> Maybe Possibilities
 propagateConstraint peers number possibilities =
     Set.foldl
-        (\peerKey currentPossibilities ->
+        (\peer currentPossibilities ->
             currentPossibilities
                 |> Maybe.andThen
                     (\map ->
-                        case Dict.get peerKey map of
+                        case Dict.get peer map of
                             Nothing ->
                                 Just map
 
-                            Just ( cellKey, oldSet ) ->
+                            Just oldSet ->
                                 let
                                     newSet : Set Int
                                     newSet =
@@ -431,7 +408,7 @@ propagateConstraint peers number possibilities =
                                     Nothing
 
                                 else
-                                    Just (Dict.insert peerKey ( cellKey, newSet ) map)
+                                    Just (Dict.insert peer newSet map)
                     )
         )
         (Just possibilities)
@@ -444,9 +421,9 @@ allNumbers blockSize =
         |> Set.fromList
 
 
-getCell : MultiDict Int CellValue -> Int -> Int -> CellValue
+getCell : Dict ( Int, Int ) CellValue -> Int -> Int -> CellValue
 getCell board row col =
-    MultiDict.get row col board
+    Dict.get ( row, col ) board
         |> Maybe.withDefault Empty
 
 
@@ -463,7 +440,7 @@ cellValueToInt cellValue =
             Nothing
 
 
-getAreaValues : Area -> MultiDict Int comparable -> Set comparable
+getAreaValues : Area -> Dict ( Int, Int ) comparable -> Set comparable
 getAreaValues area dict =
     let
         rows : List Int
@@ -476,22 +453,17 @@ getAreaValues area dict =
     in
     List.foldl
         (\row rowSet ->
-            case Dict.get row dict of
-                Just rowDict ->
-                    List.foldl
-                        (\col colSet ->
-                            case Dict.get col rowDict of
-                                Just val ->
-                                    Set.insert val colSet
+            List.foldl
+                (\col colSet ->
+                    case Dict.get ( row, col ) dict of
+                        Just val ->
+                            Set.insert val colSet
 
-                                Nothing ->
-                                    colSet
-                        )
-                        rowSet
-                        cols
-
-                Nothing ->
-                    rowSet
+                        Nothing ->
+                            colSet
+                )
+                rowSet
+                cols
         )
         Set.empty
         rows
@@ -511,15 +483,6 @@ getAreasAt row col areaFun puzzleAreas =
                 (areaFun puzzleArea)
         )
         puzzleAreas
-
-
-getAllAreasAt : Int -> Int -> List PuzzleAreas -> List Area
-getAllAreasAt row col puzzleAreas =
-    List.concatMap
-        (\areaFun ->
-            getAreasAt row col areaFun puzzleAreas
-        )
-        [ .blocks, .rows, .cols ]
 
 
 getAreaCells : Area -> List ( Int, Int )
@@ -567,7 +530,7 @@ getCellText blockSize cellValue =
         5 ->
             case maybeInt of
                 Just v ->
-                    Char.fromCode (v + Char.toCode 'A')
+                    Char.fromCode (v + Char.toCode 'A' - 1)
                         |> String.fromChar
 
                 Nothing ->

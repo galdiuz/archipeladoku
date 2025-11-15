@@ -556,16 +556,20 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
                         newGivens =
                             Dict.remove cell state.givens
 
-                        solutions : Result String Int
-                        solutions =
-                            countSolutions
+                        otherSolutionExists : Bool
+                        otherSolutionExists =
+                            findOtherSolution
                                 { allNumbersForSize = args.allNumbersForSize
                                 , cells = clusterCells
                                 , givens = newGivens
                                 , peerMap = args.peerMap
+                                , removedCell = cell
+                                , removedNumber =
+                                    Dict.get cell state.solution
+                                        |> Maybe.withDefault 0
                                 }
                     in
-                    if solutions == Ok 1 then
+                    if not otherSolutionExists then
                         Ok
                             { state
                                 | givens = newGivens
@@ -580,16 +584,18 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
         shuffledCells
 
 
-type alias CountSolutionsArgs =
+type alias FindOtherSolutionArgs =
     { allNumbersForSize : Set Int
     , cells : Set ( Int, Int )
     , givens : Dict ( Int, Int ) Int
     , peerMap : PeerMap
+    , removedCell : ( Int, Int )
+    , removedNumber : Int
     }
 
 
-countSolutions : CountSolutionsArgs -> Result String Int
-countSolutions { allNumbersForSize, cells, givens, peerMap } =
+findOtherSolution : FindOtherSolutionArgs -> Bool
+findOtherSolution { allNumbersForSize, cells, givens, peerMap, removedCell, removedNumber } =
     let
         allPossibilities : Possibilities
         allPossibilities =
@@ -619,21 +625,25 @@ countSolutions { allNumbersForSize, cells, givens, peerMap } =
                 )
                 (Just allPossibilities)
                 givens
-
+                |> Maybe.map
+                    (Dict.update
+                        removedCell
+                        (Maybe.map (Set.remove removedNumber))
+                    )
     in
     case propagatedPossibilities of
         Just initialPossibilities ->
-            Ok (countRecursive peerMap initialPossibilities 2)
+            findOtherSolutionRecursive peerMap initialPossibilities
 
         Nothing ->
-            Ok 0
+            False
 
 
-countRecursive : PeerMap -> Possibilities -> Int -> Int
-countRecursive peerMap possibilities limit =
+findOtherSolutionRecursive : PeerMap -> Possibilities -> Bool
+findOtherSolutionRecursive peerMap possibilities =
     case findBestCell possibilities of
         Nothing ->
-            1
+            True
 
         Just { cell, numbers } ->
             let
@@ -647,27 +657,19 @@ countRecursive peerMap possibilities limit =
                     Dict.remove cell possibilities
             in
             List.foldl
-                (\number currentCount ->
-                    if currentCount >= limit then
-                        currentCount
+                (\number foundSolution ->
+                    if foundSolution then
+                        True
 
                     else
                         case propagatePossibilities peers number possibilitiesWithoutCell of
                             Nothing ->
-                                currentCount
+                                False
 
                             Just propagatedMap ->
-                                let
-                                    solutionsFound : Int
-                                    solutionsFound =
-                                        countRecursive
-                                            peerMap
-                                            propagatedMap
-                                            (limit - currentCount)
-                                in
-                                currentCount + solutionsFound
+                                findOtherSolutionRecursive peerMap propagatedMap
                 )
-                0
+                False
                 numbers
 
 

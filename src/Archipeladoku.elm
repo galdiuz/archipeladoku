@@ -55,7 +55,6 @@ init flagsValue =
                     { solution = Dict.empty
                     , current = Dict.empty
                     , blockSize = 0
-                    , puzzleAreas = []
                     }
     in
     ( { board = board }
@@ -91,7 +90,7 @@ view model =
                     display: grid;
                     grid-auto-rows: 1.5em;
                     grid-auto-columns: 1.5em;
-                    font-size: 32px;
+                    font-size: 24px;
                 }
 
                 .cell {
@@ -132,13 +131,13 @@ viewBoard board =
         [ HA.class "board"
         ]
         (List.map
-            (\( a, b ) -> viewCell board a b)
-            (Dict.toList board.current)
+            (viewCell board)
+            (Dict.keys board.solution)
         )
 
 
-viewCell : Engine.Board -> ( Int, Int ) -> Engine.CellValue -> Html Msg
-viewCell board ( row, col ) value =
+viewCell : Engine.Board -> ( Int, Int ) -> Html Msg
+viewCell board ( row, col ) =
     let
         blocks : List Engine.Area
         blocks =
@@ -162,7 +161,13 @@ viewCell board ( row, col ) value =
             (List.any (.endCol >> (==) col) blocks)
             (HA.class "block-border-right")
         ]
-        [ Html.text (Engine.getCellText board.blockSize value) ]
+        [ case Dict.get ( row, col ) board.current of
+            Just value ->
+                Html.text (Engine.getCellText board.blockSize value)
+
+            Nothing ->
+                Html.text " "
+        ]
 
 
 

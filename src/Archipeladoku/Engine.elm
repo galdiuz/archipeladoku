@@ -9,7 +9,6 @@ import Set exposing (Set)
 type CellValue
     = Given Int
     | UserInput Int
-    | Empty
 
 
 type alias Game =
@@ -21,7 +20,6 @@ type alias Board =
     { solution : Dict ( Int, Int ) Int
     , current : Dict ( Int, Int ) CellValue
     , blockSize : Int
-    , puzzleAreas : List PuzzleAreas
     }
 
 
@@ -50,8 +48,8 @@ type alias GenerateArgs =
 
 generate : GenerateArgs -> Result String Board
 generate args =
-    if args.blockSize < 2 || args.blockSize > 5 then
-        Err "Block size must be between 2 and 5."
+    if args.blockSize < 2 || args.blockSize > 4 then
+        Err "Block size must be between 2 and 4."
 
     else if args.overlap < 0 || args.overlap > args.blockSize then
         Err "Overlap must be non-negative and less than or equal to block size."
@@ -66,13 +64,13 @@ generate args =
 generateWithValidArgs : GenerateArgs -> Result String Board
 generateWithValidArgs args =
     let
-        positions : List ( Int, Int )
-        positions =
-            positionBoards args.blockSize args.overlap args.numberOfBoards
-
         boardSize : Int
         boardSize =
             args.blockSize * args.blockSize
+
+        positions : List ( Int, Int )
+        positions =
+            positionBoards args.blockSize args.overlap args.numberOfBoards
 
         puzzleAreas : List PuzzleAreas
         puzzleAreas =
@@ -131,23 +129,7 @@ generateWithValidArgs args =
                 Set.empty
                 positions
 
-        allNumbersForSize : Set Int
-        allNumbersForSize =
-            allNumbers args.blockSize
-
-        initialPossibilities : Possibilities
-        initialPossibilities =
-            Set.foldl
-                (\cell acc ->
-                    Dict.insert
-                        cell
-                        allNumbersForSize
-                        acc
-                )
-                Dict.empty
-                cells
-
-        peerMap : Dict ( Int, Int ) (Set ( Int, Int ))
+        peerMap : PeerMap
         peerMap =
             Set.foldl
                 (\cell acc ->
@@ -156,25 +138,143 @@ generateWithValidArgs args =
                 Dict.empty
                 cells
 
-        solutionResult : Result String (Dict ( Int, Int ) Int)
-        solutionResult =
-            tryPlacingNumbers
-                { blockSize = args.blockSize
-                , peerMap = peerMap
-                , placed = Dict.empty
-                , possibilities = initialPossibilities
-                , seed = args.seed
-                }
-    in
-    Result.map
-        (\solution ->
-            { solution = solution
-            , current = Dict.map (\_ -> Given) solution
+        allNumbersForSize : Set Int
+        allNumbersForSize =
+            allNumbers args.blockSize
+
+        generateClusterArgs : GenerateClusterArgs
+        generateClusterArgs =
+            { allCells = cells
+            , allNumbersForSize = allNumbersForSize
             , blockSize = args.blockSize
-            , puzzleAreas = puzzleAreas
+            , peerMap = peerMap
+            , positions = positions
             }
+    in
+    groupPositions positions
+        |> List.foldl
+            (\positionGroup result -> Result.andThen (generateCluster generateClusterArgs positionGroup) result)
+            (Ok
+                { givens = Dict.empty
+                , seed = args.seed
+                , solution = Dict.empty
+                }
+            )
+        |> Result.map
+            (\{ solution, givens } ->
+                { solution = solution
+                , current = Dict.map (\_ -> Given) givens
+                , blockSize = args.blockSize
+                }
+            )
+
+
+groupPositions : List ( Int, Int ) -> List ( List ( Int, Int ) )
+groupPositions positions =
+    -- TODO: Do actual grouping later.
+    List.map List.singleton positions
+
+
+type alias GenerateClusterArgs =
+    { allCells : Set ( Int, Int )
+    , allNumbersForSize : Set Int
+    , blockSize : Int
+    , peerMap : PeerMap
+    , positions : List ( Int, Int )
+    }
+
+
+type alias ClusterGenerationState =
+    { givens : Dict ( Int, Int ) Int
+    , seed : Random.Seed
+    , solution : Dict ( Int, Int ) Int
+    }
+
+
+generateCluster :
+    GenerateClusterArgs
+    -> List ( Int, Int )
+    -> ClusterGenerationState
+    -> Result String ClusterGenerationState
+generateCluster args positions inputState =
+    let
+        boardSize : Int
+        boardSize =
+            args.blockSize * args.blockSize
+
+        clusterCells : Set ( Int, Int )
+        clusterCells =
+            List.foldl
+                (\( startRow, startCol ) set1 ->
+                    List.foldl
+                        (\row set2 ->
+                            List.foldl
+                                (\col set3 ->
+                                    Set.insert ( row, col ) set3
+                                )
+                                set2
+                                (List.range startCol (startCol + boardSize - 1))
+                        )
+                        set1
+                        (List.range startRow (startRow + boardSize - 1))
+                )
+                Set.empty
+                positions
+
+        allPossibilities : Possibilities
+        allPossibilities =
+            Set.foldl
+                (\cell acc ->
+                    Dict.insert cell args.allNumbersForSize acc
+                )
+                Dict.empty
+                clusterCells
+    in
+    Set.foldl
+        (\cell result ->
+            Result.andThen
+                (propagateSolution inputState.solution args.peerMap cell)
+                result
         )
-        solutionResult
+        (Ok allPossibilities)
+        args.allCells
+        |> Result.andThen
+            (\initialPossibilities ->
+                tryPlacingNumbers
+                    { blockSize = args.blockSize
+                    , peerMap = args.peerMap
+                    , placed = Dict.empty
+                    , possibilities = initialPossibilities
+                    , seed = inputState.seed
+                    }
+            )
+        |> Result.andThen
+            (\placedNumbers ->
+                removeGivenNumbers
+                    args
+                    clusterCells
+                    (Set.filter
+                        (\cell ->
+                            not (Dict.member cell inputState.solution)
+                        )
+                        clusterCells
+                    )
+                    { inputState
+                        | givens =
+                            Dict.foldl
+                                (\cell value acc ->
+                                    if Dict.member cell inputState.solution then
+                                        acc
+
+                                    else
+                                        Dict.insert cell value acc
+                                )
+                                inputState.givens
+                                placedNumbers.solution
+                        , seed = placedNumbers.seed
+                        , solution = Dict.union inputState.solution placedNumbers.solution
+                    }
+            )
 
 
 getPeers : Dict ( Int, Int ) (List Area) -> ( Int, Int ) -> Set ( Int, Int )
@@ -184,6 +284,33 @@ getPeers cellAreas cell =
         |> List.concatMap getAreaCells
         |> Set.fromList
         |> Set.remove cell
+
+
+propagateSolution :
+   Dict ( Int, Int ) Int
+   -> PeerMap
+   -> ( Int, Int )
+   -> Possibilities
+   -> Result String Possibilities
+propagateSolution solution peerMap cell possibilities =
+    case Dict.get cell solution of
+        Just numberInSolution ->
+            let
+                peers : Set ( Int, Int )
+                peers =
+                    Dict.get cell peerMap
+                        |> Maybe.withDefault Set.empty
+            in
+            case propagatePossibilities peers numberInSolution possibilities of
+                Just propagatedPossibilities ->
+                    Dict.insert cell (Set.singleton numberInSolution) propagatedPossibilities
+                        |> Ok
+
+                Nothing ->
+                    Err "Unsolvable puzzle configuration"
+
+        Nothing ->
+            Ok possibilities
 
 
 positionBoards : Int -> Int -> Int -> List ( Int, Int )
@@ -197,12 +324,6 @@ positionBoards blockSize overlap numberOfBoards =
         stepSize =
             boardSize - overlap
 
-        -- 1. HELPER: Calculate the number of valid checkerboard
-        --    spots in a grid of a given side length.
-        --    N=1 -> 1 spot
-        --    N=2 -> 2 spots
-        --    N=3 -> 5 spots
-        --    N=4 -> 8 spots
         spotsInGrid : Int -> Int
         spotsInGrid side =
             (side * side)
@@ -210,8 +331,6 @@ positionBoards blockSize overlap numberOfBoards =
                 |> (\n -> n / 2.0)
                 |> ceiling
 
-        -- 2. HELPER: Find the smallest grid side length N
-        --    that can hold numberOfBoards.
         findSideLength : Int -> Int
         findSideLength currentSide =
             if spotsInGrid currentSide >= numberOfBoards then
@@ -220,13 +339,10 @@ positionBoards blockSize overlap numberOfBoards =
             else
                 findSideLength (currentSide + 1)
 
-        -- 3. Calculate the side length we need to search.
-        --    e.g., n=3 -> 3. e.g., n=5 -> 3.
         searchGridSideLength : Int
         searchGridSideLength =
             findSideLength 1
 
-        -- 4. Create a list of all coordinates in that grid
         allGridCoords : List ( Int, Int )
         allGridCoords =
             List.range 0 (searchGridSideLength - 1)
@@ -237,20 +353,19 @@ positionBoards blockSize overlap numberOfBoards =
                             (List.range 0 (searchGridSideLength - 1))
                    )
 
-        -- 5. A filter that only keeps "checkerboard" positions
         isCornerOverlap : ( Int, Int ) -> Bool
         isCornerOverlap ( gridRow, gridCol ) =
             modBy 2 (gridRow + gridCol) == 0
 
-        mapToPosition : ( Int, Int ) -> ( Int, Int )
-        mapToPosition ( gridRow, gridCol ) =
+        mapToCell : ( Int, Int ) -> ( Int, Int )
+        mapToCell ( gridRow, gridCol ) =
             ( gridRow * stepSize + 1, gridCol * stepSize + 1 )
 
     in
     allGridCoords
         |> List.filter isCornerOverlap
         |> List.take numberOfBoards
-        |> List.map mapToPosition
+        |> List.map mapToCell
 
 
 buildPuzzleAreas : Int -> Int -> Int -> PuzzleAreas
@@ -294,22 +409,26 @@ buildPuzzleAreas blockSize startRow startCol =
 
 type alias PlaceNumberArgs =
     { blockSize : Int
-    , peerMap : Dict ( Int, Int ) (Set ( Int, Int ))
+    , peerMap : PeerMap
     , placed : Dict ( Int, Int ) Int
     , possibilities : Possibilities
     , seed : Random.Seed
     }
 
 
+type alias PeerMap =
+    Dict ( Int, Int ) (Set ( Int, Int ))
+
+
 type alias Possibilities =
     Dict ( Int, Int ) (Set Int)
 
 
-tryPlacingNumbers : PlaceNumberArgs -> Result String (Dict ( Int, Int ) Int)
+tryPlacingNumbers : PlaceNumberArgs -> Result String { solution : Dict ( Int, Int ) Int, seed : Random.Seed }
 tryPlacingNumbers args =
     case findBestCell args.possibilities of
         Nothing ->
-            Ok args.placed
+            Ok { solution = args.placed, seed = args.seed }
 
         Just { cell, numbers } ->
             let
@@ -329,11 +448,11 @@ tryPlacingNumbers args =
 
                         Err _ ->
                             let
-                                possibilitiesWithoutSelf : Possibilities
-                                possibilitiesWithoutSelf =
+                                possibilitiesWithoutCell : Possibilities
+                                possibilitiesWithoutCell =
                                     Dict.remove cell args.possibilities
                             in
-                            case propagateConstraint peers number possibilitiesWithoutSelf of
+                            case propagatePossibilities peers number possibilitiesWithoutCell of
                                 Nothing ->
                                     Err "Branch failed"
 
@@ -387,8 +506,8 @@ findBestCell possibilities =
             )
 
 
-propagateConstraint : Set ( Int, Int ) -> Int -> Possibilities -> Maybe Possibilities
-propagateConstraint peers number possibilities =
+propagatePossibilities : Set ( Int, Int ) -> Int -> Possibilities -> Maybe Possibilities
+propagatePossibilities peers number possibilities =
     Set.foldl
         (\peer currentPossibilities ->
             currentPossibilities
@@ -415,16 +534,147 @@ propagateConstraint peers number possibilities =
         peers
 
 
+removeGivenNumbers :
+    GenerateClusterArgs
+    -> Set ( Int, Int )
+    -> Set ( Int, Int )
+    ->  ClusterGenerationState
+    -> Result String ClusterGenerationState
+removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
+    let
+        ( shuffledCells, nextSeed ) =
+            Random.step
+                (Random.List.shuffle (Set.toList cellsToRemoveFrom))
+                inputState.seed
+    in
+    List.foldl
+        (\cell result ->
+            Result.andThen
+                (\state ->
+                    let
+                        newGivens : Dict ( Int, Int ) Int
+                        newGivens =
+                            Dict.remove cell state.givens
+
+                        solutions : Result String Int
+                        solutions =
+                            countSolutions
+                                { allNumbersForSize = args.allNumbersForSize
+                                , cells = clusterCells
+                                , givens = newGivens
+                                , peerMap = args.peerMap
+                                }
+                    in
+                    if solutions == Ok 1 then
+                        Ok
+                            { state
+                                | givens = newGivens
+                            }
+
+                    else
+                        Ok state
+                )
+                result
+        )
+        (Ok { inputState | seed = nextSeed })
+        shuffledCells
+
+
+type alias CountSolutionsArgs =
+    { allNumbersForSize : Set Int
+    , cells : Set ( Int, Int )
+    , givens : Dict ( Int, Int ) Int
+    , peerMap : PeerMap
+    }
+
+
+countSolutions : CountSolutionsArgs -> Result String Int
+countSolutions { allNumbersForSize, cells, givens, peerMap } =
+    let
+        allPossibilities : Possibilities
+        allPossibilities =
+            Set.foldl
+                (\cell acc ->
+                    Dict.insert cell allNumbersForSize acc
+                )
+                Dict.empty
+                cells
+
+        propagatedPossibilities : Maybe Possibilities
+        propagatedPossibilities =
+            Dict.foldl
+                (\cell number acc ->
+                    Maybe.andThen
+                        (\possMap ->
+                            let
+                                peers : Set ( Int, Int )
+                                peers =
+                                    Dict.get cell peerMap
+                                        |> Maybe.withDefault Set.empty
+                            in
+                            propagatePossibilities peers number possMap
+                                |> Maybe.map (Dict.insert cell (Set.singleton number))
+                        )
+                        acc
+                )
+                (Just allPossibilities)
+                givens
+
+    in
+    case propagatedPossibilities of
+        Just initialPossibilities ->
+            Ok (countRecursive peerMap initialPossibilities 2)
+
+        Nothing ->
+            Ok 0
+
+
+countRecursive : PeerMap -> Possibilities -> Int -> Int
+countRecursive peerMap possibilities limit =
+    case findBestCell possibilities of
+        Nothing ->
+            1
+
+        Just { cell, numbers } ->
+            let
+                peers : Set ( Int, Int )
+                peers =
+                    Dict.get cell peerMap
+                        |> Maybe.withDefault Set.empty
+
+                possibilitiesWithoutCell : Possibilities
+                possibilitiesWithoutCell =
+                    Dict.remove cell possibilities
+            in
+            List.foldl
+                (\number currentCount ->
+                    if currentCount >= limit then
+                        currentCount
+
+                    else
+                        case propagatePossibilities peers number possibilitiesWithoutCell of
+                            Nothing ->
+                                currentCount
+
+                            Just propagatedMap ->
+                                let
+                                    solutionsFound : Int
+                                    solutionsFound =
+                                        countRecursive
+                                            peerMap
+                                            propagatedMap
+                                            (limit - currentCount)
+                                in
+                                currentCount + solutionsFound
+                )
+                0
+                numbers
+
+
 allNumbers : Int -> Set Int
 allNumbers blockSize =
     List.range 1 (blockSize * blockSize)
         |> Set.fromList
-
-
-getCell : Dict ( Int, Int ) CellValue -> Int -> Int -> CellValue
-getCell board row col =
-    Dict.get ( row, col ) board
-        |> Maybe.withDefault Empty
 
 
 cellValueToInt : CellValue -> Maybe Int
@@ -435,9 +685,6 @@ cellValueToInt cellValue =
 
         UserInput v ->
             Just v
-
-        Empty ->
-            Nothing
 
 
 getAreaValues : Area -> Dict ( Int, Int ) comparable -> Set comparable
@@ -503,38 +750,20 @@ getCellText blockSize cellValue =
         maybeInt =
             cellValueToInt cellValue
     in
-    case blockSize of
-        2 ->
-            maybeInt
-                |> Maybe.map String.fromInt
-                |> Maybe.withDefault " "
+    if blockSize == 4 then
+        case maybeInt of
+            Just v ->
+                if v <= 9 then
+                    String.fromInt (v - 1)
 
-        3 ->
-            maybeInt
-                |> Maybe.map String.fromInt
-                |> Maybe.withDefault ""
-
-        4 ->
-            case maybeInt of
-                Just v ->
-                    if v <= 9 then
-                        String.fromInt (v - 1)
-
-                    else
-                        Char.fromCode (v - 10 + Char.toCode 'A')
-                            |> String.fromChar
-
-                Nothing ->
-                    ""
-
-        5 ->
-            case maybeInt of
-                Just v ->
-                    Char.fromCode (v + Char.toCode 'A' - 1)
+                else
+                    Char.fromCode (v - 10 + Char.toCode 'A')
                         |> String.fromChar
 
-                Nothing ->
-                    ""
+            Nothing ->
+                ""
 
-        _ ->
-            ""
+    else
+        maybeInt
+            |> Maybe.map String.fromInt
+            |> Maybe.withDefault " "

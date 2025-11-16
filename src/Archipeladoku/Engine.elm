@@ -6,11 +6,6 @@ import Random.List
 import Set exposing (Set)
 
 
-type CellValue
-    = Given Int
-    | UserInput Int
-
-
 type alias Game =
     { boards : Dict Int Board
     }
@@ -18,7 +13,7 @@ type alias Game =
 
 type alias Board =
     { solution : Dict ( Int, Int ) Int
-    , current : Dict ( Int, Int ) CellValue
+    , givens : Dict ( Int, Int ) Int
     , blockSize : Int
     }
 
@@ -42,26 +37,32 @@ type alias GenerateArgs =
     { blockSize : Int
     , overlap : Int
     , numberOfBoards : Int
-    , seed : Random.Seed
+    , seed : Int
     }
 
 
-generate : GenerateArgs -> Result String Board
+type BoardGenerationState
+    = Generating ClusterGenerationState
+    | Failed String
+    | Completed Board
+
+
+generate : GenerateArgs -> BoardGenerationState
 generate args =
     if args.blockSize < 2 || args.blockSize > 4 then
-        Err "Block size must be between 2 and 4."
+        Failed "Block size must be between 2 and 4."
 
     else if args.overlap < 0 || args.overlap > args.blockSize then
-        Err "Overlap must be non-negative and less than or equal to block size."
+        Failed "Overlap must be non-negative and less than or equal to block size."
 
     else if args.numberOfBoards < 1 then
-        Err "Number of boards must be at least 1."
+        Failed "Number of boards must be at least 1."
 
     else
         generateWithValidArgs args
 
 
-generateWithValidArgs : GenerateArgs -> Result String Board
+generateWithValidArgs : GenerateArgs -> BoardGenerationState
 generateWithValidArgs args =
     let
         boardSize : Int
@@ -150,26 +151,67 @@ generateWithValidArgs args =
             , peerMap = peerMap
             , positions = positions
             }
+
+        groupedPositions : List (List ( Int, Int ))
+        groupedPositions =
+            groupPositions positions
     in
-    groupPositions positions
-        |> List.foldl
-            (\positionGroup result -> Result.andThen (generateCluster generateClusterArgs positionGroup) result)
-            (Ok
-                { givens = Dict.empty
-                , seed = args.seed
-                , solution = Dict.empty
-                }
-            )
-        |> Result.map
-            (\{ solution, givens } ->
-                { solution = solution
-                , current = Dict.map (\_ -> Given) givens
-                , blockSize = args.blockSize
-                }
-            )
+    Generating
+        { givens = Dict.empty
+        , remainingClusters = groupedPositions
+        , seed = Random.initialSeed args.seed
+        , solution = Dict.empty
+        , args = generateClusterArgs
+        }
+        |> continueGeneration
 
 
-groupPositions : List ( Int, Int ) -> List ( List ( Int, Int ) )
+continueGeneration : BoardGenerationState -> BoardGenerationState
+continueGeneration state =
+    case state of
+        Generating clusterState ->
+            case clusterState.remainingClusters of
+                [] ->
+                    Completed
+                        { solution = clusterState.solution
+                        , givens = clusterState.givens
+                        , blockSize = clusterState.args.blockSize
+                        }
+
+                positionGroup :: remainingGroups ->
+                    let
+                        updatedClusterStateResult =
+                            generateCluster clusterState.args positionGroup clusterState
+                                |> Result.map
+                                    (\newState ->
+                                        { newState
+                                            | remainingClusters = remainingGroups
+                                        }
+                                    )
+                    in
+                    case updatedClusterStateResult of
+                        Ok newClusterState ->
+                            if List.isEmpty remainingGroups then
+                                Completed
+                                    { solution = newClusterState.solution
+                                    , givens = newClusterState.givens
+                                    , blockSize = newClusterState.args.blockSize
+                                    }
+
+                            else
+                                Generating newClusterState
+
+                        Err errMsg ->
+                            Failed errMsg
+
+        Failed errMsg ->
+            Failed errMsg
+
+        Completed board ->
+            Completed board
+
+
+groupPositions : List ( Int, Int ) -> List (List ( Int, Int ))
 groupPositions positions =
     -- TODO: Do actual grouping later.
     List.map List.singleton positions
@@ -186,8 +228,10 @@ type alias GenerateClusterArgs =
 
 type alias ClusterGenerationState =
     { givens : Dict ( Int, Int ) Int
+    , remainingClusters : List (List ( Int, Int ))
     , seed : Random.Seed
     , solution : Dict ( Int, Int ) Int
+    , args : GenerateClusterArgs
     }
 
 
@@ -552,8 +596,8 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
             Result.andThen
                 (\state ->
                     let
-                        newGivens : Dict ( Int, Int ) Int
-                        newGivens =
+                        givensWithoutCell : Dict ( Int, Int ) Int
+                        givensWithoutCell =
                             Dict.remove cell state.givens
 
                         otherSolutionExists : Bool
@@ -561,7 +605,7 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
                             findOtherSolution
                                 { allNumbersForSize = args.allNumbersForSize
                                 , cells = clusterCells
-                                , givens = newGivens
+                                , givens = givensWithoutCell
                                 , peerMap = args.peerMap
                                 , removedCell = cell
                                 , removedNumber =
@@ -572,7 +616,7 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
                     if not otherSolutionExists then
                         Ok
                             { state
-                                | givens = newGivens
+                                | givens = givensWithoutCell
                             }
 
                     else
@@ -679,16 +723,6 @@ allNumbers blockSize =
         |> Set.fromList
 
 
-cellValueToInt : CellValue -> Maybe Int
-cellValueToInt cellValue =
-    case cellValue of
-        Given v ->
-            Just v
-
-        UserInput v ->
-            Just v
-
-
 getAreaValues : Area -> Dict ( Int, Int ) comparable -> Set comparable
 getAreaValues area dict =
     let
@@ -743,29 +777,3 @@ getAreaCells area =
                 (List.range area.startCol area.endCol)
         )
         (List.range area.startRow area.endRow)
-
-
-getCellText : Int -> CellValue -> String
-getCellText blockSize cellValue =
-    let
-        maybeInt : Maybe Int
-        maybeInt =
-            cellValueToInt cellValue
-    in
-    if blockSize == 4 then
-        case maybeInt of
-            Just v ->
-                if v <= 9 then
-                    String.fromInt (v - 1)
-
-                else
-                    Char.fromCode (v - 10 + Char.toCode 'A')
-                        |> String.fromChar
-
-            Nothing ->
-                ""
-
-    else
-        maybeInt
-            |> Maybe.map String.fromInt
-            |> Maybe.withDefault " "

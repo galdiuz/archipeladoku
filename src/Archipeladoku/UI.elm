@@ -1,6 +1,7 @@
-module Archipeladoku exposing (..)
+port module Archipeladoku.UI exposing (..)
 
 import Archipeladoku.Engine as Engine
+import Archipeladoku.Json as Json
 import Browser
 import Dict exposing (Dict)
 import Html exposing (Html)
@@ -8,17 +9,34 @@ import Html.Attributes as HA
 import Html.Attributes.Extra as HAE
 import Html.Events as HE
 import Json.Decode as Decode
+import Json.Encode as Encode
 import List.Extra
 import Random
 
 
+port receiveBoard : (Decode.Value -> msg) -> Sub msg
+port generateBoard : Encode.Value -> Cmd msg
+
+
 type alias Model =
-    { board : Engine.Board
+    { board : Maybe BoardState
     }
 
 
 type Msg
-    = NoOp
+    = GotBoard Decode.Value
+
+
+type alias BoardState =
+    { solution : Dict ( Int, Int ) Int
+    , current : Dict ( Int, Int ) CellValue
+    , blockSize : Int
+    }
+
+
+type CellValue
+    = Given Int
+    | UserInput Int
 
 
 main : Program Decode.Value Model Msg
@@ -33,45 +51,48 @@ main =
 
 init : Decode.Value -> ( Model, Cmd Msg )
 init flagsValue =
-    let
-        generationResult =
-            Engine.generate
-                { blockSize = 2
-                , overlap = 1
-                , numberOfBoards = 25
-                , seed = Random.initialSeed 1
-                }
-
-        board =
-            case generationResult of
-                Ok b ->
-                    b
-
-                Err err ->
-                    let
-                        _ =
-                            Debug.log "Generation error" err
-                    in
-                    { solution = Dict.empty
-                    , current = Dict.empty
-                    , blockSize = 0
-                    }
-    in
-    ( { board = board }
-    , Cmd.none
+    ( { board = Nothing }
+    , generateBoard
+        (Json.encodeGenerateArgs
+            { blockSize = 3
+            , overlap = 3
+            , numberOfBoards = 5
+            , seed = 1
+            }
+        )
     )
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    Sub.batch
+        [ receiveBoard GotBoard
+        ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NoOp ->
-            ( model, Cmd.none )
+        GotBoard value ->
+            case Decode.decodeValue Json.boardDecoder value of
+                Ok board ->
+                    ( { model
+                        | board =
+                            Just
+                                { solution = board.solution
+                                , current = Dict.map (\_ v -> Given v) board.givens
+                                , blockSize = board.blockSize
+                                }
+                    }
+                    , Cmd.none
+                    )
+
+                Err err ->
+                    let
+                        _ =
+                            Debug.log "Decoding error" err
+                    in
+                    ( model, Cmd.none )
 
 
 view : Model -> Html Msg
@@ -121,11 +142,16 @@ view model =
                 }
                 """
             ]
-        , viewBoard model.board
+        , case model.board of
+            Just board ->
+                viewBoard board
+
+            Nothing ->
+                Html.text "No board loaded."
         ]
 
 
-viewBoard : Engine.Board -> Html Msg
+viewBoard : BoardState -> Html Msg
 viewBoard board =
     Html.div
         [ HA.class "board"
@@ -136,7 +162,7 @@ viewBoard board =
         )
 
 
-viewCell : Engine.Board -> ( Int, Int ) -> Html Msg
+viewCell : BoardState -> ( Int, Int ) -> Html Msg
 viewCell board ( row, col ) =
     let
         blocks : List Engine.Area
@@ -163,13 +189,44 @@ viewCell board ( row, col ) =
         ]
         [ case Dict.get ( row, col ) board.current of
             Just value ->
-                Html.text (Engine.getCellText board.blockSize value)
+                Html.text (getCellText board.blockSize value)
 
             Nothing ->
                 Html.text " "
         ]
 
 
+cellValueToInt : CellValue -> Maybe Int
+cellValueToInt cellValue =
+    case cellValue of
+        Given v ->
+            Just v
+
+        UserInput v ->
+            Just v
 
 
+getCellText : Int -> CellValue -> String
+getCellText blockSize cellValue =
+    let
+        maybeInt : Maybe Int
+        maybeInt =
+            cellValueToInt cellValue
+    in
+    if blockSize == 4 then
+        case maybeInt of
+            Just v ->
+                if v <= 9 then
+                    String.fromInt (v - 1)
 
+                else
+                    Char.fromCode (v - 10 + Char.toCode 'A')
+                        |> String.fromChar
+
+            Nothing ->
+                ""
+
+    else
+        maybeInt
+            |> Maybe.map String.fromInt
+            |> Maybe.withDefault " "

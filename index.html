@@ -1,0 +1,36 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Archipeladoku</title>
+    <style>body { padding: 0; margin: 0; }</style>
+    <script src="app.js"></script>
+</head>
+<body>
+    <div id="ui-container"></div>
+    <script>
+        let uiContainer = document.getElementById('ui-container');
+
+        let ui = Elm.Archipeladoku.UI.init({
+            node: uiContainer,
+            flags: {}
+        });
+        let worker = Elm.Archipeladoku.Worker.init({
+            flags: {}
+        });
+
+        console.log('ui', ui.ports)
+        console.log('worker', worker.ports)
+
+        worker.ports.sendBoard.subscribe(data => {
+            console.log(data)
+            ui.ports.receiveBoard.send(data);
+        });
+
+        ui.ports.generateBoard.subscribe(data => {
+            console.log(data)
+            worker.ports.receiveGenerateArgs.send(data);
+        });
+    </script>
+</body>
+</html>

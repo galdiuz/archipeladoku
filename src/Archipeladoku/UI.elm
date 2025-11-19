@@ -3,6 +3,7 @@ port module Archipeladoku.UI exposing (..)
 import Archipeladoku.Engine as Engine
 import Archipeladoku.Json as Json
 import Browser
+import Browser.Events
 import Dict exposing (Dict)
 import Html exposing (Html)
 import Html.Attributes as HA
@@ -12,6 +13,7 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import List.Extra
 import Random
+import Set exposing (Set)
 
 
 port receiveBoard : (Decode.Value -> msg) -> Sub msg
@@ -27,6 +29,7 @@ type alias Model =
 type Msg
     = CellSelected ( Int, Int )
     | GotBoard Decode.Value
+    | KeyPressed Int
 
 
 type alias BoardState =
@@ -39,7 +42,8 @@ type alias BoardState =
 
 type CellValue
     = Given Int
-    | UserInput Int
+    | Single Int
+    | Multiple (Set Int)
 
 
 main : Program Decode.Value Model Msg
@@ -59,9 +63,9 @@ init flagsValue =
       }
     , generateBoard
         (Json.encodeGenerateArgs
-            { blockSize = 2
-            , overlap = 1
-            , numberOfBoards = 13
+            { blockSize = 3
+            , overlap = 3
+            , numberOfBoards = 3
             , seed = 1
             }
         )
@@ -72,7 +76,34 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ receiveBoard GotBoard
+        , Browser.Events.onKeyPress keyDecoder
         ]
+
+
+keyDecoder : Decode.Decoder Msg
+keyDecoder =
+    Decode.field "key" Decode.string
+        |> Decode.andThen
+            (\key ->
+                case Maybe.map Tuple.first (String.uncons key) of
+                    Just char ->
+                        if Char.isHexDigit char then
+                            if Char.isDigit char then
+                                Char.toCode char - Char.toCode '0'
+                                    |> KeyPressed
+                                    |> Decode.succeed
+
+                            else
+                                Char.toCode (Char.toUpper char) - Char.toCode 'A' + 10
+                                    |> KeyPressed
+                                    |> Decode.succeed
+
+                        else
+                            Decode.fail key
+
+                    Nothing ->
+                        Decode.fail key
+            )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -104,6 +135,64 @@ update msg model =
                             Debug.log "Decoding error" err
                     in
                     ( model, Cmd.none )
+
+        KeyPressed number ->
+            let
+                _ = Debug.log "Key pressed in update:" number
+            in
+            case ( model.selectedCell, model.board ) of
+                ( Just ( row, col ), Just board ) ->
+                    let
+                        newCurrent : Dict ( Int, Int ) CellValue
+                        newCurrent =
+                            if number < 1 || number > board.blockSize * board.blockSize then
+                                board.current
+
+                            else
+                                Dict.update
+                                    ( row, col )
+                                    (toggleNumber number)
+                                    board.current
+                    in
+                    ( { model | board = Just { board | current = newCurrent } }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model
+                    , Cmd.none
+                    )
+
+
+toggleNumber : Int -> Maybe CellValue -> Maybe CellValue
+toggleNumber number maybeCellValue =
+    case maybeCellValue of
+        Just (Given v) ->
+            Just <| Given v
+
+        Just (Single v) ->
+            if v == number then
+                Nothing
+
+            else
+                Just <| Multiple <| Set.fromList [ v, number ]
+
+        Just (Multiple numbers) ->
+            if Set.member number numbers then
+                if Set.size numbers == 2 then
+                    Set.remove number numbers
+                        |> Set.toList
+                        |> List.head
+                        |> Maybe.map Single
+
+                else
+                    Just <| Multiple <| Set.remove number numbers
+
+            else
+                Just <| Multiple <| Set.insert number numbers
+
+        Nothing ->
+            Just <| Single number
 
 
 view : Model -> Html Msg
@@ -182,6 +271,12 @@ viewCell model board ( row, col ) =
             [ HA.class "cell"
             , HA.style "grid-row" (String.fromInt row)
             , HA.style "grid-column" (String.fromInt col)
+            , HAE.attributeIf
+                (Dict.get ( row, col ) board.current
+                    |> Maybe.map isGiven
+                    |> Maybe.withDefault False
+                )
+                (HA.style "font-weight" "700")
             , HAE.attributeMaybe
                 (\v -> HA.class <| "val-" ++ String.fromInt v)
                 (Dict.get ( row, col ) board.current
@@ -202,13 +297,21 @@ viewCell model board ( row, col ) =
                 ]
             , HE.onClick (CellSelected ( row, col ))
             ]
-            [ case Dict.get ( row, col ) board.current of
+            (case Dict.get ( row, col ) board.current of
                 Just value ->
-                    Html.text (getCellText board.blockSize value)
+                    case value of
+                        Given v ->
+                            [ Html.text (numberToString board.blockSize v) ]
+
+                        Single v ->
+                            [ Html.text (numberToString board.blockSize v) ]
+
+                        Multiple numbers ->
+                            viewMultipleNumbers board.blockSize numbers
 
                 Nothing ->
-                    Html.text ""
-            ]
+                    []
+            )
 
     else
         Html.div
@@ -222,40 +325,84 @@ viewCell model board ( row, col ) =
             []
 
 
+viewMultipleNumbers : Int -> Set Int -> List (Html Msg)
+viewMultipleNumbers blockSize numbers =
+    let
+        gridSize : Int
+        gridSize =
+            Set.size numbers
+                |> toFloat
+                |> sqrt
+                |> ceiling
+    in
+    numbers
+        |> Set.toList
+        |> List.indexedMap
+            (\idx n ->
+                let
+                    row : Int
+                    row =
+                        if idx == 0 then
+                            1
+
+                        else
+                            (idx // gridSize) + 1
+
+                    col : Int
+                    col =
+                        if idx == 0 then
+                            1
+
+                        else
+                            modBy gridSize idx + 1
+                in
+                Html.div
+                    [ HA.style "grid-row" (String.fromInt row)
+                    , HA.style "grid-column" (String.fromInt col)
+                    , HA.style "font-size" (String.fromFloat (1 / toFloat gridSize) ++ "em")
+                    , HA.style "align-self" "stretch"
+                    , HA.class "center"
+                    , HA.class <| "val-" ++ String.fromInt n
+                    ]
+                    [ Html.text (numberToString blockSize n) ]
+            )
+
+
 cellValueToInt : CellValue -> Maybe Int
 cellValueToInt cellValue =
     case cellValue of
         Given v ->
             Just v
 
-        UserInput v ->
+        Single v ->
             Just v
 
+        Multiple _ ->
+            Nothing
 
-getCellText : Int -> CellValue -> String
-getCellText blockSize cellValue =
-    let
-        maybeInt : Maybe Int
-        maybeInt =
-            cellValueToInt cellValue
-    in
+
+isGiven : CellValue -> Bool
+isGiven cellValue =
+    case cellValue of
+        Given _ ->
+            True
+
+        _ ->
+            False
+
+
+numberToString : Int -> Int -> String
+numberToString blockSize number =
     if blockSize == 4 then
-        case maybeInt of
-            Just v ->
-                if v <= 9 then
-                    String.fromInt (v - 1)
+        if number <= 9 then
+            String.fromInt (number - 1)
 
-                else
-                    Char.fromCode (v - 10 + Char.toCode 'A')
-                        |> String.fromChar
-
-            Nothing ->
-                ""
+        else
+            Char.fromCode (number - 10 + Char.toCode 'A')
+                |> String.fromChar
 
     else
-        maybeInt
-            |> Maybe.map String.fromInt
-            |> Maybe.withDefault " "
+        String.fromInt number
 
 
 css : String
@@ -311,7 +458,9 @@ css =
     }
 
     .cell {
-        display: flex;
+        display: grid;
+        grid-auto-rows: 1fr;
+        grid-auto-columns: 1fr;
         justify-content: center;
         align-items: center;
         background-color: inherit;
@@ -332,6 +481,12 @@ css =
          /* border: none !important; */
     }
 
+    .center {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
     .block-border-top {
         border-top: 2px solid #aaaaaa;
     }
@@ -348,18 +503,18 @@ css =
         border-right: 2px solid #aaaaaa;
     }
 
-    .block-2 .cell.val-1  { background-color: light-dark(hsl(var(--h4-1), 60%, 80%), hsl(var(--h4-1), 60%, 25%)); }
-    .block-2 .cell.val-2  { background-color: light-dark(hsl(var(--h4-2), 60%, 80%), hsl(var(--h4-2), 60%, 20%)); }
-    .block-2 .cell.val-3  { background-color: light-dark(hsl(var(--h4-3), 60%, 80%), hsl(var(--h4-3), 60%, 25%)); }
-    .block-2 .cell.val-4  { background-color: light-dark(hsl(var(--h4-4), 60%, 80%), hsl(var(--h4-4), 60%, 30%)); }
+    .block-2 .val-1  { background-color: light-dark(hsl(var(--h4-1), 60%, 80%), hsl(var(--h4-1), 60%, 25%)); }
+    .block-2 .val-2  { background-color: light-dark(hsl(var(--h4-2), 60%, 80%), hsl(var(--h4-2), 60%, 20%)); }
+    .block-2 .val-3  { background-color: light-dark(hsl(var(--h4-3), 60%, 80%), hsl(var(--h4-3), 60%, 25%)); }
+    .block-2 .val-4  { background-color: light-dark(hsl(var(--h4-4), 60%, 80%), hsl(var(--h4-4), 60%, 30%)); }
 
-    .block-3 .cell.val-1  { background-color: light-dark(hsl(var(--h9-1), 60%, 80%), hsl(var(--h9-1), 60%, 25%)); }
-    .block-3 .cell.val-2  { background-color: light-dark(hsl(var(--h9-2), 60%, 80%), hsl(var(--h9-2), 60%, 25%)); }
-    .block-3 .cell.val-3  { background-color: light-dark(hsl(var(--h9-3), 60%, 80%), hsl(var(--h9-3), 60%, 20%)); }
-    .block-3 .cell.val-4  { background-color: light-dark(hsl(var(--h9-4), 60%, 80%), hsl(var(--h9-4), 60%, 25%)); }
-    .block-3 .cell.val-5  { background-color: light-dark(hsl(var(--h9-5), 60%, 80%), hsl(var(--h9-5), 60%, 25%)); }
-    .block-3 .cell.val-6  { background-color: light-dark(hsl(var(--h9-6), 60%, 80%), hsl(var(--h9-6), 60%, 25%)); }
-    .block-3 .cell.val-7  { background-color: light-dark(hsl(var(--h9-7), 60%, 80%), hsl(var(--h9-7), 60%, 30%)); }
-    .block-3 .cell.val-8  { background-color: light-dark(hsl(var(--h9-8), 60%, 80%), hsl(var(--h9-8), 60%, 30%)); }
-    .block-3 .cell.val-9  { background-color: light-dark(hsl(var(--h9-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
+    .block-3 .val-1  { background-color: light-dark(hsl(var(--h9-1), 60%, 80%), hsl(var(--h9-1), 60%, 25%)); }
+    .block-3 .val-2  { background-color: light-dark(hsl(var(--h9-2), 60%, 80%), hsl(var(--h9-2), 60%, 25%)); }
+    .block-3 .val-3  { background-color: light-dark(hsl(var(--h9-3), 60%, 80%), hsl(var(--h9-3), 60%, 20%)); }
+    .block-3 .val-4  { background-color: light-dark(hsl(var(--h9-4), 60%, 80%), hsl(var(--h9-4), 60%, 25%)); }
+    .block-3 .val-5  { background-color: light-dark(hsl(var(--h9-5), 60%, 80%), hsl(var(--h9-5), 60%, 25%)); }
+    .block-3 .val-6  { background-color: light-dark(hsl(var(--h9-6), 60%, 80%), hsl(var(--h9-6), 60%, 25%)); }
+    .block-3 .val-7  { background-color: light-dark(hsl(var(--h9-7), 60%, 80%), hsl(var(--h9-7), 60%, 30%)); }
+    .block-3 .val-8  { background-color: light-dark(hsl(var(--h9-8), 60%, 80%), hsl(var(--h9-8), 60%, 30%)); }
+    .block-3 .val-9  { background-color: light-dark(hsl(var(--h9-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
     """

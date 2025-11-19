@@ -20,17 +20,20 @@ port generateBoard : Encode.Value -> Cmd msg
 
 type alias Model =
     { board : Maybe BoardState
+    , selectedCell : Maybe ( Int, Int )
     }
 
 
 type Msg
-    = GotBoard Decode.Value
+    = CellSelected ( Int, Int )
+    | GotBoard Decode.Value
 
 
 type alias BoardState =
-    { solution : Dict ( Int, Int ) Int
+    { blockSize : Int
+    , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
-    , blockSize : Int
+    , solution : Dict ( Int, Int ) Int
     }
 
 
@@ -51,12 +54,14 @@ main =
 
 init : Decode.Value -> ( Model, Cmd Msg )
 init flagsValue =
-    ( { board = Nothing }
+    ( { board = Nothing
+      , selectedCell = Nothing
+      }
     , generateBoard
         (Json.encodeGenerateArgs
-            { blockSize = 3
-            , overlap = 3
-            , numberOfBoards = 5
+            { blockSize = 2
+            , overlap = 1
+            , numberOfBoards = 13
             , seed = 1
             }
         )
@@ -73,15 +78,21 @@ subscriptions model =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        CellSelected ( row, col ) ->
+            ( { model | selectedCell = Just ( row, col ) }
+            , Cmd.none
+            )
+
         GotBoard value ->
             case Decode.decodeValue Json.boardDecoder value of
                 Ok board ->
                     ( { model
                         | board =
                             Just
-                                { solution = board.solution
-                                , current = Dict.map (\_ v -> Given v) board.givens
+                                { cellBlocks = board.cellBlocks
                                 , blockSize = board.blockSize
+                                , current = Dict.map (\_ v -> Given v) board.givens
+                                , solution = board.solution
                                 }
                     }
                     , Cmd.none
@@ -98,102 +109,117 @@ update msg model =
 view : Model -> Html Msg
 view model =
     Html.div
-        []
+        [ HA.class "dark-mode" ]
         [ Html.node "style"
             []
-            [ Html.text """
-                body {
-                    background-color: #222222;
-                    color: #eeeeee;
-                }
-
-                .board {
-                    display: grid;
-                    grid-auto-rows: 1.5em;
-                    grid-auto-columns: 1.5em;
-                    font-size: 24px;
-                }
-
-                .cell {
-                    border: 1px solid #888888;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                }
-
-                .cell:empty {
-                    border: none;
-                }
-
-                .cell.block-border-top {
-                    border-top: 2px solid #aaaaaa;
-                }
-
-                .cell.block-border-bottom {
-                    border-bottom: 2px solid #aaaaaa;
-                }
-
-                .cell.block-border-left {
-                    border-left: 2px solid #aaaaaa;
-                }
-
-                .cell.block-border-right {
-                    border-right: 2px solid #aaaaaa;
-                }
-                """
-            ]
+            [ Html.text css ]
         , case model.board of
             Just board ->
-                viewBoard board
+                viewBoard model board
 
             Nothing ->
                 Html.text "No board loaded."
         ]
 
 
-viewBoard : BoardState -> Html Msg
-viewBoard board =
+viewBoard : Model -> BoardState -> Html Msg
+viewBoard model board =
+    let
+        rows : Int
+        rows =
+            Dict.keys board.solution
+                |> List.map Tuple.first
+                |> List.maximum
+                |> Maybe.withDefault 0
+
+        cols : Int
+        cols =
+            Dict.keys board.solution
+                |> List.map Tuple.second
+                |> List.maximum
+                |> Maybe.withDefault 0
+    in
     Html.div
         [ HA.class "board"
+        , HA.class <| "block-" ++ String.fromInt board.blockSize
         ]
         (List.map
-            (viewCell board)
-            (Dict.keys board.solution)
+            (viewCell model board)
+            (List.range 1 (rows + 1)
+                |> List.concatMap
+                    (\row ->
+                        List.range 1 (cols + 1)
+                            |> List.map (Tuple.pair row)
+                    )
+            )
         )
 
 
-viewCell : BoardState -> ( Int, Int ) -> Html Msg
-viewCell board ( row, col ) =
+viewCell : Model -> BoardState -> ( Int, Int ) -> Html Msg
+viewCell model board ( row, col ) =
     let
+        cellIsAt : ( Int, Int ) -> Bool
+        cellIsAt ( r, c ) =
+            Dict.member ( r, c ) board.solution
+
         blocks : List Engine.Area
         blocks =
-            []
-            -- Engine.getAreasAt row col .blocks board.puzzleAreas
-    in
-    Html.div
-        [ HA.class "cell"
-        , HA.style "grid-row" (String.fromInt row)
-        , HA.style "grid-column" (String.fromInt col)
-        , HAE.attributeIf
-            (List.any (.startRow >> (==) row) blocks)
-            (HA.class "block-border-top")
-        , HAE.attributeIf
-            (List.any (.endRow >> (==) row) blocks)
-            (HA.class "block-border-bottom")
-        , HAE.attributeIf
-            (List.any (.startCol >> (==) col) blocks)
-            (HA.class "block-border-left")
-        , HAE.attributeIf
-            (List.any (.endCol >> (==) col) blocks)
-            (HA.class "block-border-right")
-        ]
-        [ case Dict.get ( row, col ) board.current of
-            Just value ->
-                Html.text (getCellText board.blockSize value)
+            Dict.get ( row, col ) board.cellBlocks
+                |> Maybe.withDefault []
 
-            Nothing ->
-                Html.text " "
-        ]
+        blockAbove : List Engine.Area
+        blockAbove =
+            Dict.get ( row - 1, col ) board.cellBlocks
+                |> Maybe.withDefault []
+
+        blockLeft : List Engine.Area
+        blockLeft =
+            Dict.get ( row, col - 1 ) board.cellBlocks
+                |> Maybe.withDefault []
+    in
+    if cellIsAt ( row, col ) then
+        Html.button
+            [ HA.class "cell"
+            , HA.style "grid-row" (String.fromInt row)
+            , HA.style "grid-column" (String.fromInt col)
+            , HAE.attributeMaybe
+                (\v -> HA.class <| "val-" ++ String.fromInt v)
+                (Dict.get ( row, col ) board.current
+                    |> Maybe.andThen cellValueToInt
+                )
+            , HA.classList
+                [ ( "selected", model.selectedCell == Just ( row, col ) )
+                , ( "block-border-top"
+                  , not (cellIsAt ( row - 1, col ))
+                    || List.any (.startRow >> (==) row) blocks
+                    || List.any (.endRow >> (==) (row - 1)) blockAbove
+                  )
+                , ( "block-border-left"
+                  , not (cellIsAt ( row, col - 1 ))
+                    || List.any (.startCol >> (==) col) blocks
+                    || List.any (.endCol >> (==) (col - 1)) blockLeft
+                  )
+                ]
+            , HE.onClick (CellSelected ( row, col ))
+            ]
+            [ case Dict.get ( row, col ) board.current of
+                Just value ->
+                    Html.text (getCellText board.blockSize value)
+
+                Nothing ->
+                    Html.text ""
+            ]
+
+    else
+        Html.div
+            [ HA.style "grid-row" (String.fromInt row)
+            , HA.style "grid-column" (String.fromInt col)
+            , HA.classList
+                [ ( "block-border-top", cellIsAt ( row - 1, col ) )
+                , ( "block-border-left", cellIsAt ( row, col - 1 ) )
+                ]
+            ]
+            []
 
 
 cellValueToInt : CellValue -> Maybe Int
@@ -230,3 +256,110 @@ getCellText blockSize cellValue =
         maybeInt
             |> Maybe.map String.fromInt
             |> Maybe.withDefault " "
+
+
+css : String
+css =
+    """
+    :root {
+        color-scheme: dark;
+
+        --h4-1: 0;
+        --h4-2: 60;
+        --h4-3: 120;
+        --h4-4: 210;
+
+        --h9-1: 0;
+        --h9-2: 30;
+        --h9-3: 60;
+        --h9-4: 90;
+        --h9-5: 150;
+        --h9-6: 195;
+        --h9-7: 225;
+        --h9-8: 270;
+        --h9-9: 315;
+
+        --h16-1: 0;
+        --h16-2: 22;
+        --h16-3: 45;
+        --h16-4: 67;
+        --h16-5: 90;
+        --h16-6: 112;
+        --h16-7: 135;
+        --h16-8: 157;
+        --h16-9: 180;
+        --h16-10: 202;
+        --h16-11: 225;
+        --h16-12: 247;
+        --h16-13: 270;
+        --h16-14: 292;
+        --h16-15: 315;
+        --h16-16: 337;
+    }
+
+    body {
+        background-color: light-dark(#eeeeee, #222222);
+        color: light-dark(#000000, #eeeeee);
+        padding: 1em;
+    }
+
+    .board {
+        display: grid;
+        grid-auto-rows: 1.5em;
+        grid-auto-columns: 1.5em;
+        font-size: 24px;
+    }
+
+    .cell {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: inherit;
+        color: inherit;
+        font-size: inherit;
+        font-family: inherit;
+        padding: 0;
+        border-top: 1px solid #888888;
+        border-bottom: none;
+        border-left: 1px solid #888888;
+        border-right: none;
+    }
+
+    .cell.selected {
+        z-index: 10;
+        box-shadow: 1px 1px 0 2px light-dark(#aaaaaa, #aaaaaa),
+                    1px 1px 0 5px light-dark(#0066cc, #00d9ff);
+         /* border: none !important; */
+    }
+
+    .block-border-top {
+        border-top: 2px solid #aaaaaa;
+    }
+
+    .block-border-bottom {
+        border-bottom: 2px solid #aaaaaa;
+    }
+
+    .block-border-left {
+        border-left: 2px solid #aaaaaa;
+    }
+
+    .block-border-right {
+        border-right: 2px solid #aaaaaa;
+    }
+
+    .block-2 .cell.val-1  { background-color: light-dark(hsl(var(--h4-1), 60%, 80%), hsl(var(--h4-1), 60%, 25%)); }
+    .block-2 .cell.val-2  { background-color: light-dark(hsl(var(--h4-2), 60%, 80%), hsl(var(--h4-2), 60%, 20%)); }
+    .block-2 .cell.val-3  { background-color: light-dark(hsl(var(--h4-3), 60%, 80%), hsl(var(--h4-3), 60%, 25%)); }
+    .block-2 .cell.val-4  { background-color: light-dark(hsl(var(--h4-4), 60%, 80%), hsl(var(--h4-4), 60%, 30%)); }
+
+    .block-3 .cell.val-1  { background-color: light-dark(hsl(var(--h9-1), 60%, 80%), hsl(var(--h9-1), 60%, 25%)); }
+    .block-3 .cell.val-2  { background-color: light-dark(hsl(var(--h9-2), 60%, 80%), hsl(var(--h9-2), 60%, 25%)); }
+    .block-3 .cell.val-3  { background-color: light-dark(hsl(var(--h9-3), 60%, 80%), hsl(var(--h9-3), 60%, 20%)); }
+    .block-3 .cell.val-4  { background-color: light-dark(hsl(var(--h9-4), 60%, 80%), hsl(var(--h9-4), 60%, 25%)); }
+    .block-3 .cell.val-5  { background-color: light-dark(hsl(var(--h9-5), 60%, 80%), hsl(var(--h9-5), 60%, 25%)); }
+    .block-3 .cell.val-6  { background-color: light-dark(hsl(var(--h9-6), 60%, 80%), hsl(var(--h9-6), 60%, 25%)); }
+    .block-3 .cell.val-7  { background-color: light-dark(hsl(var(--h9-7), 60%, 80%), hsl(var(--h9-7), 60%, 30%)); }
+    .block-3 .cell.val-8  { background-color: light-dark(hsl(var(--h9-8), 60%, 80%), hsl(var(--h9-8), 60%, 30%)); }
+    .block-3 .cell.val-9  { background-color: light-dark(hsl(var(--h9-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
+    """

@@ -6,42 +6,69 @@ import Json.Encode as Encode
 import Dict exposing (Dict)
 
 
-boardDecoder : Decode.Decoder Engine.Board
-boardDecoder =
-    Decode.map3 Engine.Board
-        (Decode.field "solution" cellsDecoder)
-        (Decode.field "givens" cellsDecoder)
-        (Decode.field "blockSize" Decode.int)
-
-
 encodeBoard : Engine.Board -> Encode.Value
 encodeBoard board =
     Encode.object
-        [ ( "solution", encodeCells board.solution )
-        , ( "givens", encodeCells board.givens )
-        , ( "blockSize", Encode.int board.blockSize )
+        [ ( "blockSize", Encode.int board.blockSize )
+        , ( "cellBlocks", encodeCellsDict (Encode.list encodeArea) board.cellBlocks )
+        , ( "givens", encodeCellsDict Encode.int board.givens )
+        , ( "solution", encodeCellsDict Encode.int board.solution )
         ]
 
 
-encodeCells : Dict ( Int, Int ) Int -> Encode.Value
-encodeCells dict =
+boardDecoder : Decode.Decoder Engine.Board
+boardDecoder =
+    Decode.map4 Engine.Board
+        (Decode.field "blockSize" Decode.int)
+        (Decode.field "cellBlocks" (cellsDictDecoder (Decode.list areaDecoder)))
+        (Decode.field "givens" (cellsDictDecoder Decode.int))
+        (Decode.field "solution" (cellsDictDecoder Decode.int))
+
+
+encodeCellsDict : (a -> Encode.Value) -> Dict ( Int, Int ) a -> Encode.Value
+encodeCellsDict encodeValue dict =
     Dict.toList dict
         |> Encode.list
             (\( ( row, col ), value ) ->
-                Encode.list Encode.int [ row, col, value ]
+                [ Encode.int row
+                , Encode.int col
+                , encodeValue value
+                ]
+                    |> Encode.list identity
             )
 
 
-cellsDecoder : Decode.Decoder (Dict ( Int, Int ) Int)
-cellsDecoder =
+cellsDictDecoder : Decode.Decoder a -> Decode.Decoder (Dict ( Int, Int ) a)
+cellsDictDecoder valueDecoder =
     Decode.list
         (Decode.map3
-            (\row col value -> ( ( row, col ), value ))
+            (\row col value ->
+                ( ( row, col ), value )
+            )
             (Decode.index 0 Decode.int)
             (Decode.index 1 Decode.int)
-            (Decode.index 2 Decode.int)
+            (Decode.index 2 valueDecoder)
         )
         |> Decode.map Dict.fromList
+
+
+encodeArea : Engine.Area -> Encode.Value
+encodeArea area =
+    Encode.list Encode.int
+        [ area.startRow
+        , area.startCol
+        , area.endRow
+        , area.endCol
+        ]
+
+
+areaDecoder : Decode.Decoder Engine.Area
+areaDecoder =
+    Decode.map4 Engine.Area
+        (Decode.index 0 Decode.int)
+        (Decode.index 1 Decode.int)
+        (Decode.index 2 Decode.int)
+        (Decode.index 3 Decode.int)
 
 
 encodeGenerateArgs : Engine.GenerateArgs -> Encode.Value

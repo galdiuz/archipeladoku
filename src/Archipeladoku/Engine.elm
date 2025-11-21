@@ -11,6 +11,7 @@ type alias Board =
     { blockSize : Int
     , cellBlocks : Dict ( Int, Int ) (List Area)
     , givens : Dict ( Int, Int ) Int
+    , puzzleAreas : PuzzleAreas
     , solution : Dict ( Int, Int ) Int
     }
 
@@ -152,6 +153,7 @@ generateWithValidArgs args =
             , blockAreasMap = blockAreasMap
             , blockSize = args.blockSize
             , peerMap = peerMap
+            , puzzleAreas = joinPuzzleAreas puzzleAreas
             , positions = positions
             }
 
@@ -193,6 +195,7 @@ continueGeneration state =
                         { blockSize = clusterState.args.blockSize
                         , cellBlocks = clusterState.args.blockAreasMap
                         , givens = clusterState.givens
+                        , puzzleAreas = clusterState.args.puzzleAreas
                         , solution = clusterState.solution
                         }
 
@@ -214,6 +217,7 @@ continueGeneration state =
                                     { blockSize = newClusterState.args.blockSize
                                     , cellBlocks = clusterState.args.blockAreasMap
                                     , givens = newClusterState.givens
+                                    , puzzleAreas = clusterState.args.puzzleAreas
                                     , solution = newClusterState.solution
                                     }
 
@@ -258,6 +262,7 @@ type alias GenerateClusterArgs =
     , blockAreasMap : Dict ( Int, Int ) (List Area)
     , blockSize : Int
     , peerMap : PeerMap
+    , puzzleAreas : PuzzleAreas
     , positions : List ( Int, Int )
     }
 
@@ -484,6 +489,20 @@ buildPuzzleAreas blockSize startRow startCol =
                     , endCol = col
                     }
                 )
+    }
+
+
+joinPuzzleAreas : List PuzzleAreas -> PuzzleAreas
+joinPuzzleAreas puzzleAreas =
+    { blocks =
+        List.concatMap .blocks puzzleAreas
+            |> List.Extra.unique
+    , rows =
+        List.concatMap .rows puzzleAreas
+            |> List.Extra.unique
+    , cols =
+        List.concatMap .cols puzzleAreas
+            |> List.Extra.unique
     }
 
 
@@ -775,35 +794,6 @@ allNumbers blockSize =
         |> Set.fromList
 
 
-getAreaValues : Area -> Dict ( Int, Int ) comparable -> Set comparable
-getAreaValues area dict =
-    let
-        rows : List Int
-        rows =
-            List.range area.startRow area.endRow
-
-        cols : List Int
-        cols =
-            List.range area.startCol area.endCol
-    in
-    List.foldl
-        (\row rowSet ->
-            List.foldl
-                (\col colSet ->
-                    case Dict.get ( row, col ) dict of
-                        Just val ->
-                            Set.insert val colSet
-
-                        Nothing ->
-                            colSet
-                )
-                rowSet
-                cols
-        )
-        Set.empty
-        rows
-
-
 getAreasAt : Int -> Int -> (PuzzleAreas -> List Area) -> List PuzzleAreas -> List Area
 getAreasAt row col areaFun puzzleAreas =
     List.concatMap
@@ -829,3 +819,9 @@ getAreaCells area =
                 (List.range area.startCol area.endCol)
         )
         (List.range area.startRow area.endRow)
+
+
+getAreaValues : Area -> Dict ( Int, Int ) a -> List a
+getAreaValues area dict =
+    getAreaCells area
+        |> List.filterMap (\cell -> Dict.get cell dict)

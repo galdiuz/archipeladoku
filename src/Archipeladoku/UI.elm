@@ -36,6 +36,8 @@ type alias BoardState =
     { blockSize : Int
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
+    , errors : Dict ( Int, Int ) (Set Int)
+    , puzzleAreas : Engine.PuzzleAreas
     , solution : Dict ( Int, Int ) Int
     }
 
@@ -63,9 +65,9 @@ init flagsValue =
       }
     , generateBoard
         (Json.encodeGenerateArgs
-            { blockSize = 3
-            , overlap = 3
-            , numberOfBoards = 3
+            { blockSize = 2
+            , overlap = 1
+            , numberOfBoards = 1
             , seed = 1
             }
         )
@@ -123,6 +125,8 @@ update msg model =
                                 { cellBlocks = board.cellBlocks
                                 , blockSize = board.blockSize
                                 , current = Dict.map (\_ v -> Given v) board.givens
+                                , errors = Dict.empty
+                                , puzzleAreas = board.puzzleAreas
                                 , solution = board.solution
                                 }
                     }
@@ -137,9 +141,6 @@ update msg model =
                     ( model, Cmd.none )
 
         KeyPressed number ->
-            let
-                _ = Debug.log "Key pressed in update:" number
-            in
             case ( model.selectedCell, model.board ) of
                 ( Just ( row, col ), Just board ) ->
                     let
@@ -154,7 +155,7 @@ update msg model =
                                     (toggleNumber number)
                                     board.current
                     in
-                    ( { model | board = Just { board | current = newCurrent } }
+                    ( { model | board = Just <| updateBoard { board | current = newCurrent } }
                     , Cmd.none
                     )
 
@@ -162,6 +163,108 @@ update msg model =
                     ( model
                     , Cmd.none
                     )
+
+
+updateBoard : BoardState -> BoardState
+updateBoard board =
+    { board | errors = getBoardErrors board }
+
+
+getBoardErrors : BoardState -> Dict ( Int, Int ) (Set Int)
+getBoardErrors board =
+    List.foldl
+        (\area errors ->
+            let
+                areaCells : List ( Int, Int )
+                areaCells =
+                    Engine.getAreaCells area
+            in
+            List.foldl
+                (\cell acc ->
+                    case Dict.get cell board.current of
+                        Just (Given v) ->
+                            let
+                                numbersInArea : Set Int
+                                numbersInArea =
+                                    areaCells
+                                        |> List.filter ((/=) cell)
+                                        |> List.filterMap (\areaCell -> Dict.get areaCell board.current)
+                                        |> List.map cellValueToInts
+                                        |> List.foldl Set.union Set.empty
+                            in
+                            if Set.member v numbersInArea then
+                                insertDictSetValue cell v acc
+
+                            else
+                                acc
+
+                        Just (Single v) ->
+                            let
+                                numbersInArea : Set Int
+                                numbersInArea =
+                                    areaCells
+                                        |> List.filter ((/=) cell)
+                                        |> List.filterMap (\areaCell -> Dict.get areaCell board.current)
+                                        |> List.map cellValueToInts
+                                        |> List.foldl Set.union Set.empty
+                            in
+                            if Set.member v numbersInArea then
+                                insertDictSetValue cell v acc
+
+                            else
+                                acc
+
+                        Just (Multiple numbers) ->
+                            let
+                                numbersInArea : Set Int
+                                numbersInArea =
+                                    areaCells
+                                        |> List.filter ((/=) cell)
+                                        |> List.filterMap (\areaCell -> Dict.get areaCell board.current)
+                                        |> List.filterMap cellValueToInt
+                                        |> Set.fromList
+                            in
+                            Dict.update
+                                cell
+                                (\maybeSet ->
+                                    case maybeSet of
+                                        Just set ->
+                                            Just <| Set.union set numbersInArea
+
+                                        Nothing ->
+                                            Just numbersInArea
+                                )
+                                acc
+
+                        Nothing ->
+                            acc
+
+                )
+                errors
+                areaCells
+        )
+        Dict.empty
+        (List.concat
+            [ board.puzzleAreas.rows
+            , board.puzzleAreas.cols
+            , board.puzzleAreas.blocks
+            ]
+        )
+
+
+insertDictSetValue : ( Int, Int ) -> Int -> Dict ( Int, Int ) (Set Int) -> Dict ( Int, Int ) (Set Int)
+insertDictSetValue key value dict =
+    Dict.update
+        key
+        (\maybeSet ->
+            case maybeSet of
+                Just set ->
+                    Just <| Set.insert value set
+
+                Nothing ->
+                    Just <| Set.singleton value
+        )
+        dict
 
 
 toggleNumber : Int -> Maybe CellValue -> Maybe CellValue
@@ -198,7 +301,7 @@ toggleNumber number maybeCellValue =
 view : Model -> Html Msg
 view model =
     Html.div
-        [ HA.class "dark-mode" ]
+        []
         [ Html.node "style"
             []
             [ Html.text css ]
@@ -265,18 +368,29 @@ viewCell model board ( row, col ) =
         blockLeft =
             Dict.get ( row, col - 1 ) board.cellBlocks
                 |> Maybe.withDefault []
+
+        errorsAtCell : Set Int
+        errorsAtCell =
+            Dict.get ( row, col ) board.errors
+                |> Maybe.withDefault Set.empty
+
+        cellIsGiven : Bool
+        cellIsGiven =
+            Dict.get ( row, col ) board.current
+                |> Maybe.map isGiven
+                |> Maybe.withDefault False
+
+        cellIsMultiple : Bool
+        cellIsMultiple =
+            Dict.get ( row, col ) board.current
+                |> Maybe.map isMultiple
+                |> Maybe.withDefault False
     in
     if cellIsAt ( row, col ) then
         Html.button
             [ HA.class "cell"
             , HA.style "grid-row" (String.fromInt row)
             , HA.style "grid-column" (String.fromInt col)
-            , HAE.attributeIf
-                (Dict.get ( row, col ) board.current
-                    |> Maybe.map isGiven
-                    |> Maybe.withDefault False
-                )
-                (HA.style "font-weight" "700")
             , HAE.attributeMaybe
                 (\v -> HA.class <| "val-" ++ String.fromInt v)
                 (Dict.get ( row, col ) board.current
@@ -284,6 +398,7 @@ viewCell model board ( row, col ) =
                 )
             , HA.classList
                 [ ( "selected", model.selectedCell == Just ( row, col ) )
+                , ( "given", cellIsGiven )
                 , ( "block-border-top"
                   , not (cellIsAt ( row - 1, col ))
                     || List.any (.startRow >> (==) row) blocks
@@ -294,6 +409,8 @@ viewCell model board ( row, col ) =
                     || List.any (.startCol >> (==) col) blocks
                     || List.any (.endCol >> (==) (col - 1)) blockLeft
                   )
+                , ( "multi", cellIsMultiple )
+                , ( "error", (not <| Set.isEmpty errorsAtCell) && (not cellIsMultiple) )
                 ]
             , HE.onClick (CellSelected ( row, col ))
             ]
@@ -307,7 +424,7 @@ viewCell model board ( row, col ) =
                             [ Html.text (numberToString board.blockSize v) ]
 
                         Multiple numbers ->
-                            viewMultipleNumbers board.blockSize numbers
+                            viewMultipleNumbers board.blockSize errorsAtCell numbers
 
                 Nothing ->
                     []
@@ -325,47 +442,31 @@ viewCell model board ( row, col ) =
             []
 
 
-viewMultipleNumbers : Int -> Set Int -> List (Html Msg)
-viewMultipleNumbers blockSize numbers =
-    let
-        gridSize : Int
-        gridSize =
-            Set.size numbers
-                |> toFloat
-                |> sqrt
-                |> ceiling
-    in
-    numbers
-        |> Set.toList
-        |> List.indexedMap
-            (\idx n ->
-                let
-                    row : Int
-                    row =
-                        if idx == 0 then
-                            1
+viewMultipleNumbers : Int -> Set Int -> Set Int -> List (Html Msg)
+viewMultipleNumbers blockSize errorsAtCell numbers =
+    List.map
+        (\number ->
+            let
+                row : Int
+                row =
+                    (number - 1) // blockSize + 1
 
-                        else
-                            (idx // gridSize) + 1
-
-                    col : Int
-                    col =
-                        if idx == 0 then
-                            1
-
-                        else
-                            modBy gridSize idx + 1
-                in
-                Html.div
-                    [ HA.style "grid-row" (String.fromInt row)
-                    , HA.style "grid-column" (String.fromInt col)
-                    , HA.style "font-size" (String.fromFloat (1 / toFloat gridSize) ++ "em")
-                    , HA.style "align-self" "stretch"
-                    , HA.class "center"
-                    , HA.class <| "val-" ++ String.fromInt n
-                    ]
-                    [ Html.text (numberToString blockSize n) ]
-            )
+                col : Int
+                col =
+                    modBy blockSize (number - 1) + 1
+            in
+            Html.div
+                [ HA.style "grid-row" (String.fromInt row)
+                , HA.style "grid-column" (String.fromInt col)
+                , HA.class "center"
+                , HA.class <| "val-" ++ String.fromInt number
+                , HAE.attributeIf
+                    (Set.member number errorsAtCell)
+                    (HA.class "error")
+                ]
+                [ Html.text (numberToString blockSize number) ]
+        )
+        (Set.toList numbers)
 
 
 cellValueToInt : CellValue -> Maybe Int
@@ -381,10 +482,33 @@ cellValueToInt cellValue =
             Nothing
 
 
+cellValueToInts : CellValue -> Set Int
+cellValueToInts cellValue =
+    case cellValue of
+        Given v ->
+            Set.fromList [ v ]
+
+        Single v ->
+            Set.fromList [ v ]
+
+        Multiple numbers ->
+            numbers
+
+
 isGiven : CellValue -> Bool
 isGiven cellValue =
     case cellValue of
         Given _ ->
+            True
+
+        _ ->
+            False
+
+
+isMultiple : CellValue -> Bool
+isMultiple cellValue =
+    case cellValue of
+        Multiple _ ->
             True
 
         _ ->
@@ -458,9 +582,7 @@ css =
     }
 
     .cell {
-        display: grid;
-        grid-auto-rows: 1fr;
-        grid-auto-columns: 1fr;
+        display: flex;
         justify-content: center;
         align-items: center;
         background-color: inherit;
@@ -478,7 +600,40 @@ css =
         z-index: 10;
         box-shadow: 1px 1px 0 2px light-dark(#aaaaaa, #aaaaaa),
                     1px 1px 0 5px light-dark(#0066cc, #00d9ff);
-         /* border: none !important; */
+    }
+
+    .cell.given {
+        font-weight: 700;
+        font-family: arial;
+    }
+
+    .cell.multi {
+        display: grid;
+        align-items: stretch;
+    }
+
+    .cell.error, .cell .error {
+        color: light-dark(#aa0000, #ff8888);
+        text-decoration: underline;
+        font-weight: 700;
+    }
+
+    .block-2 .cell.multi {
+        grid-template-rows: repeat(2, 1fr);
+        grid-template-columns: repeat(2, 1fr);
+        font-size: 0.6em;
+    }
+
+    .block-3 .cell.multi {
+        grid-template-rows: repeat(3, 1fr);
+        grid-template-columns: repeat(3, 1fr);
+        font-size: 0.4em;
+    }
+
+    .block-4 .cell.multi {
+        grid-template-rows: repeat(4, 1fr);
+        grid-template-columns: repeat(4, 1fr);
+        font-size: 0.3em;
     }
 
     .center {

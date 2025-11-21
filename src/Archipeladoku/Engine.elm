@@ -637,96 +637,56 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
                 inputState.seed
     in
     List.foldl
-        (\fullGroup state ->
-            List.Extra.stoppableFoldl
-                (\group accState ->
-                    if group == [] then
-                        List.Extra.Stop accState
+        (\cell state ->
+            let
+                givensWithoutCell : Dict ( Int, Int ) Int
+                givensWithoutCell =
+                    Dict.remove cell state.givens
 
-                    else
-                        case
-                            removeGivenNumbersGroup
-                                args
-                                clusterCells
-                                group
-                                allPossibilities
-                                state
-                        of
-                            Just newState ->
-                                List.Extra.Stop newState
+                otherSolutionExists : Bool
+                otherSolutionExists =
+                    findOtherSolution
+                        { allNumbersForSize = args.allNumbersForSize
+                        , allPossibilities = allPossibilities
+                        , cells = clusterCells
+                        , givens = givensWithoutCell
+                        , peerMap = args.peerMap
+                        , removedCell = cell
+                        , removedNumber =
+                            Dict.get cell state.solution
+                                |> Maybe.withDefault 0
+                        }
+            in
+            if not otherSolutionExists then
+                { state
+                    | givens = givensWithoutCell
+                }
 
-                            Nothing ->
-                                List.Extra.Continue accState
-                )
+            else
                 state
-                (List.Extra.tails fullGroup)
         )
         { inputState | seed = nextSeed }
-        (List.Extra.groupsOf 5 shuffledCells)
-
-
-removeGivenNumbersGroup :
-    GenerateClusterArgs
-    -> Set ( Int, Int )
-    -> List ( Int, Int )
-    -> Possibilities
-    -> ClusterGenerationState
-    -> Maybe ClusterGenerationState
-removeGivenNumbersGroup args clusterCells cellsToRemove allPossibilities state =
-    let
-        givensWithoutCells : Dict ( Int, Int ) Int
-        givensWithoutCells =
-            List.foldl
-                (\cell acc ->
-                    Dict.remove cell acc
-                )
-                state.givens
-                cellsToRemove
-
-        otherSolutionExists : Bool
-        otherSolutionExists =
-            findOtherSolution
-                { allPossibilities = allPossibilities
-                , cells = clusterCells
-                , givens = givensWithoutCells
-                , peerMap = args.peerMap
-                , removedCells =
-                    List.map
-                        (\cell ->
-                            ( cell
-                            , Dict.get cell state.solution
-                                |> Maybe.withDefault 0
-                            )
-                        )
-                        cellsToRemove
-                }
-    in
-    if not otherSolutionExists then
-        Just
-            { state
-                | givens = givensWithoutCells
-            }
-
-    else
-        Nothing
+        shuffledCells
 
 
 type alias FindOtherSolutionArgs =
-    { allPossibilities : Possibilities
+    { allNumbersForSize : Set Int
+    , allPossibilities : Possibilities
     , cells : Set ( Int, Int )
     , givens : Dict ( Int, Int ) Int
     , peerMap : PeerMap
-    , removedCells : List ( ( Int, Int ), Int )
+    , removedCell : ( Int, Int )
+    , removedNumber : Int
     }
 
 
 findOtherSolution : FindOtherSolutionArgs -> Bool
-findOtherSolution { allPossibilities, cells, givens, peerMap, removedCells } =
+findOtherSolution { allNumbersForSize, allPossibilities, cells, givens, peerMap, removedCell, removedNumber } =
     let
         propagatedPossibilities : Maybe Possibilities
         propagatedPossibilities =
-            Dict.foldl
-                (\cell number acc ->
+            Set.foldl
+                (\cell acc ->
                     Maybe.andThen
                         (\possMap ->
                             let
@@ -734,26 +694,37 @@ findOtherSolution { allPossibilities, cells, givens, peerMap, removedCells } =
                                 peers =
                                     Dict.get cell peerMap
                                         |> Maybe.withDefault Set.empty
+
+                                validNumbers : Set Int
+                                validNumbers =
+                                    Set.foldl
+                                        (\peer validSet ->
+                                            case Dict.get peer givens of
+                                                Just givenNumber ->
+                                                    Set.remove givenNumber validSet
+
+                                                Nothing ->
+                                                    validSet
+                                        )
+                                        allNumbersForSize
+                                        peers
                             in
-                            propagatePossibilities peers number possMap
-                                |> Maybe.map (Dict.insert cell (Set.singleton number))
+                            if Set.isEmpty validNumbers then
+                                Nothing
+
+                            else
+                                Just (Dict.insert cell validNumbers possMap)
                         )
                         acc
                 )
-                (Just allPossibilities)
-                givens
+                (Just Dict.empty)
+                (Set.diff cells (Set.fromList (Dict.keys givens)))
                 |> Maybe.map
                     (\possibilities ->
-                        List.foldl
-                            (\( removedCell, removedNumber ) acc ->
-                                (Dict.update
-                                    removedCell
-                                    (Maybe.map (Set.remove removedNumber))
-                                    acc
-                                )
-                            )
+                        Dict.update
+                            removedCell
+                            (Maybe.map (Set.remove removedNumber))
                             possibilities
-                            removedCells
                     )
     in
     case propagatedPossibilities of

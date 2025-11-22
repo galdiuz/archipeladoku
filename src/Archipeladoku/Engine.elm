@@ -6,6 +6,7 @@ import Order.Extra
 import Random
 import Random.List
 import Set exposing (Set)
+import Set.Extra
 
 
 type alias Board =
@@ -14,6 +15,7 @@ type alias Board =
     , givens : Dict ( Int, Int ) Int
     , puzzleAreas : PuzzleAreas
     , solution : Dict ( Int, Int ) Int
+    , unlockOrder : List ( Int, Int )
     }
 
 
@@ -59,9 +61,9 @@ type alias ClusterGenerationState =
     , allNumbers : Set Int
     , blockAreasMap : Dict ( Int, Int ) (List Area)
     , blockSize : Int
+    , clusters : List (List ( Int, Int ))
     , givens : Dict ( Int, Int ) Int
     , peerMap : PeerMap
-    , positions : List ( Int, Int )
     , puzzleAreas : PuzzleAreas
     , remainingClusters : List (List ( Int, Int ))
     , seed : Random.Seed
@@ -205,9 +207,9 @@ generateWithValidArgs args =
         , allNumbers = allNumbersForSize args.blockSize
         , blockAreasMap = blockAreasMap
         , blockSize = args.blockSize
+        , clusters = groupedPositions
         , givens = Dict.empty
         , peerMap = peerMap
-        , positions = positions
         , puzzleAreas = joinPuzzleAreas puzzleAreas
         , remainingClusters = groupedPositions
         , seed = newSeed
@@ -228,6 +230,7 @@ continueGeneration state =
                         , givens = clusterState.givens
                         , puzzleAreas = clusterState.puzzleAreas
                         , solution = clusterState.solution
+                        , unlockOrder = buildBlockOrder 8 clusterState
                         }
 
                 positionGroup :: remainingGroups ->
@@ -250,6 +253,7 @@ continueGeneration state =
                                     , givens = newClusterState.givens
                                     , puzzleAreas = newClusterState.puzzleAreas
                                     , solution = newClusterState.solution
+                                    , unlockOrder = buildBlockOrder 8 newClusterState
                                     }
 
                             else
@@ -807,6 +811,144 @@ findOtherSolutionRecursive peerMap possibilities =
                 )
                 False
                 numbers
+
+
+buildBlockOrder : Int -> ClusterGenerationState -> List ( Int, Int )
+buildBlockOrder unlocked state =
+    let
+        ( blockWidth, blockHeight ) =
+            blockSizeToDimensions state.blockSize
+
+        order : List ( Int, Int )
+        order =
+            state.puzzleAreas.blocks
+                |> List.map
+                    (\area ->
+                        ( area.startRow, area.startCol )
+                    )
+
+        clusters : List ( Int, Set ( Int, Int ) )
+        clusters =
+            List.foldl
+                (\positions acc ->
+                    let
+                        blocksInCluster : Set ( Int, Int )
+                        blocksInCluster =
+                            List.foldl
+                                (\( row, col ) ->
+                                    Set.union
+                                        (List.range 0 (blockWidth - 1)
+                                            |> List.concatMap
+                                                (\rowOffset ->
+                                                    List.range 0 (blockHeight - 1)
+                                                        |> List.map
+                                                            (\colOffset ->
+                                                                ( row + rowOffset * blockHeight
+                                                                , col + colOffset * blockWidth
+                                                                )
+                                                            )
+                                                )
+                                            |> Set.fromList
+                                        )
+                                )
+                                Set.empty
+                                positions
+                    in
+                    { blocks = Set.diff acc.blocks blocksInCluster
+                    , clusters =
+                        (Set.intersect acc.blocks blocksInCluster)
+                            :: acc.clusters
+                    }
+                )
+                { blocks = Set.fromList order
+                , clusters = []
+                }
+                state.clusters
+                |> .clusters
+                |> List.reverse
+                |> List.indexedMap
+                    (\index cluster ->
+                        ( index, cluster )
+                    )
+
+        orderLength : Int
+        orderLength =
+            List.length order
+
+        swapAttempts : Int
+        swapAttempts =
+            orderLength * 100
+    in
+    List.foldl
+        (\_ loopState ->
+            let
+                ( first, stepSeed ) =
+                    Random.step (Random.int unlocked (orderLength - 1)) loopState.seed
+
+                ( second, nextSeed ) =
+                    Random.step (Random.int unlocked (orderLength - 1)) stepSeed
+
+                newOrder : List ( Int, Int )
+                newOrder =
+                    List.Extra.swapAt first second loopState.order
+            in
+            if isValidBlockOrder newOrder unlocked clusters then
+                { loopState
+                    | order = newOrder
+                    , seed = nextSeed
+                }
+
+            else
+                { loopState
+                    | seed = nextSeed
+                }
+        )
+        { order = order
+        , seed = state.seed
+        }
+        (List.range 1 swapAttempts)
+        |> .order
+
+
+isValidBlockOrder : List ( Int, Int ) -> Int -> List ( Int, Set ( Int, Int ) ) -> Bool
+isValidBlockOrder unlockOrder initialVisibleCount clusters =
+    let
+        checkProgress : Int -> Set Int -> Bool
+        checkProgress visibleCount solvedClusters =
+            if Set.size solvedClusters == List.length clusters then
+                True
+
+            else
+                let
+                    visibleBlocks : Set ( Int, Int )
+                    visibleBlocks =
+                        unlockOrder
+                            |> List.take visibleCount
+                            |> Set.fromList
+
+                    nextCluster : Maybe ( Int, Set ( Int, Int ) )
+                    nextCluster =
+                        clusters
+                            |> List.filter
+                                (\( idx, _  ) ->
+                                    not (Set.member idx solvedClusters)
+                                )
+                            |> List.filter
+                                (\( _, cluster ) ->
+                                    Set.Extra.isSubsetOf visibleBlocks cluster
+                                )
+                            |> List.head
+                in
+                case nextCluster of
+                    Nothing ->
+                        False
+
+                    Just ( clusterIndex, cluster ) ->
+                        checkProgress
+                            (visibleCount + Set.size cluster)
+                            (Set.insert clusterIndex solvedClusters)
+    in
+    checkProgress initialVisibleCount Set.empty
 
 
 allNumbersForSize : Int -> Set Int

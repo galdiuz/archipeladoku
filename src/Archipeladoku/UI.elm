@@ -37,8 +37,10 @@ type alias BoardState =
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
     , errors : Dict ( Int, Int ) (Set Int)
+    , lockedBlocks : List ( Int, Int )
     , puzzleAreas : Engine.PuzzleAreas
     , solution : Dict ( Int, Int ) Int
+    , unlockedBlocks : Set ( Int, Int )
     }
 
 
@@ -65,9 +67,9 @@ init flagsValue =
       }
     , generateBoard
         (Json.encodeGenerateArgs
-            { blockSize = 9
-            , overlap = 3
-            , numberOfBoards = 5
+            { blockSize = 4
+            , overlap = 1
+            , numberOfBoards = 13
             , seed = 1
             }
         )
@@ -126,8 +128,15 @@ update msg model =
                                 , blockSize = board.blockSize
                                 , current = Dict.map (\_ v -> Given v) board.givens
                                 , errors = Dict.empty
+                                , lockedBlocks =
+                                    board.unlockOrder
+                                        |> List.drop 8
                                 , puzzleAreas = board.puzzleAreas
                                 , solution = board.solution
+                                , unlockedBlocks =
+                                    board.unlockOrder
+                                        |> List.take 8
+                                        |> Set.fromList
                                 }
                     }
                     , Cmd.none
@@ -155,7 +164,7 @@ update msg model =
                                     (toggleNumber number)
                                     board.current
                     in
-                    ( { model | board = Just <| updateBoard { board | current = newCurrent } }
+                    ( { model | board = Just <| updateBoard ( row, col ) { board | current = newCurrent } }
                     , Cmd.none
                     )
 
@@ -165,9 +174,66 @@ update msg model =
                     )
 
 
-updateBoard : BoardState -> BoardState
-updateBoard board =
-    { board | errors = getBoardErrors board }
+updateBoard : ( Int, Int ) -> BoardState -> BoardState
+updateBoard updatedCell board =
+    let
+        blocksAtCell : List Engine.Area
+        blocksAtCell =
+            Dict.get updatedCell board.cellBlocks
+                |> Maybe.withDefault []
+    in
+    List.foldl
+        (\block boardAcc ->
+            let
+                isSolved : ( Int, Int ) -> Bool
+                isSolved cell =
+                    case ( Dict.get cell boardAcc.current, Dict.get cell boardAcc.solution ) of
+                        ( Just (Given v), Just sol ) ->
+                            v == sol
+
+                        ( Just (Single v), Just sol ) ->
+                            v == sol
+
+                        _ ->
+                            False
+
+                blockCells : List ( Int, Int )
+                blockCells =
+                    Engine.getAreaCells block
+            in
+            if List.all isSolved blockCells then
+                { boardAcc
+                    | current =
+                        List.foldl
+                            (\cell acc ->
+                                Dict.insert
+                                    cell
+                                    (Given (Dict.get cell boardAcc.solution |> Maybe.withDefault 0))
+                                    acc
+                            )
+                            boardAcc.current
+                            blockCells
+                }
+                    |> unlockNextBlock
+
+            else
+                boardAcc
+        )
+        { board | errors = getBoardErrors board }
+        blocksAtCell
+
+
+unlockNextBlock : BoardState -> BoardState
+unlockNextBlock board =
+    case board.lockedBlocks of
+        block :: remainingBlocks ->
+            { board
+                | lockedBlocks = remainingBlocks
+                , unlockedBlocks = Set.insert block board.unlockedBlocks
+            }
+
+        [] ->
+            board
 
 
 getBoardErrors : BoardState -> Dict ( Int, Int ) (Set Int)
@@ -359,6 +425,18 @@ viewCell model board ( row, col ) =
             Dict.get ( row, col ) board.cellBlocks
                 |> Maybe.withDefault []
 
+        blockPositions : Set ( Int, Int )
+        blockPositions =
+            List.map
+                (\area -> ( area.startRow, area.startCol ))
+                blocks
+                |> Set.fromList
+
+        isHidden : Bool
+        isHidden =
+            Set.intersect blockPositions board.unlockedBlocks
+                |> Set.isEmpty
+
         blockAbove : List Engine.Area
         blockAbove =
             Dict.get ( row - 1, col ) board.cellBlocks
@@ -392,7 +470,13 @@ viewCell model board ( row, col ) =
             , HA.style "grid-row" (String.fromInt row)
             , HA.style "grid-column" (String.fromInt col)
             , HAE.attributeMaybe
-                (\v -> HA.class <| "val-" ++ String.fromInt v)
+                (\v ->
+                    if isHidden then
+                        HAE.empty
+
+                    else
+                        HA.class <| "val-" ++ String.fromInt v
+                )
                 (Dict.get ( row, col ) board.current
                     |> Maybe.andThen cellValueToInt
                 )
@@ -410,24 +494,30 @@ viewCell model board ( row, col ) =
                     || List.any (.endCol >> (==) (col - 1)) blockLeft
                   )
                 , ( "multi", cellIsMultiple )
-                , ( "error", (not <| Set.isEmpty errorsAtCell) && (not cellIsMultiple) )
+                , ( "hidden", isHidden )
+                , ( "error", (not <| Set.isEmpty errorsAtCell) && (not cellIsMultiple) && (not isHidden) )
                 ]
+            , HA.disabled isHidden
             , HE.onClick (CellSelected ( row, col ))
             ]
-            (case Dict.get ( row, col ) board.current of
-                Just value ->
-                    case value of
-                        Given v ->
-                            [ Html.text (numberToString board.blockSize v) ]
+            (if isHidden then
+                []
 
-                        Single v ->
-                            [ Html.text (numberToString board.blockSize v) ]
+             else
+                case Dict.get ( row, col ) board.current of
+                    Just value ->
+                        case value of
+                            Given v ->
+                                [ Html.text (numberToString board.blockSize v) ]
 
-                        Multiple numbers ->
-                            viewMultipleNumbers board.blockSize errorsAtCell numbers
+                            Single v ->
+                                [ Html.text (numberToString board.blockSize v) ]
 
-                Nothing ->
-                    []
+                            Multiple numbers ->
+                                viewMultipleNumbers board.blockSize errorsAtCell numbers
+
+                    Nothing ->
+                        []
             )
 
     else
@@ -649,6 +739,10 @@ css =
         color: light-dark(#aa0000, #ff8888);
         text-decoration: underline;
         font-weight: 700;
+    }
+
+    .cell.hidden {
+        background-color: light-dark(#cccccc, #111111);
     }
 
     .block-4 .cell.multi {

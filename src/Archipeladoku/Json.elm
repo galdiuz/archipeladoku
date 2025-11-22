@@ -14,17 +14,19 @@ encodeBoard board =
         , ( "givens", encodeCellsDict Encode.int board.givens )
         , ( "puzzleAreas", encodePuzzleAreas board.puzzleAreas )
         , ( "solution", encodeCellsDict Encode.int board.solution )
+        , ( "unlockOrder", Encode.list (encodeTuple Encode.int Encode.int) board.unlockOrder )
         ]
 
 
 boardDecoder : Decode.Decoder Engine.Board
 boardDecoder =
-    Decode.map5 Engine.Board
+    Decode.map6 Engine.Board
         (Decode.field "blockSize" Decode.int)
         (Decode.field "cellBlocks" (cellsDictDecoder (Decode.list areaDecoder)))
         (Decode.field "givens" (cellsDictDecoder Decode.int))
         (Decode.field "puzzleAreas" puzzleAreasDecoder)
         (Decode.field "solution" (cellsDictDecoder Decode.int))
+        (Decode.field "unlockOrder" (Decode.list (decodeTuple Decode.int Decode.int)))
 
 
 encodeCellsDict : (a -> Encode.Value) -> Dict ( Int, Int ) a -> Encode.Value
@@ -88,6 +90,21 @@ puzzleAreasDecoder =
         (Decode.field "blocks" (Decode.list areaDecoder))
         (Decode.field "rows" (Decode.list areaDecoder))
         (Decode.field "cols" (Decode.list areaDecoder))
+
+
+encodeTuple : (a -> Encode.Value) -> (b -> Encode.Value) -> (a, b) -> Encode.Value
+encodeTuple encodeA encodeB ( a, b ) =
+    Encode.list identity
+        [ encodeA a
+        , encodeB b
+        ]
+
+
+decodeTuple : Decode.Decoder a -> Decode.Decoder b -> Decode.Decoder ( a, b )
+decodeTuple decodeA decodeB =
+    Decode.map2 Tuple.pair
+        (Decode.index 0 decodeA)
+        (Decode.index 1 decodeB)
 
 
 encodeGenerateArgs : Engine.GenerateArgs -> Encode.Value

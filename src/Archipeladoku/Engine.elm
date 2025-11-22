@@ -47,9 +47,10 @@ type BoardGenerationState
 
 generate : GenerateArgs -> BoardGenerationState
 generate args =
-    if args.blockSize < 2 || args.blockSize > 4 then
-        Failed "Block size must be between 2 and 4."
+    if not (Set.member args.blockSize validBlockSizes) then
+        Failed "Invalid block size. Valid sizes are 4, 6, 8, 9, 12, and 16."
 
+    -- TODO: Fix
     else if args.overlap < 0 || args.overlap > args.blockSize then
         Failed "Overlap must be non-negative and less than or equal to block size."
 
@@ -60,13 +61,14 @@ generate args =
         generateWithValidArgs args
 
 
+validBlockSizes : Set Int
+validBlockSizes =
+    Set.fromList [ 4, 6, 8, 9, 12, 16 ]
+
+
 generateWithValidArgs : GenerateArgs -> BoardGenerationState
 generateWithValidArgs args =
     let
-        boardSize : Int
-        boardSize =
-            args.blockSize * args.blockSize
-
         positions : List ( Int, Int )
         positions =
             positionBoards args.blockSize args.overlap args.numberOfBoards
@@ -129,10 +131,10 @@ generateWithValidArgs args =
                                     Set.insert ( row, col ) set3
                                 )
                                 set2
-                                (List.range startCol (startCol + boardSize - 1))
+                                (List.range startCol (startCol + args.blockSize - 1))
                         )
                         set1
-                        (List.range startRow (startRow + boardSize - 1))
+                        (List.range startRow (startRow + args.blockSize - 1))
                 )
                 Set.empty
                 positions
@@ -149,7 +151,7 @@ generateWithValidArgs args =
         generateClusterArgs : GenerateClusterArgs
         generateClusterArgs =
             { allCells = cells
-            , allNumbersForSize = allNumbers args.blockSize
+            , allNumbers = allNumbersForSize args.blockSize
             , blockAreasMap = blockAreasMap
             , blockSize = args.blockSize
             , peerMap = peerMap
@@ -160,13 +162,13 @@ generateWithValidArgs args =
         maxClusterSize : Int
         maxClusterSize =
             case args.blockSize of
-                2 ->
-                    2
-
-                3 ->
-                    2
-
                 4 ->
+                    2
+
+                9 ->
+                    2
+
+                16 ->
                     1
 
                 _ ->
@@ -177,7 +179,7 @@ generateWithValidArgs args =
     in
     Generating
         { givens = Dict.empty
-        , remainingClusters = List.reverse groupedPositions
+        , remainingClusters = groupedPositions
         , seed = newSeed
         , solution = Dict.empty
         , args = generateClusterArgs
@@ -258,7 +260,7 @@ groupPositions maxClusterSize remaining ( clusters, currentSeed ) =
 
 type alias GenerateClusterArgs =
     { allCells : Set ( Int, Int )
-    , allNumbersForSize : Set Int
+    , allNumbers : Set Int
     , blockAreasMap : Dict ( Int, Int ) (List Area)
     , blockSize : Int
     , peerMap : PeerMap
@@ -283,10 +285,6 @@ generateCluster :
     -> Result String ClusterGenerationState
 generateCluster args positions inputState =
     let
-        boardSize : Int
-        boardSize =
-            args.blockSize * args.blockSize
-
         clusterCells : Set ( Int, Int )
         clusterCells =
             List.foldl
@@ -298,10 +296,10 @@ generateCluster args positions inputState =
                                     Set.insert ( row, col ) set3
                                 )
                                 set2
-                                (List.range startCol (startCol + boardSize - 1))
+                                (List.range startCol (startCol + args.blockSize - 1))
                         )
                         set1
-                        (List.range startRow (startRow + boardSize - 1))
+                        (List.range startRow (startRow + args.blockSize - 1))
                 )
                 Set.empty
                 positions
@@ -310,7 +308,7 @@ generateCluster args positions inputState =
         allPossibilities =
             Set.foldl
                 (\cell acc ->
-                    Dict.insert cell args.allNumbersForSize acc
+                    Dict.insert cell args.allNumbers acc
                 )
                 Dict.empty
                 clusterCells
@@ -401,13 +399,9 @@ propagateSolution solution peerMap cell possibilities =
 positionBoards : Int -> Int -> Int -> List ( Int, Int )
 positionBoards blockSize overlap numberOfBoards =
     let
-        boardSize : Int
-        boardSize =
-            blockSize * blockSize
-
         stepSize : Int
         stepSize =
-            boardSize - overlap
+            blockSize - overlap
 
         spotsInGrid : Int -> Int
         spotsInGrid side =
@@ -455,6 +449,10 @@ positionBoards blockSize overlap numberOfBoards =
 
 buildPuzzleAreas : Int -> Int -> Int -> PuzzleAreas
 buildPuzzleAreas blockSize startRow startCol =
+    let
+        ( blockWidth, blockHeight ) =
+            blockSizeToDimensions blockSize
+    in
     { blocks =
         List.range 0 (blockSize - 1)
             |> List.concatMap
@@ -462,34 +460,59 @@ buildPuzzleAreas blockSize startRow startCol =
                     List.range 0 (blockSize - 1)
                         |> List.map
                             (\blockColOffset ->
-                                { startRow = startRow + blockRowOffset * blockSize
-                                , startCol = startCol + blockColOffset * blockSize
-                                , endRow = startRow + (blockRowOffset + 1) * blockSize - 1
-                                , endCol = startCol + (blockColOffset + 1) * blockSize - 1
+                                { startRow = startRow + blockRowOffset * blockHeight
+                                , startCol = startCol + blockColOffset * blockWidth
+                                , endRow = startRow + (blockRowOffset + 1) * blockHeight - 1
+                                , endCol = startCol + (blockColOffset + 1) * blockWidth - 1
                                 }
                             )
                 )
     , rows =
-        List.range startRow (blockSize * blockSize + startRow - 1)
+        List.range startRow (blockSize + startRow - 1)
             |> List.map
                 (\row ->
                     { startRow = row
                     , startCol = startCol
                     , endRow = row
-                    , endCol = startCol + blockSize * blockSize - 1
+                    , endCol = startCol + blockSize - 1
                     }
                 )
     , cols =
-        List.range startCol (blockSize * blockSize + startCol - 1)
+        List.range startCol (blockSize + startCol - 1)
             |> List.map
                 (\col ->
                     { startRow = startRow
                     , startCol = col
-                    , endRow = startRow + blockSize * blockSize - 1
+                    , endRow = startRow + blockSize - 1
                     , endCol = col
                     }
                 )
     }
+
+
+blockSizeToDimensions : Int -> ( Int, Int )
+blockSizeToDimensions blockSize =
+    case blockSize of
+        4 ->
+            ( 2, 2 )
+
+        6 ->
+            ( 3, 2 )
+
+        8 ->
+            ( 4, 2 )
+
+        9 ->
+            ( 3, 3 )
+
+        12 ->
+            ( 4, 3 )
+
+        16 ->
+            ( 4, 4 )
+
+        _ ->
+            ( 1, 1 )
 
 
 joinPuzzleAreas : List PuzzleAreas -> PuzzleAreas
@@ -645,7 +668,7 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
         allPossibilities =
             Set.foldl
                 (\cell acc ->
-                    Dict.insert cell args.allNumbersForSize acc
+                    Dict.insert cell args.allNumbers acc
                 )
                 Dict.empty
                 clusterCells
@@ -665,7 +688,7 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
                 otherSolutionExists : Bool
                 otherSolutionExists =
                     findOtherSolution
-                        { allNumbersForSize = args.allNumbersForSize
+                        { allNumbers = args.allNumbers
                         , allPossibilities = allPossibilities
                         , cells = clusterCells
                         , givens = givensWithoutCell
@@ -689,7 +712,7 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
 
 
 type alias FindOtherSolutionArgs =
-    { allNumbersForSize : Set Int
+    { allNumbers : Set Int
     , allPossibilities : Possibilities
     , cells : Set ( Int, Int )
     , givens : Dict ( Int, Int ) Int
@@ -700,7 +723,7 @@ type alias FindOtherSolutionArgs =
 
 
 findOtherSolution : FindOtherSolutionArgs -> Bool
-findOtherSolution { allNumbersForSize, allPossibilities, cells, givens, peerMap, removedCell, removedNumber } =
+findOtherSolution { allNumbers, allPossibilities, cells, givens, peerMap, removedCell, removedNumber } =
     let
         propagatedPossibilities : Maybe Possibilities
         propagatedPossibilities =
@@ -725,7 +748,7 @@ findOtherSolution { allNumbersForSize, allPossibilities, cells, givens, peerMap,
                                                 Nothing ->
                                                     validSet
                                         )
-                                        allNumbersForSize
+                                        allNumbers
                                         peers
                             in
                             if Set.isEmpty validNumbers then
@@ -788,9 +811,9 @@ findOtherSolutionRecursive peerMap possibilities =
                 numbers
 
 
-allNumbers : Int -> Set Int
-allNumbers blockSize =
-    List.range 1 (blockSize * blockSize)
+allNumbersForSize : Int -> Set Int
+allNumbersForSize blockSize =
+    List.range 1 blockSize
         |> Set.fromList
 
 

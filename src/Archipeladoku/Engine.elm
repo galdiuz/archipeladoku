@@ -2,6 +2,7 @@ module Archipeladoku.Engine exposing (..)
 
 import Dict exposing (Dict)
 import List.Extra
+import Order.Extra
 import Random
 import Random.List
 import Set exposing (Set)
@@ -39,10 +40,33 @@ type alias GenerateArgs =
     }
 
 
+type alias PeerMap =
+    Dict ( Int, Int ) (Set ( Int, Int ))
+
+
+type alias Possibilities =
+    Dict ( Int, Int ) (Set Int)
+
+
 type BoardGenerationState
     = Generating ClusterGenerationState
     | Failed String
     | Completed Board
+
+
+type alias ClusterGenerationState =
+    { allCells : Set ( Int, Int )
+    , allNumbers : Set Int
+    , blockAreasMap : Dict ( Int, Int ) (List Area)
+    , blockSize : Int
+    , givens : Dict ( Int, Int ) Int
+    , peerMap : PeerMap
+    , positions : List ( Int, Int )
+    , puzzleAreas : PuzzleAreas
+    , remainingClusters : List (List ( Int, Int ))
+    , seed : Random.Seed
+    , solution : Dict ( Int, Int ) Int
+    }
 
 
 generate : GenerateArgs -> BoardGenerationState
@@ -72,6 +96,16 @@ generateWithValidArgs args =
         positions : List ( Int, Int )
         positions =
             positionBoards args.blockSize args.overlap args.numberOfBoards
+                |> List.sortWith
+                    (Order.Extra.breakTies
+                        [ (\( row1, col1 ) ( row2, col2 ) ->
+                            compare (row1 + col1) (row2 + col2)
+                          )
+                        , (\( row1, col1 ) ( row2, col2 ) ->
+                            compare (max row1 col1) (max row2 col2)
+                          )
+                        ]
+                    )
 
         puzzleAreas : List PuzzleAreas
         puzzleAreas =
@@ -148,17 +182,6 @@ generateWithValidArgs args =
                 Dict.empty
                 cells
 
-        generateClusterArgs : GenerateClusterArgs
-        generateClusterArgs =
-            { allCells = cells
-            , allNumbers = allNumbersForSize args.blockSize
-            , blockAreasMap = blockAreasMap
-            , blockSize = args.blockSize
-            , peerMap = peerMap
-            , puzzleAreas = joinPuzzleAreas puzzleAreas
-            , positions = positions
-            }
-
         maxClusterSize : Int
         maxClusterSize =
             case args.blockSize of
@@ -178,11 +201,17 @@ generateWithValidArgs args =
             groupPositions maxClusterSize positions ( [], Random.initialSeed args.seed )
     in
     Generating
-        { givens = Dict.empty
+        { allCells = cells
+        , allNumbers = allNumbersForSize args.blockSize
+        , blockAreasMap = blockAreasMap
+        , blockSize = args.blockSize
+        , givens = Dict.empty
+        , peerMap = peerMap
+        , positions = positions
+        , puzzleAreas = joinPuzzleAreas puzzleAreas
         , remainingClusters = groupedPositions
         , seed = newSeed
         , solution = Dict.empty
-        , args = generateClusterArgs
         }
         |> continueGeneration
 
@@ -194,17 +223,17 @@ continueGeneration state =
             case clusterState.remainingClusters of
                 [] ->
                     Completed
-                        { blockSize = clusterState.args.blockSize
-                        , cellBlocks = clusterState.args.blockAreasMap
+                        { blockSize = clusterState.blockSize
+                        , cellBlocks = clusterState.blockAreasMap
                         , givens = clusterState.givens
-                        , puzzleAreas = clusterState.args.puzzleAreas
+                        , puzzleAreas = clusterState.puzzleAreas
                         , solution = clusterState.solution
                         }
 
                 positionGroup :: remainingGroups ->
                     let
                         updatedClusterStateResult =
-                            generateCluster clusterState.args positionGroup clusterState
+                            generateCluster positionGroup clusterState
                                 |> Result.map
                                     (\newState ->
                                         { newState
@@ -216,10 +245,10 @@ continueGeneration state =
                         Ok newClusterState ->
                             if List.isEmpty remainingGroups then
                                 Completed
-                                    { blockSize = newClusterState.args.blockSize
-                                    , cellBlocks = clusterState.args.blockAreasMap
+                                    { blockSize = newClusterState.blockSize
+                                    , cellBlocks = newClusterState.blockAreasMap
                                     , givens = newClusterState.givens
-                                    , puzzleAreas = clusterState.args.puzzleAreas
+                                    , puzzleAreas = newClusterState.puzzleAreas
                                     , solution = newClusterState.solution
                                     }
 
@@ -258,32 +287,11 @@ groupPositions maxClusterSize remaining ( clusters, currentSeed ) =
     --     groupPositions maxClusterSize nextRemaining ( cluster :: clusters, nextSeed )
 
 
-type alias GenerateClusterArgs =
-    { allCells : Set ( Int, Int )
-    , allNumbers : Set Int
-    , blockAreasMap : Dict ( Int, Int ) (List Area)
-    , blockSize : Int
-    , peerMap : PeerMap
-    , puzzleAreas : PuzzleAreas
-    , positions : List ( Int, Int )
-    }
-
-
-type alias ClusterGenerationState =
-    { givens : Dict ( Int, Int ) Int
-    , remainingClusters : List (List ( Int, Int ))
-    , seed : Random.Seed
-    , solution : Dict ( Int, Int ) Int
-    , args : GenerateClusterArgs
-    }
-
-
 generateCluster :
-    GenerateClusterArgs
-    -> List ( Int, Int )
+    List ( Int, Int )
     -> ClusterGenerationState
     -> Result String ClusterGenerationState
-generateCluster args positions inputState =
+generateCluster positions inputState =
     let
         clusterCells : Set ( Int, Int )
         clusterCells =
@@ -296,10 +304,10 @@ generateCluster args positions inputState =
                                     Set.insert ( row, col ) set3
                                 )
                                 set2
-                                (List.range startCol (startCol + args.blockSize - 1))
+                                (List.range startCol (startCol + inputState.blockSize - 1))
                         )
                         set1
-                        (List.range startRow (startRow + args.blockSize - 1))
+                        (List.range startRow (startRow + inputState.blockSize - 1))
                 )
                 Set.empty
                 positions
@@ -308,7 +316,7 @@ generateCluster args positions inputState =
         allPossibilities =
             Set.foldl
                 (\cell acc ->
-                    Dict.insert cell args.allNumbers acc
+                    Dict.insert cell inputState.allNumbers acc
                 )
                 Dict.empty
                 clusterCells
@@ -316,16 +324,16 @@ generateCluster args positions inputState =
     Set.foldl
         (\cell result ->
             Result.andThen
-                (propagateSolution inputState.solution args.peerMap cell)
+                (propagateSolution inputState.solution inputState.peerMap cell)
                 result
         )
         (Ok allPossibilities)
-        args.allCells
+        inputState.allCells
         |> Result.andThen
             (\initialPossibilities ->
                 tryPlacingNumbers
-                    { blockSize = args.blockSize
-                    , peerMap = args.peerMap
+                    { blockSize = inputState.blockSize
+                    , peerMap = inputState.peerMap
                     , placed = Dict.empty
                     , possibilities = initialPossibilities
                     , seed = inputState.seed
@@ -334,7 +342,6 @@ generateCluster args positions inputState =
         |> Result.map
             (\placedNumbers ->
                 removeGivenNumbers
-                    args
                     clusterCells
                     (Set.filter
                         (\cell ->
@@ -538,14 +545,6 @@ type alias PlaceNumberArgs =
     }
 
 
-type alias PeerMap =
-    Dict ( Int, Int ) (Set ( Int, Int ))
-
-
-type alias Possibilities =
-    Dict ( Int, Int ) (Set Int)
-
-
 tryPlacingNumbers : PlaceNumberArgs -> Result String { solution : Dict ( Int, Int ) Int, seed : Random.Seed }
 tryPlacingNumbers args =
     case findBestCell args.possibilities of
@@ -657,18 +656,17 @@ propagatePossibilities peers number possibilities =
 
 
 removeGivenNumbers :
-    GenerateClusterArgs
-    -> Set ( Int, Int )
+    Set ( Int, Int )
     -> Set ( Int, Int )
     -> ClusterGenerationState
     -> ClusterGenerationState
-removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
+removeGivenNumbers clusterCells cellsToRemoveFrom inputState =
     let
         allPossibilities : Possibilities
         allPossibilities =
             Set.foldl
                 (\cell acc ->
-                    Dict.insert cell args.allNumbers acc
+                    Dict.insert cell inputState.allNumbers acc
                 )
                 Dict.empty
                 clusterCells
@@ -688,11 +686,11 @@ removeGivenNumbers args clusterCells cellsToRemoveFrom inputState =
                 otherSolutionExists : Bool
                 otherSolutionExists =
                     findOtherSolution
-                        { allNumbers = args.allNumbers
+                        { allNumbers = state.allNumbers
                         , allPossibilities = allPossibilities
                         , cells = clusterCells
                         , givens = givensWithoutCell
-                        , peerMap = args.peerMap
+                        , peerMap = state.peerMap
                         , removedCell = cell
                         , removedNumber =
                             Dict.get cell state.solution

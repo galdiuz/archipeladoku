@@ -291,7 +291,7 @@ generateCluster :
     List ( Int, Int )
     -> ClusterGenerationState
     -> Result String ClusterGenerationState
-generateCluster positions inputState =
+generateCluster clusterPositions inputState =
     let
         clusterCells : Set ( Int, Int )
         clusterCells =
@@ -310,7 +310,7 @@ generateCluster positions inputState =
                         (List.range startRow (startRow + inputState.blockSize - 1))
                 )
                 Set.empty
-                positions
+                clusterPositions
 
         allPossibilities : Possibilities
         allPossibilities =
@@ -461,10 +461,10 @@ buildPuzzleAreas blockSize startRow startCol =
             blockSizeToDimensions blockSize
     in
     { blocks =
-        List.range 0 (blockSize - 1)
+        List.range 0 (blockWidth - 1)
             |> List.concatMap
                 (\blockRowOffset ->
-                    List.range 0 (blockSize - 1)
+                    List.range 0 (blockHeight - 1)
                         |> List.map
                             (\blockColOffset ->
                                 { startRow = startRow + blockRowOffset * blockHeight

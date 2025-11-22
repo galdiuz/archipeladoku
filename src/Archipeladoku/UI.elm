@@ -65,9 +65,9 @@ init flagsValue =
       }
     , generateBoard
         (Json.encodeGenerateArgs
-            { blockSize = 4
-            , overlap = 1
-            , numberOfBoards = 13
+            { blockSize = 9
+            , overlap = 3
+            , numberOfBoards = 5
             , seed = 1
             }
         )
@@ -522,11 +522,11 @@ isMultiple cellValue =
 numberToString : Int -> Int -> String
 numberToString blockSize number =
     if blockSize >= 10 then
-        if number <= 9 then
+        if number <= 10 then
             String.fromInt (number - 1)
 
         else
-            Char.fromCode (number - 10 + Char.toCode 'A')
+            Char.fromCode (number - 11 + Char.toCode 'A')
                 |> String.fromChar
 
     else
@@ -734,33 +734,33 @@ css =
     .block-9 .val-8 { background-color: light-dark(hsl(var(--h9-8), 60%, 80%), hsl(var(--h9-8), 60%, 30%)); }
     .block-9 .val-9 { background-color: light-dark(hsl(var(--h9-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
 
-    .block-12 .val-1 { background-color: light-dark(hsl(var(--h12-1), 60%, 80%), hsl(var(--h9-1), 60%, 25%)); }
-    .block-12 .val-2 { background-color: light-dark(hsl(var(--h12-2), 60%, 80%), hsl(var(--h9-2), 60%, 25%)); }
-    .block-12 .val-3 { background-color: light-dark(hsl(var(--h12-3), 60%, 80%), hsl(var(--h9-3), 60%, 20%)); }
-    .block-12 .val-4 { background-color: light-dark(hsl(var(--h12-4), 60%, 80%), hsl(var(--h9-4), 60%, 20%)); }
-    .block-12 .val-5 { background-color: light-dark(hsl(var(--h12-5), 60%, 80%), hsl(var(--h9-5), 60%, 20%)); }
-    .block-12 .val-6 { background-color: light-dark(hsl(var(--h12-6), 60%, 80%), hsl(var(--h9-6), 60%, 20%)); }
-    .block-12 .val-7 { background-color: light-dark(hsl(var(--h12-7), 60%, 80%), hsl(var(--h9-7), 60%, 25%)); }
-    .block-12 .val-8 { background-color: light-dark(hsl(var(--h12-8), 60%, 80%), hsl(var(--h9-8), 60%, 30%)); }
-    .block-12 .val-9 { background-color: light-dark(hsl(var(--h12-9), 60%, 80%), hsl(var(--h9-9), 60%, 30%)); }
-    .block-12 .val-10 { background-color: light-dark(hsl(var(--h12-9), 60%, 80%), hsl(var(--h9-9), 60%, 30%)); }
-    .block-12 .val-11 { background-color: light-dark(hsl(var(--h12-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
-    .block-12 .val-12 { background-color: light-dark(hsl(var(--h12-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
+    .block-12 .val-1 { background-color: light-dark(hsl(var(--h12-1), 60%, 80%), hsl(var(--h12-1), 60%, 25%)); }
+    .block-12 .val-2 { background-color: light-dark(hsl(var(--h12-2), 60%, 80%), hsl(var(--h12-2), 60%, 25%)); }
+    .block-12 .val-3 { background-color: light-dark(hsl(var(--h12-3), 60%, 80%), hsl(var(--h12-3), 60%, 20%)); }
+    .block-12 .val-4 { background-color: light-dark(hsl(var(--h12-4), 60%, 80%), hsl(var(--h12-4), 60%, 20%)); }
+    .block-12 .val-5 { background-color: light-dark(hsl(var(--h12-5), 60%, 80%), hsl(var(--h12-5), 60%, 20%)); }
+    .block-12 .val-6 { background-color: light-dark(hsl(var(--h12-6), 60%, 80%), hsl(var(--h12-6), 60%, 20%)); }
+    .block-12 .val-7 { background-color: light-dark(hsl(var(--h12-7), 60%, 80%), hsl(var(--h12-7), 60%, 25%)); }
+    .block-12 .val-8 { background-color: light-dark(hsl(var(--h12-8), 60%, 80%), hsl(var(--h12-8), 60%, 30%)); }
+    .block-12 .val-9 { background-color: light-dark(hsl(var(--h12-9), 60%, 80%), hsl(var(--h12-9), 60%, 30%)); }
+    .block-12 .val-10 { background-color: light-dark(hsl(var(--h12-10), 60%, 80%), hsl(var(--h12-10), 60%, 30%)); }
+    .block-12 .val-11 { background-color: light-dark(hsl(var(--h12-11), 60%, 80%), hsl(var(--h12-11), 60%, 25%)); }
+    .block-12 .val-12 { background-color: light-dark(hsl(var(--h12-12), 60%, 80%), hsl(var(--h12-12), 60%, 25%)); }
 
-    .block-16 .val-1 { background-color: light-dark(hsl(var(--h16-1), 60%, 80%), hsl(var(--h9-1), 60%, 25%)); }
-    .block-16 .val-2 { background-color: light-dark(hsl(var(--h16-2), 60%, 80%), hsl(var(--h9-2), 60%, 25%)); }
-    .block-16 .val-3 { background-color: light-dark(hsl(var(--h16-3), 60%, 80%), hsl(var(--h9-3), 60%, 20%)); }
-    .block-16 .val-4 { background-color: light-dark(hsl(var(--h16-4), 60%, 80%), hsl(var(--h9-4), 60%, 20%)); }
-    .block-16 .val-5 { background-color: light-dark(hsl(var(--h16-5), 60%, 80%), hsl(var(--h9-5), 60%, 20%)); }
-    .block-16 .val-6 { background-color: light-dark(hsl(var(--h16-6), 60%, 80%), hsl(var(--h9-6), 60%, 20%)); }
-    .block-16 .val-7 { background-color: light-dark(hsl(var(--h16-7), 60%, 80%), hsl(var(--h9-7), 60%, 20%)); }
-    .block-16 .val-8 { background-color: light-dark(hsl(var(--h16-8), 60%, 80%), hsl(var(--h9-8), 60%, 20%)); }
-    .block-16 .val-9 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
-    .block-16 .val-10 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 30%)); }
-    .block-16 .val-11 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 30%)); }
-    .block-16 .val-12 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 30%)); }
-    .block-16 .val-13 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 30%)); }
-    .block-16 .val-14 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
-    .block-16 .val-15 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
-    .block-16 .val-16 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
+    .block-16 .val-1 { background-color: light-dark(hsl(var(--h16-1), 60%, 80%), hsl(var(--h16-1), 60%, 25%)); }
+    .block-16 .val-2 { background-color: light-dark(hsl(var(--h16-2), 60%, 80%), hsl(var(--h16-2), 60%, 25%)); }
+    .block-16 .val-3 { background-color: light-dark(hsl(var(--h16-3), 60%, 80%), hsl(var(--h16-3), 60%, 20%)); }
+    .block-16 .val-4 { background-color: light-dark(hsl(var(--h16-4), 60%, 80%), hsl(var(--h16-4), 60%, 20%)); }
+    .block-16 .val-5 { background-color: light-dark(hsl(var(--h16-5), 60%, 80%), hsl(var(--h16-5), 60%, 20%)); }
+    .block-16 .val-6 { background-color: light-dark(hsl(var(--h16-6), 60%, 80%), hsl(var(--h16-6), 60%, 20%)); }
+    .block-16 .val-7 { background-color: light-dark(hsl(var(--h16-7), 60%, 80%), hsl(var(--h16-7), 60%, 20%)); }
+    .block-16 .val-8 { background-color: light-dark(hsl(var(--h16-8), 60%, 80%), hsl(var(--h16-8), 60%, 20%)); }
+    .block-16 .val-9 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h16-9), 60%, 25%)); }
+    .block-16 .val-10 { background-color: light-dark(hsl(var(--h16-10), 60%, 80%), hsl(var(--h16-10), 60%, 30%)); }
+    .block-16 .val-11 { background-color: light-dark(hsl(var(--h16-11), 60%, 80%), hsl(var(--h16-11), 60%, 30%)); }
+    .block-16 .val-12 { background-color: light-dark(hsl(var(--h16-12), 60%, 80%), hsl(var(--h16-12), 60%, 30%)); }
+    .block-16 .val-13 { background-color: light-dark(hsl(var(--h16-13), 60%, 80%), hsl(var(--h16-13), 60%, 30%)); }
+    .block-16 .val-14 { background-color: light-dark(hsl(var(--h16-14), 60%, 80%), hsl(var(--h16-14), 60%, 25%)); }
+    .block-16 .val-15 { background-color: light-dark(hsl(var(--h16-15), 60%, 80%), hsl(var(--h16-15), 60%, 25%)); }
+    .block-16 .val-16 { background-color: light-dark(hsl(var(--h16-16), 60%, 80%), hsl(var(--h16-16), 60%, 25%)); }
     """

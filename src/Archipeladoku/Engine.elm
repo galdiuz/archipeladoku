@@ -61,7 +61,7 @@ type alias ClusterGenerationState =
     , allNumbers : Set Int
     , blockAreasMap : Dict ( Int, Int ) (List Area)
     , blockSize : Int
-    , clusters : List (List ( Int, Int ))
+    , blockUnlockOrder : List ( Int, Int )
     , givens : Dict ( Int, Int ) Int
     , peerMap : PeerMap
     , puzzleAreas : PuzzleAreas
@@ -199,19 +199,31 @@ generateWithValidArgs args =
                 _ ->
                     1
 
-        ( groupedPositions, newSeed ) =
+        joinedPuzzleAreas : PuzzleAreas
+        joinedPuzzleAreas =
+            joinPuzzleAreas puzzleAreas
+
+        ( clusters, groupSeed ) =
             groupPositions maxClusterSize positions ( [], Random.initialSeed args.seed )
+
+        ( blockUnlockOrder, newSeed ) =
+            buildBlockUnlockOrder
+                8
+                args.blockSize
+                joinedPuzzleAreas.blocks
+                clusters
+                groupSeed
     in
     Generating
         { allCells = cells
         , allNumbers = allNumbersForSize args.blockSize
         , blockAreasMap = blockAreasMap
         , blockSize = args.blockSize
-        , clusters = groupedPositions
+        , blockUnlockOrder = blockUnlockOrder
         , givens = Dict.empty
         , peerMap = peerMap
-        , puzzleAreas = joinPuzzleAreas puzzleAreas
-        , remainingClusters = groupedPositions
+        , puzzleAreas = joinedPuzzleAreas
+        , remainingClusters = sortClustersByUnlockOrder blockUnlockOrder clusters
         , seed = newSeed
         , solution = Dict.empty
         }
@@ -230,7 +242,7 @@ continueGeneration state =
                         , givens = clusterState.givens
                         , puzzleAreas = clusterState.puzzleAreas
                         , solution = clusterState.solution
-                        , unlockOrder = buildBlockOrder 8 clusterState
+                        , unlockOrder = clusterState.blockUnlockOrder
                         }
 
                 positionGroup :: remainingGroups ->
@@ -253,7 +265,7 @@ continueGeneration state =
                                     , givens = newClusterState.givens
                                     , puzzleAreas = newClusterState.puzzleAreas
                                     , solution = newClusterState.solution
-                                    , unlockOrder = buildBlockOrder 8 newClusterState
+                                    , unlockOrder = newClusterState.blockUnlockOrder
                                     }
 
                             else
@@ -289,6 +301,174 @@ groupPositions maxClusterSize remaining ( clusters, currentSeed ) =
     --             List.Extra.splitAt positionsInCluster remaining
     --     in
     --     groupPositions maxClusterSize nextRemaining ( cluster :: clusters, nextSeed )
+
+
+buildBlockUnlockOrder :
+    Int
+    -> Int
+    -> List Area
+    -> List (List ( Int, Int ))
+    -> Random.Seed
+    -> ( List ( Int, Int ), Random.Seed )
+buildBlockUnlockOrder unlocked blockSize blocks clusterPositions initialSeed =
+    let
+        ( blockWidth, blockHeight ) =
+            blockSizeToDimensions blockSize
+
+        initialOrder : List ( Int, Int )
+        initialOrder =
+            List.map
+                (\area ->
+                    ( area.startRow, area.startCol )
+                )
+                blocks
+
+        clusters : List ( Int, Set ( Int, Int ) )
+        clusters =
+            List.foldl
+                (\positions acc ->
+                    let
+                        blocksInCluster : Set ( Int, Int )
+                        blocksInCluster =
+                            List.foldl
+                                (\( row, col ) ->
+                                    Set.union
+                                        (List.range 0 (blockWidth - 1)
+                                            |> List.concatMap
+                                                (\rowOffset ->
+                                                    List.range 0 (blockHeight - 1)
+                                                        |> List.map
+                                                            (\colOffset ->
+                                                                ( row + rowOffset * blockHeight
+                                                                , col + colOffset * blockWidth
+                                                                )
+                                                            )
+                                                )
+                                            |> Set.fromList
+                                        )
+                                )
+                                Set.empty
+                                positions
+                    in
+                    { blocks = Set.diff acc.blocks blocksInCluster
+                    , clusters =
+                        (Set.intersect acc.blocks blocksInCluster)
+                            :: acc.clusters
+                    }
+                )
+                { blocks = Set.fromList initialOrder
+                , clusters = []
+                }
+                clusterPositions
+                |> .clusters
+                |> List.reverse
+                |> List.indexedMap
+                    (\index cluster ->
+                        ( index, cluster )
+                    )
+
+        orderLength : Int
+        orderLength =
+            List.length initialOrder
+
+        swapAttempts : Int
+        swapAttempts =
+            orderLength * 100
+    in
+    List.foldl
+        (\_ ( order, seed ) ->
+            let
+                ( first, stepSeed ) =
+                    Random.step (Random.int unlocked (orderLength - 1)) seed
+
+                ( second, nextSeed ) =
+                    Random.step (Random.int unlocked (orderLength - 1)) stepSeed
+
+                newOrder : List ( Int, Int )
+                newOrder =
+                    List.Extra.swapAt first second order
+            in
+            if isValidBlockOrder newOrder unlocked clusters then
+                ( newOrder, nextSeed )
+
+            else
+                ( order, nextSeed )
+        )
+        ( initialOrder, initialSeed )
+        (List.range 1 swapAttempts)
+
+
+isValidBlockOrder : List ( Int, Int ) -> Int -> List ( Int, Set ( Int, Int ) ) -> Bool
+isValidBlockOrder unlockOrder initialVisibleCount clusters =
+    let
+        checkProgress : Int -> Set Int -> Bool
+        checkProgress visibleCount solvedClusters =
+            if Set.size solvedClusters == List.length clusters then
+                True
+
+            else
+                let
+                    visibleBlocks : Set ( Int, Int )
+                    visibleBlocks =
+                        unlockOrder
+                            |> List.take visibleCount
+                            |> Set.fromList
+
+                    nextCluster : Maybe ( Int, Set ( Int, Int ) )
+                    nextCluster =
+                        clusters
+                            |> List.filter
+                                (\( idx, _  ) ->
+                                    not (Set.member idx solvedClusters)
+                                )
+                            |> List.filter
+                                (\( _, cluster ) ->
+                                    Set.Extra.isSubsetOf visibleBlocks cluster
+                                )
+                            |> List.head
+                in
+                case nextCluster of
+                    Nothing ->
+                        False
+
+                    Just ( clusterIndex, cluster ) ->
+                        checkProgress
+                            (visibleCount + Set.size cluster)
+                            (Set.insert clusterIndex solvedClusters)
+    in
+    checkProgress initialVisibleCount Set.empty
+
+
+sortClustersByUnlockOrder :
+    List ( Int, Int )
+    -> List (List ( Int, Int ))
+    -> List (List ( Int, Int ))
+sortClustersByUnlockOrder unlockOrder clusters =
+    List.foldl
+        (\position acc ->
+            let
+                newUnlockedBlocks : Set ( Int, Int )
+                newUnlockedBlocks =
+                    Set.insert position acc.unlockedBlocks
+
+                ( unlockedClusters, remainingClusters ) =
+                    List.partition
+                        (\clusterBlocks ->
+                            Set.Extra.isSubsetOf newUnlockedBlocks (Set.fromList clusterBlocks)
+                        )
+                        acc.remainingClusters
+            in
+            { unlockedBlocks = newUnlockedBlocks
+            , sortedClusters = List.append acc.sortedClusters unlockedClusters
+            , remainingClusters = remainingClusters
+            }
+        )
+        { unlockedBlocks = Set.empty
+        , sortedClusters = []
+        , remainingClusters = clusters
+        }
+        unlockOrder
+        |> .sortedClusters
 
 
 generateCluster :
@@ -811,144 +991,6 @@ findOtherSolutionRecursive peerMap possibilities =
                 )
                 False
                 numbers
-
-
-buildBlockOrder : Int -> ClusterGenerationState -> List ( Int, Int )
-buildBlockOrder unlocked state =
-    let
-        ( blockWidth, blockHeight ) =
-            blockSizeToDimensions state.blockSize
-
-        order : List ( Int, Int )
-        order =
-            state.puzzleAreas.blocks
-                |> List.map
-                    (\area ->
-                        ( area.startRow, area.startCol )
-                    )
-
-        clusters : List ( Int, Set ( Int, Int ) )
-        clusters =
-            List.foldl
-                (\positions acc ->
-                    let
-                        blocksInCluster : Set ( Int, Int )
-                        blocksInCluster =
-                            List.foldl
-                                (\( row, col ) ->
-                                    Set.union
-                                        (List.range 0 (blockWidth - 1)
-                                            |> List.concatMap
-                                                (\rowOffset ->
-                                                    List.range 0 (blockHeight - 1)
-                                                        |> List.map
-                                                            (\colOffset ->
-                                                                ( row + rowOffset * blockHeight
-                                                                , col + colOffset * blockWidth
-                                                                )
-                                                            )
-                                                )
-                                            |> Set.fromList
-                                        )
-                                )
-                                Set.empty
-                                positions
-                    in
-                    { blocks = Set.diff acc.blocks blocksInCluster
-                    , clusters =
-                        (Set.intersect acc.blocks blocksInCluster)
-                            :: acc.clusters
-                    }
-                )
-                { blocks = Set.fromList order
-                , clusters = []
-                }
-                state.clusters
-                |> .clusters
-                |> List.reverse
-                |> List.indexedMap
-                    (\index cluster ->
-                        ( index, cluster )
-                    )
-
-        orderLength : Int
-        orderLength =
-            List.length order
-
-        swapAttempts : Int
-        swapAttempts =
-            orderLength * 100
-    in
-    List.foldl
-        (\_ loopState ->
-            let
-                ( first, stepSeed ) =
-                    Random.step (Random.int unlocked (orderLength - 1)) loopState.seed
-
-                ( second, nextSeed ) =
-                    Random.step (Random.int unlocked (orderLength - 1)) stepSeed
-
-                newOrder : List ( Int, Int )
-                newOrder =
-                    List.Extra.swapAt first second loopState.order
-            in
-            if isValidBlockOrder newOrder unlocked clusters then
-                { loopState
-                    | order = newOrder
-                    , seed = nextSeed
-                }
-
-            else
-                { loopState
-                    | seed = nextSeed
-                }
-        )
-        { order = order
-        , seed = state.seed
-        }
-        (List.range 1 swapAttempts)
-        |> .order
-
-
-isValidBlockOrder : List ( Int, Int ) -> Int -> List ( Int, Set ( Int, Int ) ) -> Bool
-isValidBlockOrder unlockOrder initialVisibleCount clusters =
-    let
-        checkProgress : Int -> Set Int -> Bool
-        checkProgress visibleCount solvedClusters =
-            if Set.size solvedClusters == List.length clusters then
-                True
-
-            else
-                let
-                    visibleBlocks : Set ( Int, Int )
-                    visibleBlocks =
-                        unlockOrder
-                            |> List.take visibleCount
-                            |> Set.fromList
-
-                    nextCluster : Maybe ( Int, Set ( Int, Int ) )
-                    nextCluster =
-                        clusters
-                            |> List.filter
-                                (\( idx, _  ) ->
-                                    not (Set.member idx solvedClusters)
-                                )
-                            |> List.filter
-                                (\( _, cluster ) ->
-                                    Set.Extra.isSubsetOf visibleBlocks cluster
-                                )
-                            |> List.head
-                in
-                case nextCluster of
-                    Nothing ->
-                        False
-
-                    Just ( clusterIndex, cluster ) ->
-                        checkProgress
-                            (visibleCount + Set.size cluster)
-                            (Set.insert clusterIndex solvedClusters)
-    in
-    checkProgress initialVisibleCount Set.empty
 
 
 allNumbersForSize : Int -> Set Int

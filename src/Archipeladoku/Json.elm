@@ -14,18 +14,20 @@ encodeBoard board =
         , ( "givens", encodeCellsDict Encode.int board.givens )
         , ( "puzzleAreas", encodePuzzleAreas board.puzzleAreas )
         , ( "solution", encodeCellsDict Encode.int board.solution )
+        , ( "unlockCount", Encode.int board.unlockCount )
         , ( "unlockOrder", Encode.list (encodeTuple Encode.int Encode.int) board.unlockOrder )
         ]
 
 
 boardDecoder : Decode.Decoder Engine.Board
 boardDecoder =
-    Decode.map6 Engine.Board
+    Decode.map7 Engine.Board
         (Decode.field "blockSize" Decode.int)
         (Decode.field "cellBlocks" (cellsDictDecoder (Decode.list areaDecoder)))
         (Decode.field "givens" (cellsDictDecoder Decode.int))
         (Decode.field "puzzleAreas" puzzleAreasDecoder)
         (Decode.field "solution" (cellsDictDecoder Decode.int))
+        (Decode.field "unlockCount" Decode.int)
         (Decode.field "unlockOrder" (Decode.list (decodeTuple Decode.int Decode.int)))
 
 
@@ -114,13 +116,15 @@ encodeGenerateArgs args =
         , ( "overlap", Encode.int args.overlap )
         , ( "numberOfBoards", Encode.int args.numberOfBoards )
         , ( "seed", Encode.int args.seed )
+        , ( "unlockedBlocks", Encode.int args.unlockedBlocks )
         ]
 
 
 generateArgsDecoder : Decode.Decoder Engine.GenerateArgs
 generateArgsDecoder =
-    Decode.map4 Engine.GenerateArgs
+    Decode.map5 Engine.GenerateArgs
         (Decode.field "blockSize" Decode.int)
         (Decode.field "overlap" Decode.int)
         (Decode.field "numberOfBoards" Decode.int)
         (Decode.field "seed" Decode.int)
+        (Decode.field "unlockedBlocks" Decode.int)

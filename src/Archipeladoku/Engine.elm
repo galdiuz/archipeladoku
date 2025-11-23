@@ -1,5 +1,6 @@
 module Archipeladoku.Engine exposing (..)
 
+import Bitwise
 import Dict exposing (Dict)
 import List.Extra
 import Order.Extra
@@ -15,6 +16,7 @@ type alias Board =
     , givens : Dict ( Int, Int ) Int
     , puzzleAreas : PuzzleAreas
     , solution : Dict ( Int, Int ) Int
+    , unlockCount : Int
     , unlockOrder : List ( Int, Int )
     }
 
@@ -39,6 +41,7 @@ type alias GenerateArgs =
     , overlap : Int
     , numberOfBoards : Int
     , seed : Int
+    , unlockedBlocks : Int
     }
 
 
@@ -62,13 +65,19 @@ type alias ClusterGenerationState =
     , blockAreasMap : Dict ( Int, Int ) (List Area)
     , blockSize : Int
     , blockUnlockOrder : List ( Int, Int )
+    , cellAreasMap : Dict ( Int, Int ) (List Area)
     , givens : Dict ( Int, Int ) Int
     , peerMap : PeerMap
     , puzzleAreas : PuzzleAreas
     , remainingClusters : List (List ( Int, Int ))
     , seed : Random.Seed
     , solution : Dict ( Int, Int ) Int
+    , unlockCount : Int
     }
+
+
+type alias Bitmask =
+    Int
 
 
 generate : GenerateArgs -> BoardGenerationState
@@ -208,7 +217,7 @@ generateWithValidArgs args =
 
         ( blockUnlockOrder, newSeed ) =
             buildBlockUnlockOrder
-                8
+                args.unlockedBlocks
                 args.blockSize
                 joinedPuzzleAreas.blocks
                 clusters
@@ -220,12 +229,14 @@ generateWithValidArgs args =
         , blockAreasMap = blockAreasMap
         , blockSize = args.blockSize
         , blockUnlockOrder = blockUnlockOrder
+        , cellAreasMap = cellAreas
         , givens = Dict.empty
         , peerMap = peerMap
         , puzzleAreas = joinedPuzzleAreas
         , remainingClusters = sortClustersByUnlockOrder blockUnlockOrder clusters
         , seed = newSeed
         , solution = Dict.empty
+        , unlockCount = args.unlockedBlocks
         }
         |> continueGeneration
 
@@ -243,6 +254,7 @@ continueGeneration state =
                         , puzzleAreas = clusterState.puzzleAreas
                         , solution = clusterState.solution
                         , unlockOrder = clusterState.blockUnlockOrder
+                        , unlockCount = clusterState.unlockCount
                         }
 
                 positionGroup :: remainingGroups ->
@@ -266,6 +278,7 @@ continueGeneration state =
                                     , puzzleAreas = newClusterState.puzzleAreas
                                     , solution = newClusterState.solution
                                     , unlockOrder = newClusterState.blockUnlockOrder
+                                    , unlockCount = newClusterState.unlockCount
                                     }
 
                             else
@@ -845,6 +858,19 @@ removeGivenNumbers :
     -> ClusterGenerationState
     -> ClusterGenerationState
 removeGivenNumbers clusterCells cellsToRemoveFrom inputState =
+    if inputState.blockSize <= 9 then
+        removeGivenNumbersBacktrack clusterCells cellsToRemoveFrom inputState
+
+    else
+        removeGivenNumbersLogical clusterCells cellsToRemoveFrom inputState
+
+
+removeGivenNumbersBacktrack :
+    Set ( Int, Int )
+    -> Set ( Int, Int )
+    -> ClusterGenerationState
+    -> ClusterGenerationState
+removeGivenNumbersBacktrack clusterCells cellsToRemoveFrom inputState =
     let
         allPossibilities : Possibilities
         allPossibilities =
@@ -991,6 +1017,325 @@ findOtherSolutionRecursive peerMap possibilities =
                 )
                 False
                 numbers
+
+
+removeGivenNumbersLogical :
+    Set ( Int, Int )
+    -> Set ( Int, Int )
+    -> ClusterGenerationState
+    -> ClusterGenerationState
+removeGivenNumbersLogical clusterCells cellsToRemoveFrom inputState =
+    let
+        allPossibilities : Possibilities
+        allPossibilities =
+            Set.foldl
+                (\cell acc ->
+                    Dict.insert cell inputState.allNumbers acc
+                )
+                Dict.empty
+                clusterCells
+
+        ( shuffledCells, nextSeed ) =
+            Random.step
+                (Random.List.shuffle (Set.toList cellsToRemoveFrom))
+                inputState.seed
+    in
+    List.foldl
+        (\cell state ->
+            let
+                givensWithoutCell : Dict ( Int, Int ) Int
+                givensWithoutCell =
+                    Dict.remove cell state.givens
+
+                solverPossibilities : Maybe Possibilities
+                solverPossibilities =
+                    Dict.foldl
+                        (\c numbers acc ->
+                            Maybe.andThen
+                                (\possMap ->
+                                    let
+                                        peers : Set ( Int, Int )
+                                        peers =
+                                            Dict.get c state.peerMap
+                                                |> Maybe.withDefault Set.empty
+                                    in
+                                    propagatePossibilities peers numbers possMap
+                                        |> Maybe.map (Dict.remove c)
+                                )
+                                acc
+                        )
+                        (Just allPossibilities)
+                        givensWithoutCell
+
+                canSolve : Bool
+                canSolve =
+                    case solverPossibilities of
+                        Just possMap ->
+                            canSolveWithLogic
+                                { cellAreas =
+                                    Dict.get cell state.cellAreasMap
+                                        |> Maybe.withDefault []
+                                        |> List.map getAreaCells
+                                , peerMap = state.peerMap
+                                , possibilities = possMap
+                                , removedCell = cell
+                                }
+
+                        Nothing ->
+                            False
+            in
+            if canSolve then
+                { state
+                    | givens = givensWithoutCell
+                }
+
+            else
+                state
+        )
+        { inputState | seed = nextSeed }
+        shuffledCells
+
+
+type alias SolveWithLogicArgs =
+    { cellAreas : List (List ( Int, Int ))
+    , peerMap : PeerMap
+    , possibilities : Possibilities
+    , removedCell : ( Int, Int )
+    }
+
+
+canSolveWithLogic : SolveWithLogicArgs -> Bool
+canSolveWithLogic args =
+    List.Extra.stoppableFoldl
+        (\solveFunc _ ->
+            if solveFunc args then
+                List.Extra.Stop True
+
+            else
+                List.Extra.Continue False
+        )
+        False
+        [ solveNakedSingles
+        , solveHiddenSingles
+        ]
+
+
+solveNakedSingles : SolveWithLogicArgs -> Bool
+solveNakedSingles args =
+    let
+        nakedSingles : List ( ( Int, Int ), Int )
+        nakedSingles =
+            Dict.foldl
+                (\cell options acc ->
+                    if Set.size options == 1 then
+                        case Set.toList options of
+                            [ val ] ->
+                                ( cell, val ) :: acc
+
+                            _ ->
+                                acc
+
+                    else
+                        acc
+                )
+                []
+                args.possibilities
+    in
+    case nakedSingles of
+        [] ->
+            Dict.isEmpty args.possibilities
+
+        singles ->
+            let
+                nextState : Maybe Possibilities
+                nextState =
+                    List.foldl
+                        (\( cell, val ) accMaybe ->
+                            accMaybe
+                                |> Maybe.andThen
+                                    (\currentPoss ->
+                                        let
+                                            peers =
+                                                Dict.get cell args.peerMap
+                                                    |> Maybe.withDefault Set.empty
+                                        in
+                                        propagatePossibilities peers val currentPoss
+                                            |> Maybe.map (Dict.remove cell)
+                                    )
+                        )
+                        (Just args.possibilities)
+                        singles
+            in
+            case nextState of
+                Just newPossibilities ->
+                    canSolveWithLogic
+                        { args
+                            | possibilities = newPossibilities
+                        }
+
+                Nothing ->
+                    False
+
+
+solveHiddenSingles : SolveWithLogicArgs -> Bool
+solveHiddenSingles args =
+    let
+        popLsb : Int -> ( Int, Int )
+        popLsb mask =
+            let
+                lsb : Bitmask
+                lsb =
+                    Bitwise.and mask (Bitwise.complement (mask - 1))
+
+                num : Int
+                num =
+                    bitToNum lsb 1
+            in
+            ( num, Bitwise.xor mask lsb )
+
+        bitToNum : Bitmask -> Int -> Int
+        bitToNum bit current =
+            if bit == 1 then
+                current
+
+            else
+                bitToNum (Bitwise.shiftRightZfBy 1 bit) (current + 1)
+
+        applyHiddenSingle : ( Int, Int ) -> Int -> Possibilities -> Maybe Possibilities
+        applyHiddenSingle cell val currentMap =
+            let
+                peers : Set ( Int, Int )
+                peers =
+                    Dict.get cell args.peerMap
+                        |> Maybe.withDefault Set.empty
+            in
+            propagatePossibilities peers val currentMap
+                |> Maybe.map (Dict.remove cell)
+
+        ( madeProgress, newPossibilities ) =
+            List.foldl
+                (\areaCells ( progress, currentMap ) ->
+                    -- 1. Build Masks (Same as before)
+                    let
+                        ( seen, dupe ) =
+                            List.foldl
+                                (\cell ( s, d ) ->
+                                    case Dict.get cell currentMap of
+                                        Just set ->
+                                            let
+                                                m : Bitmask
+                                                m =
+                                                    numbersToMask set
+                                            in
+                                            ( Bitwise.or s m, Bitwise.or d (Bitwise.and s m) )
+
+                                        Nothing -> ( s, d )
+                                )
+                                ( 0, 0 )
+                                areaCells
+
+                        hiddenMask : Bitmask
+                        hiddenMask =
+                            Bitwise.and seen (Bitwise.complement dupe)
+                    in
+                    if hiddenMask == 0 then
+                        ( progress, currentMap )
+
+                    else
+                        -- 2. Iterate bits and apply IMMEDIATELY
+                        let
+                            processMask : Int -> Bool -> Possibilities -> ( Bool, Possibilities )
+                            processMask mask p map =
+                                if mask == 0 then
+                                    ( p, map )
+
+                                else
+                                    let
+                                        ( num, nextMask ) =
+                                            popLsb mask
+
+                                        -- Find the cell for this number
+                                        maybeCell : Maybe ( ( Int, Int ), Int )
+                                        maybeCell =
+                                            findCellForNumber areaCells num map
+                                    in
+                                    case maybeCell of
+                                        Just (cell, val) ->
+                                            -- APPLY IT NOW
+                                            case applyHiddenSingle cell val map of
+                                                Just newMap ->
+                                                    processMask nextMask True newMap
+
+                                                Nothing ->
+                                                    -- Contradiction found (shouldn't happen), skip
+                                                    processMask nextMask p map
+
+                                        Nothing ->
+                                            processMask nextMask p map
+                        in
+                        processMask hiddenMask progress currentMap
+                )
+                ( False, args.possibilities )
+                args.cellAreas
+    in
+    if madeProgress then
+        canSolveWithLogic
+            { args
+                | possibilities = newPossibilities
+            }
+
+    else
+        False
+
+
+findCellForNumber : List ( Int, Int ) -> Int -> Possibilities -> Maybe ( ( Int, Int ), Int )
+findCellForNumber cells num currentMap =
+    case cells of
+        [] ->
+            Nothing
+
+        cell :: rest ->
+            case Dict.get cell currentMap of
+                Just set ->
+                    if Set.member num set then
+                        Just ( cell, num )
+
+                    else
+                        findCellForNumber rest num currentMap
+
+                Nothing ->
+                    findCellForNumber rest num currentMap
+
+
+numbersToMask : Set Int -> Bitmask
+numbersToMask numbers =
+    Set.foldl
+        (\number acc ->
+            Bitwise.or acc (Bitwise.shiftLeftBy (number - 1) 1)
+        )
+        0
+        numbers
+
+
+maskToNumbers : Bitmask -> List Int
+maskToNumbers mask =
+    let
+        helper : Bitmask -> Int -> List Int -> List Int
+        helper m currentVal acc =
+            if m == 0 then
+                acc
+            else
+                let
+                    newAcc =
+                        if Bitwise.and m 1 == 1 then
+                            currentVal :: acc
+
+                        else
+                            acc
+                in
+                helper (Bitwise.shiftRightZfBy 1 m) (currentVal + 1) newAcc
+    in
+    helper mask 1 []
 
 
 allNumbersForSize : Int -> Set Int

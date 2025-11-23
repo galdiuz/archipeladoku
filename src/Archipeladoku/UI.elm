@@ -67,10 +67,11 @@ init flagsValue =
       }
     , generateBoard
         (Json.encodeGenerateArgs
-            { blockSize = 4
-            , overlap = 1
-            , numberOfBoards = 13
+            { blockSize = 12
+            , overlap = 2
+            , numberOfBoards = 1
             , seed = 1
+            , unlockedBlocks = 100
             }
         )
     )
@@ -128,14 +129,12 @@ update msg model =
                                 , blockSize = board.blockSize
                                 , current = Dict.map (\_ v -> Given v) board.givens
                                 , errors = Dict.empty
-                                , lockedBlocks =
-                                    board.unlockOrder
-                                        |> List.drop 8
+                                , lockedBlocks = List.drop board.unlockCount board.unlockOrder
                                 , puzzleAreas = board.puzzleAreas
                                 , solution = board.solution
                                 , unlockedBlocks =
                                     board.unlockOrder
-                                        |> List.take 8
+                                        |> List.take board.unlockCount
                                         |> Set.fromList
                                 }
                     }

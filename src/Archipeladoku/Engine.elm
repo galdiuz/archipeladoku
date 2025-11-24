@@ -1041,78 +1041,104 @@ removeGivenNumbersLogical clusterCells cellsToRemoveFrom inputState =
                 inputState.seed
     in
     List.foldl
-        (\cell state ->
-            let
-                givensWithoutCell : Dict ( Int, Int ) Int
-                givensWithoutCell =
-                    Dict.remove cell state.givens
-
-                solverPossibilities : Maybe Possibilities
-                solverPossibilities =
-                    Dict.foldl
-                        (\c numbers acc ->
-                            Maybe.andThen
-                                (\possMap ->
-                                    let
-                                        peers : Set ( Int, Int )
-                                        peers =
-                                            Dict.get c state.peerMap
-                                                |> Maybe.withDefault Set.empty
-                                    in
-                                    propagatePossibilities peers numbers possMap
-                                        |> Maybe.map (Dict.remove c)
+        (\cellGroup state ->
+            List.Extra.stoppableFoldl
+                (\cells _ ->
+                    let
+                        givensWithoutCells : Dict ( Int, Int ) Int
+                        givensWithoutCells =
+                            List.foldl
+                                (\cell dict ->
+                                    Dict.remove cell dict
                                 )
-                                acc
-                        )
-                        (Just allPossibilities)
-                        givensWithoutCell
+                                state.givens
+                                cells
 
-                canSolve : Bool
-                canSolve =
-                    case solverPossibilities of
-                        Just possMap ->
-                            canSolveWithLogic
-                                { cellAreas =
-                                    Dict.get cell state.cellAreasMap
-                                        |> Maybe.withDefault []
-                                        |> List.map getAreaCells
-                                , peerMap = state.peerMap
-                                , possibilities = possMap
-                                , removedCell = cell
-                                }
+                        solverPossibilities : Maybe Possibilities
+                        solverPossibilities =
+                            Dict.foldl
+                                (\cell numbers acc ->
+                                    Maybe.andThen
+                                        (\possMap ->
+                                            let
+                                                peers : Set ( Int, Int )
+                                                peers =
+                                                    Dict.get cell state.peerMap
+                                                        |> Maybe.withDefault Set.empty
+                                            in
+                                            propagatePossibilities peers numbers possMap
+                                                |> Maybe.map (Dict.remove cell)
+                                        )
+                                        acc
+                                )
+                                (Just allPossibilities)
+                                givensWithoutCells
 
-                        Nothing ->
-                            False
-            in
-            if canSolve then
-                { state
-                    | givens = givensWithoutCell
-                }
+                        canSolve : Bool
+                        canSolve =
+                            case solverPossibilities of
+                                Just possMap ->
+                                    canSolveWithLogic
+                                        { cellAreasMap = state.cellAreasMap
+                                        , peerMap = state.peerMap
+                                        , possibilities = possMap
+                                        , removedCells = cells
+                                        }
 
-            else
+                                Nothing ->
+                                    False
+                    in
+                    if canSolve then
+                        { state
+                            | givens = givensWithoutCells
+                        }
+                            |> List.Extra.Stop
+
+                    else
+                        List.Extra.Continue state
+                )
                 state
+                (List.Extra.inits cellGroup
+                    |> List.drop 1
+                    |> List.reverse
+                )
+
         )
         { inputState | seed = nextSeed }
-        shuffledCells
+        (List.Extra.groupsOf 4 shuffledCells)
 
 
 type alias SolveWithLogicArgs =
-    { cellAreas : List (List ( Int, Int ))
+    { cellAreasMap : Dict ( Int, Int ) (List Area)
     , peerMap : PeerMap
     , possibilities : Possibilities
-    , removedCell : ( Int, Int )
+    , removedCells : List ( Int, Int )
     }
+
+
+type SolveWithLogicResult
+    = Solved
+    | Stuck
+    | Progress Possibilities
 
 
 canSolveWithLogic : SolveWithLogicArgs -> Bool
 canSolveWithLogic args =
     List.Extra.stoppableFoldl
         (\solveFunc _ ->
-            if solveFunc args then
-                List.Extra.Stop True
+            case solveFunc args of
+                Solved ->
+                    List.Extra.Stop True
 
-            else
-                List.Extra.Continue False
+                Stuck ->
+                    List.Extra.Continue False
+
+                Progress newPossibilities ->
+                    canSolveWithLogic
+                        { args
+                            | possibilities = newPossibilities
+                        }
+                        |> List.Extra.Stop
         )
         False
         [ solveNakedSingles
@@ -1120,7 +1146,7 @@ canSolveWithLogic args =
         ]
 
 
-solveNakedSingles : SolveWithLogicArgs -> Bool
+solveNakedSingles : SolveWithLogicArgs -> SolveWithLogicResult
 solveNakedSingles args =
     let
         nakedSingles : List ( ( Int, Int ), Int )
@@ -1143,7 +1169,11 @@ solveNakedSingles args =
     in
     case nakedSingles of
         [] ->
-            Dict.isEmpty args.possibilities
+            if Dict.isEmpty args.possibilities then
+                Solved
+
+            else
+                Stuck
 
         singles ->
             let
@@ -1168,30 +1198,63 @@ solveNakedSingles args =
             in
             case nextState of
                 Just newPossibilities ->
-                    canSolveWithLogic
-                        { args
-                            | possibilities = newPossibilities
-                        }
+                    Progress newPossibilities
 
                 Nothing ->
-                    False
+                    Stuck
 
 
-solveHiddenSingles : SolveWithLogicArgs -> Bool
+solveHiddenSingles : SolveWithLogicArgs -> SolveWithLogicResult
 solveHiddenSingles args =
     let
-        popLsb : Int -> ( Int, Int )
-        popLsb mask =
+        checkTargetInArea : ( Int, Int ) -> Possibilities -> List ( Int, Int ) -> Maybe Int
+        checkTargetInArea targetCell possibilities areaCells =
+            case Dict.get targetCell possibilities of
+                Nothing ->
+                    Nothing
+
+                Just targetCandidates ->
+                    let
+                        othersMask : Bitmask
+                        othersMask =
+                            List.foldl
+                                (\peer accMask ->
+                                    if peer == targetCell then
+                                        accMask
+
+                                    else
+                                        case Dict.get peer possibilities of
+                                            Just set ->
+                                                Bitwise.or accMask (numbersToMask set)
+
+                                            Nothing ->
+                                                accMask
+                                )
+                                0
+                                areaCells
+
+                        targetMask : Bitmask
+                        targetMask =
+                            numbersToMask targetCandidates
+
+                        uniqueMask : Bitmask
+                        uniqueMask =
+                            Bitwise.and targetMask (Bitwise.complement othersMask)
+                    in
+                    if uniqueMask == 0 then
+                        Nothing
+
+                    else
+                        Just (maskToFirstNumber uniqueMask)
+
+        maskToFirstNumber : Int -> Int
+        maskToFirstNumber mask =
             let
                 lsb : Bitmask
                 lsb =
                     Bitwise.and mask (Bitwise.complement (mask - 1))
-
-                num : Int
-                num =
-                    bitToNum lsb 1
             in
-            ( num, Bitwise.xor mask lsb )
+            bitToNum lsb 1
 
         bitToNum : Bitmask -> Int -> Int
         bitToNum bit current =
@@ -1201,110 +1264,55 @@ solveHiddenSingles args =
             else
                 bitToNum (Bitwise.shiftRightZfBy 1 bit) (current + 1)
 
-        applyHiddenSingle : ( Int, Int ) -> Int -> Possibilities -> Maybe Possibilities
-        applyHiddenSingle cell val currentMap =
+        hiddenSingle : Maybe ( ( Int, Int ), Int )
+        hiddenSingle =
+            List.foldl
+                (\target acc ->
+                    case acc of
+                        Just _ ->
+                            acc
+
+                        Nothing ->
+                            List.foldl
+                                (\area innerAcc ->
+                                    case innerAcc of
+                                        Just _ ->
+                                            innerAcc
+
+                                        Nothing ->
+                                            case checkTargetInArea target args.possibilities area of
+                                                Just number ->
+                                                    Just ( target, number )
+
+                                                Nothing ->
+                                                    Nothing
+                                )
+                                Nothing
+                                (Dict.get target args.cellAreasMap
+                                    |> Maybe.withDefault []
+                                    |> List.map getAreaCells
+                                )
+                )
+                Nothing
+                args.removedCells
+    in
+    case hiddenSingle of
+        Just ( cell, number ) ->
             let
                 peers : Set ( Int, Int )
                 peers =
                     Dict.get cell args.peerMap
                         |> Maybe.withDefault Set.empty
             in
-            propagatePossibilities peers val currentMap
-                |> Maybe.map (Dict.remove cell)
-
-        ( madeProgress, newPossibilities ) =
-            List.foldl
-                (\areaCells ( progress, currentMap ) ->
-                    -- 1. Build Masks (Same as before)
-                    let
-                        ( seen, dupe ) =
-                            List.foldl
-                                (\cell ( s, d ) ->
-                                    case Dict.get cell currentMap of
-                                        Just set ->
-                                            let
-                                                m : Bitmask
-                                                m =
-                                                    numbersToMask set
-                                            in
-                                            ( Bitwise.or s m, Bitwise.or d (Bitwise.and s m) )
-
-                                        Nothing -> ( s, d )
-                                )
-                                ( 0, 0 )
-                                areaCells
-
-                        hiddenMask : Bitmask
-                        hiddenMask =
-                            Bitwise.and seen (Bitwise.complement dupe)
-                    in
-                    if hiddenMask == 0 then
-                        ( progress, currentMap )
-
-                    else
-                        -- 2. Iterate bits and apply IMMEDIATELY
-                        let
-                            processMask : Int -> Bool -> Possibilities -> ( Bool, Possibilities )
-                            processMask mask p map =
-                                if mask == 0 then
-                                    ( p, map )
-
-                                else
-                                    let
-                                        ( num, nextMask ) =
-                                            popLsb mask
-
-                                        -- Find the cell for this number
-                                        maybeCell : Maybe ( ( Int, Int ), Int )
-                                        maybeCell =
-                                            findCellForNumber areaCells num map
-                                    in
-                                    case maybeCell of
-                                        Just (cell, val) ->
-                                            -- APPLY IT NOW
-                                            case applyHiddenSingle cell val map of
-                                                Just newMap ->
-                                                    processMask nextMask True newMap
-
-                                                Nothing ->
-                                                    -- Contradiction found (shouldn't happen), skip
-                                                    processMask nextMask p map
-
-                                        Nothing ->
-                                            processMask nextMask p map
-                        in
-                        processMask hiddenMask progress currentMap
-                )
-                ( False, args.possibilities )
-                args.cellAreas
-    in
-    if madeProgress then
-        canSolveWithLogic
-            { args
-                | possibilities = newPossibilities
-            }
-
-    else
-        False
-
-
-findCellForNumber : List ( Int, Int ) -> Int -> Possibilities -> Maybe ( ( Int, Int ), Int )
-findCellForNumber cells num currentMap =
-    case cells of
-        [] ->
-            Nothing
-
-        cell :: rest ->
-            case Dict.get cell currentMap of
-                Just set ->
-                    if Set.member num set then
-                        Just ( cell, num )
-
-                    else
-                        findCellForNumber rest num currentMap
+            case propagatePossibilities peers number args.possibilities of
+                Just newPossibilities ->
+                    Progress (Dict.remove cell newPossibilities)
 
                 Nothing ->
-                    findCellForNumber rest num currentMap
+                    Stuck
+
+        Nothing ->
+            Stuck
 
 
 numbersToMask : Set Int -> Bitmask

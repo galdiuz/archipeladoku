@@ -68,10 +68,10 @@ init flagsValue =
     , generateBoard
         (Json.encodeGenerateArgs
             { blockSize = 12
-            , overlap = 2
-            , numberOfBoards = 1
+            , overlap = 4
+            , numberOfBoards = 3
             , seed = 1
-            , unlockedBlocks = 100
+            , unlockedBlocks = 24
             }
         )
     )
@@ -93,13 +93,17 @@ keyDecoder =
                 case Maybe.map Tuple.first (String.uncons key) of
                     Just char ->
                         if Char.isHexDigit char then
-                            if Char.isDigit char then
+                            if char == '0' then
+                                KeyPressed 10
+                                    |> Decode.succeed
+
+                            else if Char.isDigit char then
                                 Char.toCode char - Char.toCode '0'
                                     |> KeyPressed
                                     |> Decode.succeed
 
                             else
-                                Char.toCode (Char.toUpper char) - Char.toCode 'A' + 10
+                                Char.toCode (Char.toUpper char) - Char.toCode 'A' + 11
                                     |> KeyPressed
                                     |> Decode.succeed
 
@@ -154,7 +158,7 @@ update msg model =
                     let
                         newCurrent : Dict ( Int, Int ) CellValue
                         newCurrent =
-                            if number < 1 || number > board.blockSize * board.blockSize then
+                            if number < 1 || number > board.blockSize then
                                 board.current
 
                             else
@@ -249,6 +253,7 @@ getBoardErrors board =
                     case Dict.get cell board.current of
                         Just (Given v) ->
                             let
+                                -- TODO: Only use visible cells when determining errors
                                 numbersInArea : Set Int
                                 numbersInArea =
                                     areaCells
@@ -610,16 +615,15 @@ isMultiple cellValue =
 
 numberToString : Int -> Int -> String
 numberToString blockSize number =
-    if blockSize >= 10 then
-        if number <= 10 then
-            String.fromInt (number - 1)
+    if number < 10 then
+        String.fromInt (number)
 
-        else
-            Char.fromCode (number - 11 + Char.toCode 'A')
-                |> String.fromChar
+    else if number == 10 then
+        "0"
 
     else
-        String.fromInt number
+        Char.fromCode (number - 11 + Char.toCode 'A')
+            |> String.fromChar
 
 
 css : String
@@ -741,7 +745,7 @@ css =
     }
 
     .cell.hidden {
-        background-color: light-dark(#cccccc, #111111);
+        background-color: light-dark(#888888, #888888);
     }
 
     .block-4 .cell.multi {
@@ -765,6 +769,12 @@ css =
     .block-9 .cell.multi {
         grid-template-rows: repeat(3, 1fr);
         grid-template-columns: repeat(3, 1fr);
+        font-size: 0.4em;
+    }
+
+    .block-12 .cell.multi {
+        grid-template-rows: repeat(3, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         font-size: 0.4em;
     }
 

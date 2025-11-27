@@ -23,12 +23,11 @@
         console.log('worker', worker.ports)
 
         worker.ports.sendBoard.subscribe(data => {
-            console.log(data)
+            console.log('sendBoard', data);
             ui.ports.receiveBoard.send(data);
         });
 
         ui.ports.generateBoard.subscribe(data => {
-            console.log(data)
             worker.ports.receiveGenerateArgs.send(data);
         });
     </script>

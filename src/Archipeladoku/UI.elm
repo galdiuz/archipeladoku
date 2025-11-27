@@ -67,11 +67,11 @@ init flagsValue =
       }
     , generateBoard
         (Json.encodeGenerateArgs
-            { blockSize = 12
-            , overlap = 4
-            , numberOfBoards = 3
+            { blockSize = 9
+            , overlapRows = 3
+            , overlapCols = 3
+            , numberOfBoards = 5
             , seed = 1
-            , unlockedBlocks = 24
             }
         )
     )

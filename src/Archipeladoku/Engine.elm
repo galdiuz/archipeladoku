@@ -38,10 +38,10 @@ type alias PuzzleAreas =
 
 type alias GenerateArgs =
     { blockSize : Int
-    , overlap : Int
+    , overlapCols : Int
+    , overlapRows : Int
     , numberOfBoards : Int
     , seed : Int
-    , unlockedBlocks : Int
     }
 
 
@@ -86,7 +86,7 @@ generate args =
         Failed "Invalid block size. Valid sizes are 4, 6, 8, 9, 12, and 16."
 
     -- TODO: Fix
-    else if args.overlap < 0 || args.overlap > args.blockSize then
+    else if args.overlapCols < 0 || args.overlapCols > args.blockSize then
         Failed "Overlap must be non-negative and less than or equal to block size."
 
     else if args.numberOfBoards < 1 then
@@ -106,7 +106,7 @@ generateWithValidArgs args =
     let
         positions : List ( Int, Int )
         positions =
-            positionBoards args.blockSize args.overlap args.numberOfBoards
+            positionBoards args.blockSize args.overlapRows args.overlapCols args.numberOfBoards
 
         puzzleAreas : List PuzzleAreas
         puzzleAreas =
@@ -202,12 +202,16 @@ generateWithValidArgs args =
         joinedPuzzleAreas =
             joinPuzzleAreas puzzleAreas
 
+        unlockedBlocks : Int
+        unlockedBlocks =
+            getInitialUnlockedBlocksCount args.blockSize args.overlapRows args.overlapCols
+
         ( clusters, groupSeed ) =
             groupPositions maxClusterSize positions ( [], Random.initialSeed args.seed )
 
         ( blockUnlockOrder, newSeed ) =
             buildBlockUnlockOrder
-                args.unlockedBlocks
+                unlockedBlocks
                 args.blockSize
                 joinedPuzzleAreas.blocks
                 clusters
@@ -226,9 +230,359 @@ generateWithValidArgs args =
         , remainingClusters = sortClustersByUnlockOrder blockUnlockOrder clusters
         , seed = newSeed
         , solution = Dict.empty
-        , unlockCount = args.unlockedBlocks
+        , unlockCount = unlockedBlocks
         }
-        |> continueGeneration
+
+
+positionBoards : Int -> Int -> Int -> Int -> List ( Int, Int )
+positionBoards blockSize overlapRows overlapCols numberOfBoards =
+    let
+        spotsInGrid : Int -> Int
+        spotsInGrid side =
+            (side * side)
+                |> toFloat
+                |> (\n -> n / 2.0)
+                |> ceiling
+
+        findSideLength : Int -> Int
+        findSideLength currentSide =
+            if spotsInGrid currentSide >= numberOfBoards then
+                currentSide
+
+            else
+                findSideLength (currentSide + 1)
+
+        isCornerOverlap : ( Int, Int ) -> Bool
+        isCornerOverlap ( gridRow, gridCol ) =
+            modBy 2 (gridRow + gridCol) == 0
+
+        mapToCell : ( Int, Int ) -> ( Int, Int )
+        mapToCell ( gridRow, gridCol ) =
+            ( gridRow * (blockSize - overlapRows) + 1
+            , gridCol * (blockSize - overlapCols) + 1
+            )
+
+        gridSideLength : Int
+        gridSideLength =
+            findSideLength 1
+
+        allGridCoords : List ( Int, Int )
+        allGridCoords =
+            List.range 0 (gridSideLength - 1)
+                |> List.concatMap
+                    (\gridRow ->
+                        List.map
+                            (Tuple.pair gridRow)
+                            (List.range 0 (gridSideLength - 1))
+                   )
+    in
+    allGridCoords
+        |> List.filter isCornerOverlap
+        |> List.take numberOfBoards
+        |> List.map mapToCell
+        |> List.sortWith
+            (Order.Extra.breakTies
+                [ (\( row1, col1 ) ( row2, col2 ) ->
+                    compare (row1 + col1) (row2 + col2)
+                  )
+                , (\( row1, col1 ) ( row2, col2 ) ->
+                    compare (max row1 col1) (max row2 col2)
+                  )
+                ]
+            )
+
+
+buildPuzzleAreas : Int -> Int -> Int -> PuzzleAreas
+buildPuzzleAreas blockSize startRow startCol =
+    let
+        ( blockWidth, blockHeight ) =
+            blockSizeToDimensions blockSize
+    in
+    { blocks =
+        List.range 0 (blockWidth - 1)
+            |> List.concatMap
+                (\blockRowOffset ->
+                    List.range 0 (blockHeight - 1)
+                        |> List.map
+                            (\blockColOffset ->
+                                { startRow = startRow + blockRowOffset * blockHeight
+                                , startCol = startCol + blockColOffset * blockWidth
+                                , endRow = startRow + (blockRowOffset + 1) * blockHeight - 1
+                                , endCol = startCol + (blockColOffset + 1) * blockWidth - 1
+                                }
+                            )
+                )
+    , rows =
+        List.range startRow (blockSize + startRow - 1)
+            |> List.map
+                (\row ->
+                    { startRow = row
+                    , startCol = startCol
+                    , endRow = row
+                    , endCol = startCol + blockSize - 1
+                    }
+                )
+    , cols =
+        List.range startCol (blockSize + startCol - 1)
+            |> List.map
+                (\col ->
+                    { startRow = startRow
+                    , startCol = col
+                    , endRow = startRow + blockSize - 1
+                    , endCol = col
+                    }
+                )
+    }
+
+
+getInitialUnlockedBlocksCount : Int -> Int -> Int -> Int
+getInitialUnlockedBlocksCount blockSize overlapRows overlapCols =
+    let
+        ( blockWidth, blockHeight ) =
+            blockSizeToDimensions blockSize
+    in
+    if modBy blockWidth overlapRows == 0 && modBy blockHeight overlapCols == 0 then
+        blockSize * 2 - 1
+
+    else
+        blockSize * 2
+
+
+groupPositions :
+    Int
+    -> List ( Int, Int )
+    -> ( List (List ( Int, Int )), Random.Seed )
+    -> ( List (List ( Int, Int )), Random.Seed )
+groupPositions maxClusterSize remaining ( clusters, currentSeed ) =
+    -- TODO: Implement proper grouping logic. Must consider proximity of positions.
+    ( List.map List.singleton remaining, currentSeed )
+
+
+buildBlockUnlockOrder :
+    Int
+    -> Int
+    -> List Area
+    -> List (List ( Int, Int ))
+    -> Random.Seed
+    -> ( List ( Int, Int ), Random.Seed )
+buildBlockUnlockOrder unlocked blockSize blockAreas clusterPositions seed =
+    let
+        ( blockWidth, blockHeight ) =
+            blockSizeToDimensions blockSize
+
+        allBlocks : Set ( Int, Int )
+        allBlocks =
+            List.map
+                (\area ->
+                    ( area.startRow, area.startCol )
+                )
+                blockAreas
+                |> Set.fromList
+
+        fillers : Set ( Int, Int )
+        fillers =
+            List.range 1 unlocked
+                |> List.map
+                    (\i ->
+                        ( -i, -i )
+                    )
+                |> Set.fromList
+
+        blocksFromPosition : ( Int, Int ) -> Set ( Int, Int )
+        blocksFromPosition ( row, col ) =
+            List.range 0 (blockWidth - 1)
+                |> List.concatMap
+                    (\rowOffset ->
+                        List.range 0 (blockHeight - 1)
+                            |> List.map
+                                (\colOffset ->
+                                    ( row + rowOffset * blockHeight
+                                    , col + colOffset * blockWidth
+                                    )
+                                )
+                    )
+                |> Set.fromList
+
+        clusters : Dict Int { id : Int, blocks : Set ( Int, Int ), remaining : Int }
+        clusters =
+            List.foldl
+                (\positions acc ->
+                    let
+                        blocksInCluster : Set ( Int, Int )
+                        blocksInCluster =
+                            List.foldl
+                                (\position set ->
+                                    Set.union (blocksFromPosition position) set
+                                )
+                                Set.empty
+                                positions
+                    in
+                    { unassignedBlocks = Set.diff acc.unassignedBlocks blocksInCluster
+                    , clusters =
+                        (Set.intersect acc.unassignedBlocks blocksInCluster)
+                            :: acc.clusters
+                    }
+                )
+                { unassignedBlocks = allBlocks
+                , clusters = []
+                }
+                clusterPositions
+                |> .clusters
+                |> List.reverse
+                |> List.indexedMap
+                    (\idx clusterBlocks ->
+                        ( idx
+                        , { id = idx
+                          , blocks = clusterBlocks
+                          , remaining = Set.size clusterBlocks
+                          }
+                        )
+                    )
+                |> Dict.fromList
+    in
+    buildBlockUnlockOrderRecursive
+        { clusters = clusters
+        , credits = unlocked
+        , order = []
+        , remainingBlocks = Set.union allBlocks fillers
+        , seed = seed
+        }
+        |> (\state ->
+            ( state.order ++ Set.toList state.remainingBlocks, state.seed )
+        )
+
+
+type alias BuildBlockUnlockOrderState =
+    { clusters : Dict Int { id : Int, blocks : Set ( Int, Int ), remaining : Int }
+    , credits : Int
+    , order : List ( Int, Int )
+    , remainingBlocks : Set ( Int, Int )
+    , seed : Random.Seed
+    }
+
+
+buildBlockUnlockOrderRecursive : BuildBlockUnlockOrderState -> BuildBlockUnlockOrderState
+buildBlockUnlockOrderRecursive state =
+    let
+        weightedClusters : List ( Float, { id : Int, blocks : Set ( Int, Int ), remaining : Int } )
+        weightedClusters =
+            List.map
+                (\cluster ->
+                    ( if cluster.remaining > state.credits then
+                        0
+
+                      else if Set.member ( 1, 1 ) cluster.blocks then
+                        100000000
+
+                      else
+                        state.credits - cluster.remaining + 1
+                    , cluster
+                    )
+                )
+                (Dict.values state.clusters)
+                |> List.map (Tuple.mapFirst toFloat)
+
+        targetTuple : Maybe ( { id : Int, blocks : Set ( Int, Int ), remaining : Int }, Random.Seed )
+        targetTuple =
+            case weightedClusters of
+                ( _, single ) :: [] ->
+                    ( single, state.seed )
+                        |> Just
+
+                first :: remaining ->
+                    Random.step
+                        (Random.weighted first remaining)
+                        state.seed
+                        |> Just
+
+                [] ->
+                    Nothing
+    in
+    case targetTuple of
+        Just ( targetCluster, seed1 ) ->
+            let
+                remainingCredits : Int
+                remainingCredits =
+                    state.credits - targetCluster.remaining
+
+                remainingBlocksWithoutTarget : Set ( Int, Int )
+                remainingBlocksWithoutTarget =
+                    Set.diff state.remainingBlocks targetCluster.blocks
+
+                targetBlocksToAddToOrder : Set ( Int, Int )
+                targetBlocksToAddToOrder =
+                    Set.intersect state.remainingBlocks targetCluster.blocks
+
+                ( randomBudget, seed2 ) =
+                    Random.step
+                        (Random.int 0 remainingCredits)
+                        seed1
+
+                ( ( randomBlocks, remainingBlocksWithoutRandom ), seed3 ) =
+                    Random.step
+                        (Random.List.choices randomBudget (Set.toList remainingBlocksWithoutTarget))
+                        seed2
+                        |> Tuple.mapFirst (Tuple.mapSecond Set.fromList)
+
+                ( shuffledBlocks, seed4 ) =
+                    Random.step
+                        (Random.List.shuffle (Set.toList targetBlocksToAddToOrder ++ randomBlocks))
+                        seed3
+            in
+            { state
+                | clusters =
+                    state.clusters
+                        |> Dict.remove targetCluster.id
+                        |> Dict.map
+                            (\_ cluster ->
+                                { cluster
+                                    | remaining =
+                                        (Set.intersect remainingBlocksWithoutRandom cluster.blocks
+                                            |> Set.size
+                                        )
+                                }
+                            )
+                , credits = remainingCredits + Set.size targetCluster.blocks - List.length randomBlocks
+                , order = state.order ++ shuffledBlocks
+                , remainingBlocks = remainingBlocksWithoutRandom
+                , seed = seed4
+            }
+                |> buildBlockUnlockOrderRecursive
+
+        Nothing ->
+            state
+
+
+sortClustersByUnlockOrder :
+    List ( Int, Int )
+    -> List (List ( Int, Int ))
+    -> List (List ( Int, Int ))
+sortClustersByUnlockOrder unlockOrder clusters =
+    List.foldl
+        (\position acc ->
+            let
+                newUnlockedBlocks : Set ( Int, Int )
+                newUnlockedBlocks =
+                    Set.insert position acc.unlockedBlocks
+
+                ( unlockedClusters, remainingClusters ) =
+                    List.partition
+                        (\clusterBlocks ->
+                            Set.Extra.isSubsetOf newUnlockedBlocks (Set.fromList clusterBlocks)
+                        )
+                        acc.remainingClusters
+            in
+            { unlockedBlocks = newUnlockedBlocks
+            , sortedClusters = List.append acc.sortedClusters unlockedClusters
+            , remainingClusters = remainingClusters
+            }
+        )
+        { unlockedBlocks = Set.empty
+        , sortedClusters = []
+        , remainingClusters = clusters
+        }
+        unlockOrder
+        |> .sortedClusters
 
 
 continueGeneration : BoardGenerationState -> BoardGenerationState
@@ -282,262 +636,6 @@ continueGeneration state =
 
         Completed board ->
             Completed board
-
-
-groupPositions :
-    Int
-    -> List ( Int, Int )
-    -> ( List (List ( Int, Int )), Random.Seed )
-    -> ( List (List ( Int, Int )), Random.Seed )
-groupPositions maxClusterSize remaining ( clusters, currentSeed ) =
-    ( List.map List.singleton remaining, currentSeed )
-    -- TODO: Implement proper grouping logic. Must consider proximity of positions.
-    -- if List.isEmpty remaining then
-    --     ( clusters, currentSeed )
-    --
-    -- else
-    --     let
-    --         ( positionsInCluster, nextSeed ) =
-    --             Random.step (Random.int 1 maxClusterSize) currentSeed
-    --
-    --         ( cluster, nextRemaining ) =
-    --             List.Extra.splitAt positionsInCluster remaining
-    --     in
-    --     groupPositions maxClusterSize nextRemaining ( cluster :: clusters, nextSeed )
-
-
-buildBlockUnlockOrder :
-    Int
-    -> Int
-    -> List Area
-    -> List (List ( Int, Int ))
-    -> Random.Seed
-    -> ( List ( Int, Int ), Random.Seed )
-buildBlockUnlockOrder unlocked blockSize blocks clusterPositions initialSeed =
-    let
-        ( blockWidth, blockHeight ) =
-            blockSizeToDimensions blockSize
-
-        initialOrder : List ( Int, Int )
-        initialOrder =
-            List.map
-                (\area ->
-                    ( area.startRow, area.startCol )
-                )
-                blocks
-
-        clusters : List ( Int, Set ( Int, Int ) )
-        clusters =
-            List.foldl
-                (\positions acc ->
-                    let
-                        blocksInCluster : Set ( Int, Int )
-                        blocksInCluster =
-                            List.foldl
-                                (\( row, col ) ->
-                                    Set.union
-                                        (List.range 0 (blockWidth - 1)
-                                            |> List.concatMap
-                                                (\rowOffset ->
-                                                    List.range 0 (blockHeight - 1)
-                                                        |> List.map
-                                                            (\colOffset ->
-                                                                ( row + rowOffset * blockHeight
-                                                                , col + colOffset * blockWidth
-                                                                )
-                                                            )
-                                                )
-                                            |> Set.fromList
-                                        )
-                                )
-                                Set.empty
-                                positions
-                    in
-                    { blocks = Set.diff acc.blocks blocksInCluster
-                    , clusters =
-                        (Set.intersect acc.blocks blocksInCluster)
-                            :: acc.clusters
-                    }
-                )
-                { blocks = Set.fromList initialOrder
-                , clusters = []
-                }
-                clusterPositions
-                |> .clusters
-                |> List.reverse
-                |> List.indexedMap
-                    (\index cluster ->
-                        ( index, cluster )
-                    )
-
-        blockClusterMap : Dict ( Int, Int ) (List Int)
-        blockClusterMap =
-            List.foldl
-                (\( clusterIndex, clusterBlocks ) dictAcc ->
-                    Set.foldl
-                        (\block innerDict ->
-                            Dict.update
-                                block
-                                (\maybeList ->
-                                    Just (clusterIndex :: Maybe.withDefault [] maybeList)
-                                )
-                                innerDict
-                        )
-                        dictAcc
-                        clusterBlocks
-                )
-                Dict.empty
-                clusters
-
-        orderLength : Int
-        orderLength =
-            List.length initialOrder
-
-        swapAttempts : Int
-        swapAttempts =
-            orderLength * 100
-    in
-    List.foldl
-        (\_ ( order, seed ) ->
-            let
-                ( first, stepSeed ) =
-                    Random.step (Random.int unlocked (orderLength - 1)) seed
-
-                ( second, nextSeed ) =
-                    Random.step (Random.int unlocked (orderLength - 1)) stepSeed
-
-                newOrder : List ( Int, Int )
-                newOrder =
-                    List.Extra.swapAt first second order
-            in
-            if isValidBlockOrder newOrder unlocked clusters blockClusterMap then
-                ( newOrder, nextSeed )
-
-            else
-                ( order, nextSeed )
-        )
-        ( initialOrder, initialSeed )
-        (List.range 1 swapAttempts)
-
-
-isValidBlockOrder :
-    List ( Int, Int )
-    -> Int
-    -> List ( Int, Set ( Int, Int ) )
-    -> Dict ( Int, Int ) (List Int)
-    -> Bool
-isValidBlockOrder unlockOrder initialVisibleCount clusters blockMap =
-    let
-        initialCounts : Dict Int Int
-        initialCounts =
-            clusters
-                |> List.map (\( idx, blocks ) -> ( idx, Set.size blocks ))
-                |> Dict.fromList
-
-        totalClusters : Int
-        totalClusters =
-            List.length clusters
-
-        runSimulation :
-            List ( Int, Int )
-            -> Int
-            -> Dict Int Int
-            -> Dict Int Int
-            -> Int
-            -> Bool
-        runSimulation order credits counts rewards solvedCount =
-            if solvedCount == totalClusters then
-                True
-
-            else if credits <= 0 then
-                False
-
-            else
-                case order of
-                    [] ->
-                        False
-
-                    currentBlock :: remainingOrder ->
-                        let
-                            affectedClusters : List Int
-                            affectedClusters =
-                                Dict.get currentBlock blockMap
-                                    |> Maybe.withDefault []
-
-                            ( newCounts, earnedCredits, newSolvedCount ) =
-                                List.foldl
-                                    (\clusterIdx ( cMap, creditAcc, sCount ) ->
-                                        case Dict.get clusterIdx cMap of
-                                            Just count ->
-                                                if count == 1 then
-                                                    let
-                                                        reward : Int
-                                                        reward =
-                                                            Dict.get clusterIdx rewards
-                                                                |> Maybe.withDefault 0
-                                                    in
-                                                    ( Dict.remove clusterIdx cMap
-                                                    , creditAcc + reward
-                                                    , sCount + 1
-                                                    )
-
-                                                else
-                                                    ( Dict.insert clusterIdx (count - 1) cMap
-                                                    , creditAcc
-                                                    , sCount
-                                                    )
-
-                                            Nothing ->
-                                                ( cMap, creditAcc, sCount )
-                                    )
-                                    ( counts, 0, solvedCount )
-                                    affectedClusters
-                        in
-                        runSimulation
-                            remainingOrder
-                            (credits - 1 + earnedCredits)
-                            newCounts
-                            rewards
-                            newSolvedCount
-    in
-    runSimulation
-        unlockOrder
-        initialVisibleCount
-        initialCounts
-        initialCounts
-        0
-
-
-sortClustersByUnlockOrder :
-    List ( Int, Int )
-    -> List (List ( Int, Int ))
-    -> List (List ( Int, Int ))
-sortClustersByUnlockOrder unlockOrder clusters =
-    List.foldl
-        (\position acc ->
-            let
-                newUnlockedBlocks : Set ( Int, Int )
-                newUnlockedBlocks =
-                    Set.insert position acc.unlockedBlocks
-
-                ( unlockedClusters, remainingClusters ) =
-                    List.partition
-                        (\clusterBlocks ->
-                            Set.Extra.isSubsetOf newUnlockedBlocks (Set.fromList clusterBlocks)
-                        )
-                        acc.remainingClusters
-            in
-            { unlockedBlocks = newUnlockedBlocks
-            , sortedClusters = List.append acc.sortedClusters unlockedClusters
-            , remainingClusters = remainingClusters
-            }
-        )
-        { unlockedBlocks = Set.empty
-        , sortedClusters = []
-        , remainingClusters = clusters
-        }
-        unlockOrder
-        |> .sortedClusters
 
 
 generateCluster :
@@ -654,109 +752,6 @@ propagateSolution solution peerMap cell possibilities =
 
         Nothing ->
             Ok possibilities
-
-
-positionBoards : Int -> Int -> Int -> List ( Int, Int )
-positionBoards blockSize overlap numberOfBoards =
-    let
-        spotsInGrid : Int -> Int
-        spotsInGrid side =
-            (side * side)
-                |> toFloat
-                |> (\n -> n / 2.0)
-                |> ceiling
-
-        findSideLength : Int -> Int
-        findSideLength currentSide =
-            if spotsInGrid currentSide >= numberOfBoards then
-                currentSide
-
-            else
-                findSideLength (currentSide + 1)
-
-        isCornerOverlap : ( Int, Int ) -> Bool
-        isCornerOverlap ( gridRow, gridCol ) =
-            modBy 2 (gridRow + gridCol) == 0
-
-        stepSize : Int
-        stepSize =
-            blockSize - overlap
-
-        mapToCell : ( Int, Int ) -> ( Int, Int )
-        mapToCell ( gridRow, gridCol ) =
-            ( gridRow * stepSize + 1, gridCol * stepSize + 1 )
-
-        gridSideLength : Int
-        gridSideLength =
-            findSideLength 1
-
-        allGridCoords : List ( Int, Int )
-        allGridCoords =
-            List.range 0 (gridSideLength - 1)
-                |> List.concatMap
-                    (\gridRow ->
-                        List.map
-                            (Tuple.pair gridRow)
-                            (List.range 0 (gridSideLength - 1))
-                   )
-    in
-    allGridCoords
-        |> List.filter isCornerOverlap
-        |> List.take numberOfBoards
-        |> List.map mapToCell
-        |> List.sortWith
-            (Order.Extra.breakTies
-                [ (\( row1, col1 ) ( row2, col2 ) ->
-                    compare (row1 + col1) (row2 + col2)
-                  )
-                , (\( row1, col1 ) ( row2, col2 ) ->
-                    compare (max row1 col1) (max row2 col2)
-                  )
-                ]
-            )
-
-
-buildPuzzleAreas : Int -> Int -> Int -> PuzzleAreas
-buildPuzzleAreas blockSize startRow startCol =
-    let
-        ( blockWidth, blockHeight ) =
-            blockSizeToDimensions blockSize
-    in
-    { blocks =
-        List.range 0 (blockWidth - 1)
-            |> List.concatMap
-                (\blockRowOffset ->
-                    List.range 0 (blockHeight - 1)
-                        |> List.map
-                            (\blockColOffset ->
-                                { startRow = startRow + blockRowOffset * blockHeight
-                                , startCol = startCol + blockColOffset * blockWidth
-                                , endRow = startRow + (blockRowOffset + 1) * blockHeight - 1
-                                , endCol = startCol + (blockColOffset + 1) * blockWidth - 1
-                                }
-                            )
-                )
-    , rows =
-        List.range startRow (blockSize + startRow - 1)
-            |> List.map
-                (\row ->
-                    { startRow = row
-                    , startCol = startCol
-                    , endRow = row
-                    , endCol = startCol + blockSize - 1
-                    }
-                )
-    , cols =
-        List.range startCol (blockSize + startCol - 1)
-            |> List.map
-                (\col ->
-                    { startRow = startRow
-                    , startCol = col
-                    , endRow = startRow + blockSize - 1
-                    , endCol = col
-                    }
-                )
-    }
 
 
 blockSizeToDimensions : Int -> ( Int, Int )

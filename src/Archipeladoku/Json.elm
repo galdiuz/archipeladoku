@@ -113,10 +113,10 @@ encodeGenerateArgs : Engine.GenerateArgs -> Encode.Value
 encodeGenerateArgs args =
     Encode.object
         [ ( "blockSize", Encode.int args.blockSize )
-        , ( "overlap", Encode.int args.overlap )
+        , ( "overlapCols", Encode.int args.overlapCols )
+        , ( "overlapRows", Encode.int args.overlapRows )
         , ( "numberOfBoards", Encode.int args.numberOfBoards )
         , ( "seed", Encode.int args.seed )
-        , ( "unlockedBlocks", Encode.int args.unlockedBlocks )
         ]
 
 
@@ -124,7 +124,7 @@ generateArgsDecoder : Decode.Decoder Engine.GenerateArgs
 generateArgsDecoder =
     Decode.map5 Engine.GenerateArgs
         (Decode.field "blockSize" Decode.int)
-        (Decode.field "overlap" Decode.int)
+        (Decode.field "overlapCols" Decode.int)
+        (Decode.field "overlapRows" Decode.int)
         (Decode.field "numberOfBoards" Decode.int)
         (Decode.field "seed" Decode.int)
-        (Decode.field "unlockedBlocks" Decode.int)

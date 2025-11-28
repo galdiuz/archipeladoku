@@ -15,21 +15,26 @@
             node: uiContainer,
             flags: {}
         });
-        let worker = Elm.Archipeladoku.Worker.init({
-            flags: {}
-        });
-
-        console.log('ui', ui.ports)
-        console.log('worker', worker.ports)
-
-        worker.ports.sendBoard.subscribe(data => {
-            console.log('sendBoard', data);
-            ui.ports.receiveBoard.send(data);
-        });
+        let worker = new Worker('worker.js');
 
         ui.ports.generateBoard.subscribe(data => {
-            worker.ports.receiveGenerateArgs.send(data);
+            worker.postMessage({ type: 'generateBoard', data: data });
         });
+
+        worker.onmessage = function(event) {
+            console.log(event.data.type, event.data.data);
+
+            switch(event.data.type) {
+                case 'sendBoard':
+                    ui.ports.receiveBoard.send(event.data.data);
+
+                    break;
+
+                default:
+                    console.log('Unknown message type:', event.data.type);
+            }
+        };
+
     </script>
 </body>
 </html>

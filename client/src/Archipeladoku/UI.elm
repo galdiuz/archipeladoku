@@ -2,6 +2,7 @@ port module Archipeladoku.UI exposing (..)
 
 import Archipeladoku.Engine as Engine
 import Archipeladoku.Json as Json
+import Array exposing (Array)
 import Browser
 import Browser.Events
 import Dict exposing (Dict)
@@ -18,18 +19,34 @@ import Set exposing (Set)
 
 port receiveBoard : (Decode.Value -> msg) -> Sub msg
 port generateBoard : Encode.Value -> Cmd msg
+port connect : Encode.Value -> Cmd msg
+port checkLocation : Int -> Cmd msg
+port receiveItems : (List Int -> msg) -> Sub msg
+port receiveCheckedLocations : (List Int -> msg) -> Sub msg
 
 
 type alias Model =
     { board : Maybe BoardState
+    , gameIsLocal : Bool
+    , host : String
+    , pendingBlockUnlocks : Set ( Int, Int )
+    , pendingCellChanges : Set ( Int, Int )
+    , pendingSolvedBlocks : Set ( Int, Int )
+    , player : String
     , selectedCell : Maybe ( Int, Int )
     }
 
 
 type Msg
     = CellSelected ( Int, Int )
+    | ConnectPressed
     | GotBoard Decode.Value
+    | GotCheckedLocations (List Int)
+    | GotItems (List Int)
+    | HostInputChanged String
     | KeyPressed Int
+    | PlayLocalPressed
+    | PlayerInputChanged String
 
 
 type alias BoardState =
@@ -63,17 +80,31 @@ main =
 init : Decode.Value -> ( Model, Cmd Msg )
 init flagsValue =
     ( { board = Nothing
+      , gameIsLocal = False
+      , host = "localhost:8123"
+      , pendingBlockUnlocks = Set.empty
+      , pendingCellChanges = Set.empty
+      , pendingSolvedBlocks = Set.empty
+      , player = "Player1"
       , selectedCell = Nothing
       }
-    , generateBoard
-        (Json.encodeGenerateArgs
-            { blockSize = 9
-            , overlapRows = 3
-            , overlapCols = 3
-            , numberOfBoards = 5
-            , seed = 1
-            }
-        )
+    , Cmd.none
+    -- , connect
+    --     (Encode.object
+            -- [ ( "host", Encode.string "localhost:8123" )
+            -- , ( "player", Encode.string "player1" )
+            -- , ( "password", Encode.null )
+            -- ]
+    --     )
+    -- , generateBoard
+    --     (Json.encodeGenerateArgs
+    --         { blockSize = blockSize
+    --         , overlapRows = Engine.blockSizeToOverlap blockSize |> Tuple.first
+    --         , overlapCols = Engine.blockSizeToOverlap blockSize |> Tuple.second
+    --         , numberOfBoards = 5
+    --         , seed = 1
+    --         }
+    --     )
     )
 
 
@@ -81,6 +112,8 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ receiveBoard GotBoard
+        , receiveItems GotItems
+        , receiveCheckedLocations GotCheckedLocations
         , Browser.Events.onKeyPress keyDecoder
         ]
 
@@ -123,6 +156,17 @@ update msg model =
             , Cmd.none
             )
 
+        ConnectPressed ->
+            ( model
+            , connect
+                (Encode.object
+                    [ ( "host", Encode.string model.host )
+                    , ( "player", Encode.string model.player )
+                    , ( "password", Encode.null )
+                    ]
+                )
+            )
+
         GotBoard value ->
             case Decode.decodeValue Json.boardDecoder value of
                 Ok board ->
@@ -141,9 +185,10 @@ update msg model =
                                         |> List.take board.unlockCount
                                         |> Set.fromList
                                 }
-                    }
+                      }
                     , Cmd.none
                     )
+                        |> updateBoard
 
                 Err err ->
                     let
@@ -151,6 +196,55 @@ update msg model =
                             Debug.log "Decoding error" err
                     in
                     ( model, Cmd.none )
+
+        GotCheckedLocations locationIds ->
+            ( { model
+                | pendingSolvedBlocks =
+                    Set.union
+                        model.pendingSolvedBlocks
+                        (locationIds
+                            |> List.filterMap
+                                (\id ->
+                                    if id >= 1000000 then
+                                        Just (blockFromId id)
+
+                                    else
+                                        Nothing
+                                )
+                            |> Debug.log "Solved blocks"
+                            |> Set.fromList
+                        )
+              }
+            , Cmd.none
+            )
+                |> updateBoard
+
+        GotItems itemIds ->
+            ( { model
+                | pendingBlockUnlocks =
+                    Set.union
+                        model.pendingBlockUnlocks
+                        (itemIds
+                            |> List.filterMap
+                                (\id ->
+                                    if id >= 1000000 then
+                                        Just (blockFromId id)
+
+                                    else
+                                        Nothing
+                                )
+                            |> Debug.log "Received blocks"
+                            |> Set.fromList
+                        )
+              }
+            , Cmd.none
+            )
+                |> updateBoard
+
+        HostInputChanged value ->
+            ( { model | host = value }
+            , Cmd.none
+            )
 
         KeyPressed number ->
             case ( model.selectedCell, model.board ) of
@@ -167,63 +261,183 @@ update msg model =
                                     (toggleNumber number)
                                     board.current
                     in
-                    ( { model | board = Just <| updateBoard ( row, col ) { board | current = newCurrent } }
+                    ( { model
+                        | board = Just { board | current = newCurrent }
+                        , pendingCellChanges = Set.insert ( row, col ) model.pendingCellChanges
+                      }
                     , Cmd.none
                     )
+                        |> updateBoard
 
                 _ ->
                     ( model
                     , Cmd.none
                     )
 
-
-updateBoard : ( Int, Int ) -> BoardState -> BoardState
-updateBoard updatedCell board =
-    let
-        blocksAtCell : List Engine.Area
-        blocksAtCell =
-            Dict.get updatedCell board.cellBlocks
-                |> Maybe.withDefault []
-    in
-    List.foldl
-        (\block boardAcc ->
+        PlayLocalPressed ->
             let
-                isSolved : ( Int, Int ) -> Bool
-                isSolved cell =
-                    case ( Dict.get cell boardAcc.current, Dict.get cell boardAcc.solution ) of
-                        ( Just (Given v), Just sol ) ->
-                            v == sol
-
-                        ( Just (Single v), Just sol ) ->
-                            v == sol
-
-                        _ ->
-                            False
-
-                blockCells : List ( Int, Int )
-                blockCells =
-                    Engine.getAreaCells block
+                blockSize = 4
             in
-            if List.all isSolved blockCells then
-                { boardAcc
-                    | current =
-                        List.foldl
-                            (\cell acc ->
-                                Dict.insert
-                                    cell
-                                    (Given (Dict.get cell boardAcc.solution |> Maybe.withDefault 0))
-                                    acc
-                            )
-                            boardAcc.current
-                            blockCells
-                }
-                    |> unlockNextBlock
+            ( { model | gameIsLocal = True }
+            , generateBoard
+                (Json.encodeGenerateArgs
+                    { blockSize = blockSize
+                    , overlapRows = Engine.blockSizeToOverlap blockSize |> Tuple.first
+                    , overlapCols = Engine.blockSizeToOverlap blockSize |> Tuple.second
+                    , numberOfBoards = 5
+                    , seed = 1
+                    }
+                )
+            )
 
-            else
-                boardAcc
+        PlayerInputChanged value ->
+            ( { model | player = value }
+            , Cmd.none
+            )
+
+
+andThen : (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+andThen fun ( model, cmd ) =
+    let
+        ( newModel, newCmd ) =
+            fun model
+    in
+    ( newModel, Cmd.batch [ cmd, newCmd ] )
+
+
+updateBoardStateInModel : Model -> BoardState -> Model
+updateBoardStateInModel model board =
+    { model | board = Just board }
+
+
+updateBoard : ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+updateBoard ( model, cmd ) =
+    case model.board of
+        Just _ ->
+            ( model, cmd )
+                |> andThen updateBoardCellChanges
+                |> andThen updateBoardBlockUnlocks
+                |> andThen updateBoardSolvedBlocks
+                |> andThen updateBoardErrors
+
+        Nothing ->
+            ( model, cmd )
+
+
+updateBoardCellChanges : Model -> ( Model, Cmd Msg )
+updateBoardCellChanges model =
+    Set.foldl
+        (andThen << updateBoardCellChange)
+        ( { model | pendingCellChanges = Set.empty }
+        , Cmd.none
         )
-        { board | errors = getBoardErrors board }
-        blocksAtCell
+        model.pendingCellChanges
+
+
+updateBoardBlockUnlocks : Model -> ( Model, Cmd Msg )
+updateBoardBlockUnlocks model =
+    Set.foldl
+        (andThen << updateBoardBlockUnlock)
+        ( { model | pendingBlockUnlocks = Set.empty }
+        , Cmd.none
+        )
+        model.pendingBlockUnlocks
+
+
+updateBoardSolvedBlocks : Model -> ( Model, Cmd Msg )
+updateBoardSolvedBlocks model =
+    Set.foldl
+        (andThen << updateBoardSolvedBlock)
+        ( { model | pendingSolvedBlocks = Set.empty }
+        , Cmd.none
+        )
+        model.pendingSolvedBlocks
+
+
+updateBoardErrors : Model -> ( Model, Cmd Msg )
+updateBoardErrors model =
+    case model.board of
+        Just board ->
+            ( { board | errors = getBoardErrors board }
+                |> updateBoardStateInModel model
+            , Cmd.none
+            )
+
+        Nothing ->
+            ( model
+            , Cmd.none
+            )
+
+
+updateBoardCellChange : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
+updateBoardCellChange updatedCell model =
+    case model.board of
+        Just board ->
+            let
+                blocksAtCell : List Engine.Area
+                blocksAtCell =
+                    Dict.get updatedCell board.cellBlocks
+                        |> Maybe.withDefault []
+            in
+            List.foldl
+                (\block ( boardAcc, cmd ) ->
+                    let
+                        isSolved : ( Int, Int ) -> Bool
+                        isSolved cell =
+                            case ( Dict.get cell boardAcc.current, Dict.get cell boardAcc.solution ) of
+                                ( Just (Given v), Just sol ) ->
+                                    v == sol
+
+                                ( Just (Single v), Just sol ) ->
+                                    v == sol
+
+                                _ ->
+                                    False
+
+                        blockCells : List ( Int, Int )
+                        blockCells =
+                            Engine.getAreaCells block
+                    in
+                    if List.all isSolved blockCells then
+                        { boardAcc
+                            | current =
+                                List.foldl
+                                    (\cell acc ->
+                                        Dict.insert
+                                            cell
+                                            (Given (Dict.get cell boardAcc.solution |> Maybe.withDefault 0))
+                                            acc
+                                    )
+                                    boardAcc.current
+                                    blockCells
+                        }
+                            |> (\newBoard ->
+                                    if model.gameIsLocal then
+                                        ( unlockNextBlock newBoard
+                                        , cmd
+                                        )
+
+                                    else
+                                        ( newBoard
+                                        , checkLocation (cellToLocationId ( block.startRow, block.startCol ))
+                                        )
+                               )
+
+                    else
+                        ( boardAcc
+                        , cmd
+                        )
+                )
+                ( board
+                , Cmd.none
+                )
+                blocksAtCell
+                |> Tuple.mapFirst (updateBoardStateInModel model)
+
+        Nothing ->
+            ( model
+            , Cmd.none
+            )
 
 
 unlockNextBlock : BoardState -> BoardState
@@ -247,17 +461,29 @@ getBoardErrors board =
                 areaCells : List ( Int, Int )
                 areaCells =
                     Engine.getAreaCells area
+
+                cellIsVisible : ( Int, Int ) -> Bool
+                cellIsVisible cell =
+                    Set.intersect
+                        (Dict.get cell board.cellBlocks
+                            |> Maybe.withDefault []
+                            |> List.map (\blockArea -> ( blockArea.startRow, blockArea.startCol ))
+                            |> Set.fromList
+                        )
+                        board.unlockedBlocks
+                        |> Set.isEmpty
+                        |> not
             in
             List.foldl
                 (\cell acc ->
                     case Dict.get cell board.current of
                         Just (Given v) ->
                             let
-                                -- TODO: Only use visible cells when determining errors
                                 numbersInArea : Set Int
                                 numbersInArea =
                                     areaCells
                                         |> List.filter ((/=) cell)
+                                        |> List.filter cellIsVisible
                                         |> List.filterMap (\areaCell -> Dict.get areaCell board.current)
                                         |> List.map cellValueToInts
                                         |> List.foldl Set.union Set.empty
@@ -274,6 +500,7 @@ getBoardErrors board =
                                 numbersInArea =
                                     areaCells
                                         |> List.filter ((/=) cell)
+                                        |> List.filter cellIsVisible
                                         |> List.filterMap (\areaCell -> Dict.get areaCell board.current)
                                         |> List.map cellValueToInts
                                         |> List.foldl Set.union Set.empty
@@ -290,6 +517,7 @@ getBoardErrors board =
                                 numbersInArea =
                                     areaCells
                                         |> List.filter ((/=) cell)
+                                        |> List.filter cellIsVisible
                                         |> List.filterMap (\areaCell -> Dict.get areaCell board.current)
                                         |> List.filterMap cellValueToInt
                                         |> Set.fromList
@@ -320,6 +548,65 @@ getBoardErrors board =
             , board.puzzleAreas.blocks
             ]
         )
+
+
+updateBoardBlockUnlock : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
+updateBoardBlockUnlock cell model =
+    case model.board of
+        Just board ->
+            ( { board
+                | lockedBlocks =
+                    List.filter ((/=) cell) board.lockedBlocks
+                , unlockedBlocks =
+                    Set.insert cell board.unlockedBlocks
+              }
+                |> updateBoardStateInModel model
+            , Cmd.none
+            )
+
+        Nothing ->
+            ( model
+            , Cmd.none
+            )
+
+
+updateBoardSolvedBlock : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
+updateBoardSolvedBlock block model =
+    case model.board of
+        Just board ->
+            let
+                cells : List ( Int, Int )
+                cells =
+                    Dict.get block board.cellBlocks
+                        |> Maybe.withDefault []
+                        |> List.Extra.find
+                            (\area ->
+                                area.startRow == Tuple.first block
+                                    && area.startCol == Tuple.second block
+                            )
+                        |> Maybe.map Engine.getAreaCells
+                        |> Maybe.withDefault []
+            in
+            ( { board
+                | current =
+                    List.foldl
+                        (\cell acc ->
+                            Dict.insert
+                                cell
+                                (Given (Dict.get cell board.solution |> Maybe.withDefault 0))
+                                acc
+                        )
+                        board.current
+                        cells
+              }
+                |> updateBoardStateInModel model
+            , Cmd.none
+            )
+
+        Nothing ->
+            ( model
+            , Cmd.none
+            )
 
 
 insertDictSetValue : ( Int, Int ) -> Int -> Dict ( Int, Int ) (Set Int) -> Dict ( Int, Int ) (Set Int)
@@ -380,7 +667,30 @@ view model =
                 viewBoard model board
 
             Nothing ->
-                Html.text "No board loaded."
+                Html.div
+                    []
+                    [ Html.input
+                        [ HA.type_ "text"
+                        , HA.placeholder "Host"
+                        , HA.value model.host
+                        , HE.onInput HostInputChanged
+                        ]
+                        []
+                    , Html.input
+                        [ HA.type_ "text"
+                        , HA.placeholder "Player name"
+                        , HA.value model.player
+                        , HE.onInput PlayerInputChanged
+                        ]
+                        []
+                    , Html.button
+                        [ HE.onClick ConnectPressed ]
+                        [ Html.text "Connect"]
+                    , Html.br [] []
+                    , Html.button
+                        [ HE.onClick PlayLocalPressed ]
+                        [ Html.text "Play Singleplayer" ]
+                    ]
         ]
 
 
@@ -406,11 +716,35 @@ viewBoard model board =
         , HA.class <| "block-" ++ String.fromInt board.blockSize
         ]
         (List.map
-            (viewCell model board)
-            (List.range 1 (rows + 1)
+            (\( row, col ) ->
+                if row == 0 && col == 0 then
+                    Html.text ""
+
+                else if row == 0 && col <= cols then
+                    Html.div
+                        [ HA.style "grid-row" "1"
+                        , HA.style "grid-column" (String.fromInt (col + 1))
+                        , HA.style "font-size" "0.75em"
+                        , HA.class "center"
+                        ]
+                        [ Html.text (String.fromInt col) ]
+
+                else if col == 0 && row <= rows then
+                    Html.div
+                        [ HA.style "grid-row" (String.fromInt (row + 1))
+                        , HA.style "grid-column" "1"
+                        , HA.style "font-size" "0.75em"
+                        , HA.class "center"
+                        ]
+                        [ Html.text (rowToLabel row) ]
+
+                 else
+                    viewCell model board ( row, col )
+            )
+            (List.range 0 (rows + 1)
                 |> List.concatMap
                     (\row ->
-                        List.range 1 (cols + 1)
+                        List.range 0 (cols + 1)
                             |> List.map (Tuple.pair row)
                     )
             )
@@ -471,8 +805,8 @@ viewCell model board ( row, col ) =
     if cellIsAt ( row, col ) then
         Html.button
             [ HA.class "cell"
-            , HA.style "grid-row" (String.fromInt row)
-            , HA.style "grid-column" (String.fromInt col)
+            , HA.style "grid-row" (String.fromInt (row + 1))
+            , HA.style "grid-column" (String.fromInt (col + 1))
             , HAE.attributeMaybe
                 (\v ->
                     if isHidden then
@@ -526,8 +860,8 @@ viewCell model board ( row, col ) =
 
     else
         Html.div
-            [ HA.style "grid-row" (String.fromInt row)
-            , HA.style "grid-column" (String.fromInt col)
+            [ HA.style "grid-row" (String.fromInt (row + 1))
+            , HA.style "grid-column" (String.fromInt (col + 1))
             , HA.classList
                 [ ( "block-border-top", cellIsAt ( row - 1, col ) )
                 , ( "block-border-left", cellIsAt ( row, col - 1 ) )
@@ -624,6 +958,54 @@ numberToString blockSize number =
     else
         Char.fromCode (number - 11 + Char.toCode 'A')
             |> String.fromChar
+
+
+rowToLabel : Int -> String
+rowToLabel row =
+    rowToLabelHelper row ""
+
+
+rowToLabelHelper : Int -> String -> String
+rowToLabelHelper row label =
+    if row <= 0 then
+        label
+
+    else
+        let
+            chars : Array String
+            chars =
+                Array.fromList
+                    [ "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M"
+                    , "N", "P", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
+                    ]
+
+            base : Int
+            base =
+                Array.length chars
+
+            rem : Int
+            rem =
+                modBy base (row - 1)
+
+            next : Int
+            next =
+                (row - 1) // base
+
+            char =
+                Array.get rem chars
+                    |> Maybe.withDefault ""
+        in
+        rowToLabelHelper next (char ++ label)
+
+
+cellToLocationId : ( Int, Int ) -> Int
+cellToLocationId ( row, col ) =
+    1000000 + row * 1000 + col
+
+
+blockFromId : Int -> ( Int, Int )
+blockFromId id =
+    ( (modBy 1000000 id) // 1000, modBy 1000 id )
 
 
 css : String

@@ -128,3 +128,13 @@ generateArgsDecoder =
         (Decode.field "overlapRows" Decode.int)
         (Decode.field "numberOfBoards" Decode.int)
         (Decode.field "seed" Decode.int)
+
+
+decodeGenerateArgs2 : Decode.Decoder Engine.Args2
+decodeGenerateArgs2 =
+    Decode.map5 Engine.Args2
+        (Decode.field "blockSize" Decode.int)
+        (Decode.field "blockUnlockOrder" (Decode.list (decodeTuple Decode.int Decode.int)))
+        (Decode.field "clusters" (Decode.list (Decode.list (decodeTuple Decode.int Decode.int))))
+        (Decode.field "seed" Decode.int)
+        (Decode.field "unlockedBlocks" Decode.int)

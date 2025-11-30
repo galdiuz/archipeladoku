@@ -198,16 +198,16 @@ generateWithValidArgs args =
                 _ ->
                     1
 
-        joinedPuzzleAreas : PuzzleAreas
-        joinedPuzzleAreas =
-            joinPuzzleAreas puzzleAreas
-
         unlockedBlocks : Int
         unlockedBlocks =
             getInitialUnlockedBlocksCount args.blockSize args.overlapRows args.overlapCols
 
         ( clusters, groupSeed ) =
             groupPositions maxClusterSize positions ( [], Random.initialSeed args.seed )
+
+        joinedPuzzleAreas : PuzzleAreas
+        joinedPuzzleAreas =
+            joinPuzzleAreas puzzleAreas
 
         ( blockUnlockOrder, newSeed ) =
             buildBlockUnlockOrder
@@ -232,6 +232,120 @@ generateWithValidArgs args =
         , solution = Dict.empty
         , unlockCount = unlockedBlocks
         }
+
+
+type alias Args2 =
+    { blockSize : Int
+    , blockUnlockOrder : List ( Int, Int )
+    , clusters : List (List ( Int, Int ))
+    , seed : Int
+    , unlockedBlocks : Int
+    }
+
+
+generateFromServer : Args2 -> BoardGenerationState
+generateFromServer args =
+    let
+        positions : List ( Int, Int )
+        positions =
+            List.concat args.clusters
+
+        puzzleAreas : List PuzzleAreas
+        puzzleAreas =
+            List.map
+                (\( row, col ) ->
+                    buildPuzzleAreas args.blockSize row col
+                )
+                positions
+
+        buildAreasMap : (PuzzleAreas -> List Area) -> Dict ( Int, Int ) (List Area)
+        buildAreasMap mapFun =
+            List.foldl
+                (\area acc ->
+                    let
+                        areaCells : List ( Int, Int )
+                        areaCells =
+                            getAreaCells area
+                    in
+                    List.foldl
+                        (\cell acc2 ->
+                            let
+                                existingAreas : List Area
+                                existingAreas =
+                                    Dict.get cell acc2
+                                        |> Maybe.withDefault []
+                            in
+                            Dict.insert cell (area :: existingAreas) acc2
+                        )
+                        acc
+                        areaCells
+                )
+                Dict.empty
+                (List.concatMap
+                    mapFun
+                    puzzleAreas
+                )
+
+        cellAreas : Dict ( Int, Int ) (List Area)
+        cellAreas =
+            buildAreasMap
+                (\puzzleArea ->
+                    puzzleArea.blocks ++ puzzleArea.rows ++ puzzleArea.cols
+                )
+
+        cells : Set ( Int, Int )
+        cells =
+            List.foldl
+                (\( startRow, startCol ) set1 ->
+                    List.foldl
+                        (\row set2 ->
+                            List.foldl
+                                (\col set3 ->
+                                    Set.insert ( row, col ) set3
+                                )
+                                set2
+                                (List.range startCol (startCol + args.blockSize - 1))
+                        )
+                        set1
+                        (List.range startRow (startRow + args.blockSize - 1))
+                )
+                Set.empty
+                positions
+
+        blockAreasMap : Dict ( Int, Int ) (List Area)
+        blockAreasMap =
+            buildAreasMap .blocks
+
+        joinedPuzzleAreas : PuzzleAreas
+        joinedPuzzleAreas =
+            joinPuzzleAreas puzzleAreas
+
+        peerMap : PeerMap
+        peerMap =
+            Set.foldl
+                (\cell acc ->
+                    Dict.insert cell (getPeers cellAreas cell) acc
+                )
+                Dict.empty
+                cells
+    in
+    Generating
+        { allCells = cells
+        , allNumbers = allNumbersForSize args.blockSize
+        , blockAreasMap = blockAreasMap
+        , blockSize = args.blockSize
+        , blockUnlockOrder = args.blockUnlockOrder
+        , cellAreasMap = cellAreas
+        , givens = Dict.empty
+        , peerMap = peerMap
+        , puzzleAreas = joinedPuzzleAreas
+        , remainingClusters = sortClustersByUnlockOrder args.blockUnlockOrder args.clusters
+            |> Debug.log "Remaining clusters"
+        , seed = Random.initialSeed args.seed
+        , solution = Dict.empty
+        , unlockCount = args.unlockedBlocks
+        }
+
 
 
 positionBoards : Int -> Int -> Int -> Int -> List ( Int, Int )
@@ -381,7 +495,7 @@ buildBlockUnlockOrder unlocked blockSize blockAreas clusterPositions seed =
 
         fillers : Set ( Int, Int )
         fillers =
-            List.range 1 unlocked
+            List.range 1 (unlocked - 1)
                 |> List.map
                     (\i ->
                         ( -i, -i )
@@ -675,7 +789,11 @@ generateCluster clusterPositions inputState =
     Set.foldl
         (\cell result ->
             Result.andThen
-                (propagateSolution inputState.solution inputState.peerMap cell)
+                (propagateSolution
+                    inputState.solution
+                    inputState.peerMap
+                    cell
+                )
                 result
         )
         (Ok allPossibilities)
@@ -777,6 +895,31 @@ blockSizeToDimensions blockSize =
 
         _ ->
             ( 1, 1 )
+
+
+blockSizeToOverlap : Int -> ( Int, Int )
+blockSizeToOverlap blockSize =
+    case blockSize of
+        4 ->
+            ( 1, 1 )
+
+        6 ->
+            ( 2, 2 )
+
+        8 ->
+            ( 2, 2 )
+
+        9 ->
+            ( 3, 3 )
+
+        12 ->
+            ( 3, 4 )
+
+        16 ->
+            ( 4, 4 )
+
+        _ ->
+            ( 0, 0 )
 
 
 joinPuzzleAreas : List PuzzleAreas -> PuzzleAreas

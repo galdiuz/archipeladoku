@@ -11,6 +11,7 @@ import Task
 
 port sendBoard : Encode.Value -> Cmd msg
 port receiveGenerateArgs : (Encode.Value -> msg) -> Sub msg
+port receiveGenerateArgs2 : (Encode.Value -> msg) -> Sub msg
 
 
 type alias Flags =
@@ -23,6 +24,7 @@ type alias Model =
 
 type Msg
     = GotGenerateArgs Encode.Value
+    | GotGenerateArgs2 Encode.Value
     | GotGenerationState Engine.BoardGenerationState
 
 
@@ -46,6 +48,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ receiveGenerateArgs GotGenerateArgs
+        , receiveGenerateArgs2 GotGenerateArgs2
         ]
 
 
@@ -63,7 +66,22 @@ update msg model =
 
                 Err err ->
                     let
-                        _ = Debug.log "Error decoding generate args:" err
+                        _ = Debug.log "Error decoding generate args" err
+                    in
+                    ( model, Cmd.none )
+
+        GotGenerateArgs2 value ->
+            case Decode.decodeValue Json.decodeGenerateArgs2 value of
+                Ok args ->
+                    ( model
+                    , Engine.generateFromServer args
+                        |> Task.succeed
+                        |> Task.perform GotGenerationState
+                    )
+
+                Err err ->
+                    let
+                        _ = Debug.log "Error decoding generate args" err
                     in
                     ( model, Cmd.none )
 
@@ -76,13 +94,13 @@ update msg model =
 
                 Engine.Failed err ->
                     let
-                        _ = Debug.log "Error generating board:" err
+                        _ = Debug.log "Error generating board" err
                     in
                     ( model, Cmd.none )
 
                 Engine.Generating genState ->
                     let
-                        _ = Debug.log "Still generating, remaining clusters:" genState.remainingClusters
+                        _ = Debug.log "Still generating, remaining clusters" genState.remainingClusters
                     in
                     ( model
                     , Cmd.batch

@@ -959,7 +959,9 @@ removeGivenNumbersBacktrack clusterCells cellsToRemoveFrom inputState =
                         { allNumbers = state.allNumbers
                         , allPossibilities = allPossibilities
                         , cells = clusterCells
-                        , givens = givensWithoutCell
+                        , givens =
+                            givensWithoutCell
+                                |> Dict.filter (\c _ -> Set.member c clusterCells)
                         , peerMap = state.peerMap
                         , removedCell = cell
                         , removedNumber =

@@ -90,6 +90,7 @@ def group_positions(block_size: int, positions: list[tuple[int, int]]) -> dict[i
 class Cluster:
     id: int
     blocks: set[tuple[int, int]]
+    positions: set[tuple[int, int]]
 
 
 def build_block_unlock_order(
@@ -99,13 +100,9 @@ def build_block_unlock_order(
 ) -> list[tuple[int, int]]:
     """Determine the order in which blocks are unlocked."""
 
-    fillers = set([(-i, -i) for i in range(unlocked)])
-
+    fillers = set([(-i, -i) for i in range(1, unlocked + 1)])
     remaining_blocks = set([block for cluster in clusters.values() for block in cluster.blocks])
-    remaining_blocks.update(fillers)
-    block_order_clusters = build_block_order_clusters(
-        clusters
-    )
+    block_order_clusters = build_block_order_clusters(clusters)
     credits = unlocked
     order = []
 
@@ -121,7 +118,6 @@ def build_block_unlock_order(
             else:
                 weights.append(credits - cluster.remaining + 1)
 
-        # TODO: Unsure no fillers in initial unlocked
         target = rng.choices(list(block_order_clusters.values()), weights=weights)[0]
         remaining_credits = credits - target.remaining
         remaining_blocks_without_target = remaining_blocks.difference(target.blocks)
@@ -135,6 +131,10 @@ def build_block_unlock_order(
         credits = remaining_credits + len(target.blocks) - len(random_blocks)
         order.extend(shuffled_blocks)
         remaining_blocks = remaining_blocks_without_random
+
+        if len(order) >= unlocked and len(fillers) > 0:
+            remaining_blocks.update(fillers)
+            fillers = set()
 
         del block_order_clusters[target.id]
         for cluster in block_order_clusters.values():
@@ -171,30 +171,3 @@ def build_block_order_clusters(
         )
 
     return block_order_clusters
-
-# def build_block_order_clusters(
-#     block_size: int,
-#     blocks: set[tuple[int, int]],
-#     clustered_positions: list[list[tuple[int, int]]],
-# ) -> dict[int, Cluster]:
-#     """Build a mapping of clusters to their associated blocks."""
-#
-#     clusters = {}
-#     remaining_blocks = blocks.copy()
-#
-#     for idx, cluster in enumerate(clustered_positions):
-#         cluster_blocks = set()
-#
-#         for position in cluster:
-#             cluster_blocks.update(set(build_blocks(block_size, position)))
-#
-#         cluster_blocks.intersection_update(remaining_blocks)
-#         remaining_blocks.difference_update(cluster_blocks)
-#
-#         clusters[idx] = BlockOrderCluster(
-#             id = idx,
-#             blocks = cluster_blocks,
-#             remaining = len(cluster_blocks),
-#         )
-#
-#     return clusters

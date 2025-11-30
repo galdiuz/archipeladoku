@@ -39,6 +39,7 @@ class ArchipeladokuWorld(World):
             cluster = board.Cluster(
                 id=idx,
                 blocks=group_blocks,
+                positions=set(positions)
             )
 
             self.clusters[idx] = cluster
@@ -98,7 +99,7 @@ class ArchipeladokuWorld(World):
                     ItemClassification.progression,
                     region,
                 )
-                loc.address = 100000 + row * 1000 + col
+                loc.address = 1000000 + row * 1000 + col
                 region.locations.append(loc)
 
                 self.location_name_to_id[loc.name] = loc.address
@@ -160,9 +161,9 @@ class ArchipeladokuWorld(World):
 
     def create_items(self):
         for ( row, col ) in self.block_unlock_order[self.initial_unlock_count:]:
-            name = self.block_name(row, col) if row > 0 else f"Filler {abs(row)}"
+            name = self.block_name(row, col) if row > 0 else "Filler"
             classification = ItemClassification.progression if row > 0 else ItemClassification.filler
-            code = 200000 + row * 1000 + col
+            code = 2000000 + row * 1000 + col if row > 0 else 1
             item = Item(
                 name,
                 classification,
@@ -177,12 +178,31 @@ class ArchipeladokuWorld(World):
         print("Items", len(self.multiworld.itempool))
 
 
-
     def fill_slot_data(self) -> Dict[str, Any]:
         return {
-            "seed": self.random.getrandbits(32)
+            "blockSize": self.options.block_size.value,
+            "blockUnlockOrder": self.block_unlock_order,
+            "clusters": [cluster.positions for cluster in self.clusters.values()],
+            "seed": self.random.getrandbits(32),
+            "unlockedBlocks": self.initial_unlock_count,
         }
 
 
     def block_name(self, row: int, col: int) -> str:
-        return f"Block ({row}, {col})"
+        return f"Block {self.row_to_label(row)}{col}"
+
+
+    def row_to_label(self, row: int) -> str:
+        chars = [
+            'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M',
+            'N', 'P', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+        ]
+        base = len(chars)
+        label = ""
+
+        while row > 0:
+            rem = (row - 1) % base
+            row = (row - 1) // base
+            label = chars[rem] + label
+
+        return label

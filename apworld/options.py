@@ -12,20 +12,6 @@ class BlockSize(Choice):
     option_16 = 16
     default = 9
 
-class OverlapRows(Range):
-    """How many cells overlap between adjacent boards."""
-    display_name = "Overlap"
-    range_start = 0
-    range_end = 4
-    default = 3
-
-class OverlapCols(Range):
-    """How many cells overlap between adjacent boards."""
-    display_name = "Overlap"
-    range_start = 0
-    range_end = 4
-    default = 3
-
 class NumberOfBoards(Range):
     """How many boards to generate in the archipelago."""
     display_name = "Number of Boards"
@@ -46,7 +32,5 @@ class BlockUnlocks(Choice):
 @dataclass
 class ArchipeladokuOptions(PerGameCommonOptions):
     block_size: BlockSize
-    overlap_rows: OverlapRows
-    overlap_cols: OverlapCols
     number_of_boards: NumberOfBoards
     block_unlocks: BlockUnlocks

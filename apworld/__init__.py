@@ -23,8 +23,6 @@ class ArchipeladokuWorld(World):
     def generate_early(self):
         board_positions = board.position_boards(
             self.options.block_size.value,
-            self.options.overlap_rows.value,
-            self.options.overlap_cols.value,
             self.options.number_of_boards.value,
         )
 
@@ -43,11 +41,7 @@ class ArchipeladokuWorld(World):
 
             self.clusters[self.player][idx] = cluster
 
-        initial_unlock_count = board.get_initial_unlock_count(
-            self.options.block_size.value,
-            self.options.overlap_rows.value,
-            self.options.overlap_cols.value,
-        )
+        initial_unlock_count = board.get_initial_unlock_count(self.options.block_size.value)
 
         self.block_unlock_order[self.player] = board.build_block_unlock_order(
             initial_unlock_count,
@@ -60,11 +54,7 @@ class ArchipeladokuWorld(World):
         menu = Region("Menu", self.player, self.multiworld)
         self.multiworld.regions.append(menu)
 
-        initial_unlock_count = board.get_initial_unlock_count(
-            self.options.block_size.value,
-            self.options.overlap_rows.value,
-            self.options.overlap_cols.value,
-        )
+        initial_unlock_count = board.get_initial_unlock_count(self.options.block_size.value)
 
         initial_blocks = set(self.block_unlock_order[self.player][:initial_unlock_count])
         block_cluster_map = defaultdict(list)
@@ -165,11 +155,7 @@ class ArchipeladokuWorld(World):
 
 
     def create_items(self):
-        initial_unlock_count = board.get_initial_unlock_count(
-            self.options.block_size.value,
-            self.options.overlap_rows.value,
-            self.options.overlap_cols.value,
-        )
+        initial_unlock_count = board.get_initial_unlock_count(self.options.block_size.value)
 
         for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
             name = self.block_name(row, col) if row > 0 else "Filler"
@@ -190,11 +176,7 @@ class ArchipeladokuWorld(World):
 
 
     def fill_slot_data(self) -> Dict[str, Any]:
-        initial_unlock_count = board.get_initial_unlock_count(
-            self.options.block_size.value,
-            self.options.overlap_rows.value,
-            self.options.overlap_cols.value,
-        )
+        initial_unlock_count = board.get_initial_unlock_count(self.options.block_size.value)
 
         return {
             "blockSize": self.options.block_size.value,

@@ -38,8 +38,6 @@ type alias PuzzleAreas =
 
 type alias GenerateArgs =
     { blockSize : Int
-    , overlapCols : Int
-    , overlapRows : Int
     , numberOfBoards : Int
     , seed : Int
     }
@@ -85,10 +83,6 @@ generate args =
     if not (Set.member args.blockSize validBlockSizes) then
         Failed "Invalid block size. Valid sizes are 4, 6, 8, 9, 12, and 16."
 
-    -- TODO: Fix
-    else if args.overlapCols < 0 || args.overlapCols > args.blockSize then
-        Failed "Overlap must be non-negative and less than or equal to block size."
-
     else if args.numberOfBoards < 1 then
         Failed "Number of boards must be at least 1."
 
@@ -106,7 +100,7 @@ generateWithValidArgs args =
     let
         positions : List ( Int, Int )
         positions =
-            positionBoards args.blockSize args.overlapRows args.overlapCols args.numberOfBoards
+            positionBoards args.blockSize args.numberOfBoards
 
         puzzleAreas : List PuzzleAreas
         puzzleAreas =
@@ -200,7 +194,7 @@ generateWithValidArgs args =
 
         unlockedBlocks : Int
         unlockedBlocks =
-            getInitialUnlockedBlocksCount args.blockSize args.overlapRows args.overlapCols
+            getInitialUnlockedBlocksCount args.blockSize
 
         ( clusters, groupSeed ) =
             groupPositions maxClusterSize positions ( [], Random.initialSeed args.seed )
@@ -348,9 +342,12 @@ generateFromServer args =
 
 
 
-positionBoards : Int -> Int -> Int -> Int -> List ( Int, Int )
-positionBoards blockSize overlapRows overlapCols numberOfBoards =
+positionBoards : Int -> Int -> List ( Int, Int )
+positionBoards blockSize numberOfBoards =
     let
+        ( overlapRows, overlapCols ) =
+            blockSizeToOverlap blockSize
+
         spotsInGrid : Int -> Int
         spotsInGrid side =
             (side * side)
@@ -426,7 +423,6 @@ buildPuzzleAreas blockSize startRow startCol =
                                 }
                             )
                 )
-            |> Debug.log "Blocks"
     , rows =
         List.range startRow (blockSize + startRow - 1)
             |> List.map
@@ -450,11 +446,14 @@ buildPuzzleAreas blockSize startRow startCol =
     }
 
 
-getInitialUnlockedBlocksCount : Int -> Int -> Int -> Int
-getInitialUnlockedBlocksCount blockSize overlapRows overlapCols =
+getInitialUnlockedBlocksCount : Int -> Int
+getInitialUnlockedBlocksCount blockSize =
     let
         ( blockRows, blockCols ) =
             blockSizeToDimensions blockSize
+
+        ( overlapRows, overlapCols ) =
+            blockSizeToOverlap blockSize
     in
     if modBy blockRows overlapRows == 0 && modBy blockCols overlapCols == 0 then
         blockSize * 2 - 1

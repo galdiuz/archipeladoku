@@ -30,10 +30,11 @@ def block_size_to_overlap(block_size: int) -> (int, int):
         case _: raise ValueError("Unsupported block size")
 
 
-def get_initial_unlock_count(block_size: int, overlap_rows: int, overlap_cols: int) -> int:
+def get_initial_unlock_count(block_size: int) -> int:
     """Get the initial number of unlocked blocks."""
 
     [ block_rows, block_cols ] = block_size_to_dimensions(block_size)
+    [ overlap_rows, overlap_cols ] = block_size_to_overlap(block_size)
 
     if overlap_rows % block_rows == 0 and overlap_cols % block_cols == 0:
         return block_size * 2 - 1
@@ -42,8 +43,10 @@ def get_initial_unlock_count(block_size: int, overlap_rows: int, overlap_cols: i
         return block_size * 2
 
 
-def position_boards(block_size: int, overlap_rows: int, overlap_cols: int, number_of_boards: int) -> list[tuple[int, int]]:
+def position_boards(block_size: int, number_of_boards: int) -> list[tuple[int, int]]:
     """Calculate positions for each board in the puzzle."""
+
+    [ overlap_rows, overlap_cols ] = block_size_to_overlap(block_size)
 
     def spots_in_grid(side: int) -> int:
         return math.ceil((side * side) / 2.0)

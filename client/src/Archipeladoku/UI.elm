@@ -29,7 +29,7 @@ type alias Model =
     { board : Maybe BoardState
     , gameIsLocal : Bool
     , host : String
-    , pendingBlockUnlocks : Set ( Int, Int )
+    , pendingBlockUnlocks : List ( Int, Int )
     , pendingCellChanges : Set ( Int, Int )
     , pendingSolvedBlocks : Set ( Int, Int )
     , player : String
@@ -82,7 +82,7 @@ init flagsValue =
     ( { board = Nothing
       , gameIsLocal = False
       , host = "localhost:8123"
-      , pendingBlockUnlocks = Set.empty
+      , pendingBlockUnlocks = []
       , pendingCellChanges = Set.empty
       , pendingSolvedBlocks = Set.empty
       , player = "Player1"
@@ -91,16 +91,14 @@ init flagsValue =
     , Cmd.none
     -- , connect
     --     (Encode.object
-            -- [ ( "host", Encode.string "localhost:8123" )
-            -- , ( "player", Encode.string "player1" )
-            -- , ( "password", Encode.null )
-            -- ]
+    --         [ ( "host", Encode.string "localhost:8123" )
+    --         , ( "player", Encode.string "Player1" )
+    --         , ( "password", Encode.null )
+    --         ]
     --     )
     -- , generateBoard
     --     (Json.encodeGenerateArgs
-    --         { blockSize = blockSize
-    --         , overlapRows = Engine.blockSizeToOverlap blockSize |> Tuple.first
-    --         , overlapCols = Engine.blockSizeToOverlap blockSize |> Tuple.second
+    --         { blockSize = 4
     --         , numberOfBoards = 5
     --         , seed = 1
     --         }
@@ -222,7 +220,7 @@ update msg model =
         GotItems itemIds ->
             ( { model
                 | pendingBlockUnlocks =
-                    Set.union
+                    List.append
                         model.pendingBlockUnlocks
                         (itemIds
                             |> List.filterMap
@@ -230,11 +228,13 @@ update msg model =
                                     if id >= 1000000 then
                                         Just (blockFromId id)
 
+                                    else if id == 1 then
+                                        Just (0, 0)
+
                                     else
                                         Nothing
                                 )
                             |> Debug.log "Received blocks"
-                            |> Set.fromList
                         )
               }
             , Cmd.none
@@ -275,15 +275,10 @@ update msg model =
                     )
 
         PlayLocalPressed ->
-            let
-                blockSize = 4
-            in
             ( { model | gameIsLocal = True }
             , generateBoard
                 (Json.encodeGenerateArgs
-                    { blockSize = blockSize
-                    , overlapRows = Engine.blockSizeToOverlap blockSize |> Tuple.first
-                    , overlapCols = Engine.blockSizeToOverlap blockSize |> Tuple.second
+                    { blockSize = 4
                     , numberOfBoards = 5
                     , seed = 1
                     }
@@ -336,9 +331,9 @@ updateBoardCellChanges model =
 
 updateBoardBlockUnlocks : Model -> ( Model, Cmd Msg )
 updateBoardBlockUnlocks model =
-    Set.foldl
+    List.foldl
         (andThen << updateBoardBlockUnlock)
-        ( { model | pendingBlockUnlocks = Set.empty }
+        ( { model | pendingBlockUnlocks = [] }
         , Cmd.none
         )
         model.pendingBlockUnlocks
@@ -552,8 +547,14 @@ getBoardErrors board =
 
 updateBoardBlockUnlock : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
 updateBoardBlockUnlock cell model =
-    case model.board of
-        Just board ->
+    case ( model.board, cell ) of
+        ( Just board, ( 0, 0 ) ) ->
+            ( unlockNextBlock board
+                |> updateBoardStateInModel model
+            , Cmd.none
+            )
+
+        ( Just board, _ ) ->
             ( { board
                 | lockedBlocks =
                     List.filter ((/=) cell) board.lockedBlocks
@@ -564,7 +565,7 @@ updateBoardBlockUnlock cell model =
             , Cmd.none
             )
 
-        Nothing ->
+        ( Nothing, _ ) ->
             ( model
             , Cmd.none
             )
@@ -664,7 +665,13 @@ view model =
             [ Html.text css ]
         , case model.board of
             Just board ->
-                viewBoard model board
+                Html.div
+                    [ HA.style "display" "flex"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ viewBoard model board
+                    , viewFoo model board
+                    ]
 
             Nothing ->
                 Html.div
@@ -904,6 +911,63 @@ viewMultipleNumbers blockSize errorsAtCell numbers =
         (Set.toList numbers)
 
 
+viewFoo : Model -> BoardState -> Html Msg
+viewFoo model board =
+    Html.div
+        [ HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        , HA.style "gap" "1em"
+        , HA.style "padding" "1em"
+        ]
+        [ Html.div
+            []
+            (case model.selectedCell of
+                Just ( row, col ) ->
+                    [ Html.text
+                        (String.concat
+                            [ "Cell: "
+                            , rowToLabel row
+                            , String.fromInt col
+                            , " (r"
+                            , String.fromInt row
+                            , "c"
+                            , String.fromInt col
+                            , ")"
+                            ]
+                        )
+                    , Html.div
+                        []
+                        (List.map
+                            (\block ->
+                                Html.div
+                                    []
+                                    [ Html.text
+                                        (String.concat
+                                            [ "Block: "
+                                            , rowToLabel block.startRow
+                                            , String.fromInt block.startCol
+                                            , " (r"
+                                            , String.fromInt block.startRow
+                                            , "c"
+                                            , String.fromInt block.startCol
+                                            , ")"
+                                            ]
+                                        )
+                                    ]
+                            )
+                            (Dict.get ( row, col ) board.cellBlocks
+                                |> Maybe.withDefault []
+                            )
+                        )
+                    ]
+
+                Nothing ->
+                    [ Html.text "Selected cell: None"
+                    ]
+            )
+        ]
+
+
 cellValueToInt : CellValue -> Maybe Int
 cellValueToInt cellValue =
     case cellValue of
@@ -1082,7 +1146,6 @@ css =
     body {
         background-color: light-dark(#eeeeee, #222222);
         color: light-dark(#000000, #eeeeee);
-        padding: 1em;
     }
 
     .board {
@@ -1090,6 +1153,7 @@ css =
         grid-auto-rows: 1.5em;
         grid-auto-columns: 1.5em;
         font-size: 32px;
+        overflow: auto;
     }
 
     .cell {

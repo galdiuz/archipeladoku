@@ -157,7 +157,7 @@ def build_block_unlock_order(
         for cluster in block_order_clusters.values():
             cluster.remaining = len(cluster.blocks.intersection(remaining_blocks))
 
-    order.extend(list(remaining_blocks))
+    order = [block for block in order if block[0] >= 0]
 
     return order
 
@@ -188,3 +188,23 @@ def build_block_order_clusters(
         )
 
     return block_order_clusters
+
+
+def calculate_cluster_unlock_requirements(
+    clusters: dict[int, Cluster],
+    block_unlock_order: list[tuple[int, int]],
+    initial_unlock_count: int,
+) -> dict[int, int]:
+    """Calculate the number of blocks required to unlock each cluster."""
+
+    block_to_index = {block: idx for idx, block in enumerate(block_unlock_order)}
+    cluster_requirements = {}
+
+    for cluster in clusters.values():
+        indices = [block_to_index[block] for block in cluster.blocks if block in block_to_index]
+        if len(indices) == 0:
+            cluster_requirements[cluster.id] = 0
+        else:
+            cluster_requirements[cluster.id] = max(0, max(indices) + 1 - initial_unlock_count)
+
+    return cluster_requirements

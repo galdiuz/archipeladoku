@@ -63,6 +63,12 @@ class ArchipeladokuWorld(World):
             for block in cluster.blocks:
                 block_cluster_map[block].append(cluster.blocks.difference(initial_blocks))
 
+        cluster_unlock_requirements = board.calculate_cluster_unlock_requirements(
+            self.clusters[self.player],
+            self.block_unlock_order[self.player],
+            initial_unlock_count,
+        )
+
         blocks_added = set()
 
         for cluster in self.clusters[self.player].values():
@@ -74,7 +80,8 @@ class ArchipeladokuWorld(World):
 
             match self.options.block_unlocks:
                 case options.BlockUnlocks.option_fixed:
-                    raise NotImplementedError()
+                    connection.access_rule = lambda state, unlock_req=cluster_unlock_requirements[cluster.id]: \
+                        state.has("Block", self.player, unlock_req) if unlock_req > 0 else True
 
                 case options.BlockUnlocks.option_shuffled:
                     connection.access_rule = lambda state: True
@@ -135,7 +142,9 @@ class ArchipeladokuWorld(World):
 
         match self.options.block_unlocks:
             case options.BlockUnlocks.option_fixed:
-                raise NotImplementedError()
+                last_cluster_requirement = max(cluster_unlock_requirements.values())
+                victory_location.access_rule = lambda state: \
+                    state.has("Block", self.player, last_cluster_requirement)
 
             case options.BlockUnlocks.option_shuffled:
                 victory_location.access_rule = lambda state: \
@@ -157,19 +166,40 @@ class ArchipeladokuWorld(World):
     def create_items(self):
         initial_unlock_count = board.get_initial_unlock_count(self.options.block_size.value)
 
-        for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
-            name = self.block_name(row, col) if row > 0 else "Filler"
-            classification = ItemClassification.progression if row > 0 else ItemClassification.filler
-            code = 2000000 + row * 1000 + col if row > 0 else 1
+        for _ in range(initial_unlock_count):
             item = Item(
-                name,
-                classification,
-                code,
+                "Filler",
+                ItemClassification.filler,
+                2,
                 self.player,
             )
-
             self.multiworld.itempool.append(item)
             self.item_name_to_id[item.name] = item.code
+
+        for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
+            match self.options.block_unlocks:
+                case options.BlockUnlocks.option_fixed:
+                    item = Item(
+                        "Block",
+                        ItemClassification.progression,
+                        1,
+                        self.player,
+                    )
+                    self.multiworld.itempool.append(item)
+                    self.item_name_to_id[item.name] = item.code
+
+                case options.BlockUnlocks.option_shuffled:
+                    item = Item(
+                        self.block_name(row, col),
+                        ItemClassification.progression,
+                        2000000 + row * 1000 + col,
+                        self.player,
+                    )
+                    self.multiworld.itempool.append(item)
+                    self.item_name_to_id[item.name] = item.code
+
+                case _:
+                    raise ValueError("Invalid block unlock option")
 
         # print("Items", self.multiworld.itempool)
         print("Items", len(self.multiworld.itempool))

@@ -409,23 +409,24 @@ positionBoards blockSize overlapRows overlapCols numberOfBoards =
 buildPuzzleAreas : Int -> Int -> Int -> PuzzleAreas
 buildPuzzleAreas blockSize startRow startCol =
     let
-        ( blockWidth, blockHeight ) =
+        ( blockRows, blockCols ) =
             blockSizeToDimensions blockSize
     in
     { blocks =
-        List.range 0 (blockWidth - 1)
+        List.range 0 (blockCols - 1)
             |> List.concatMap
-                (\blockRowOffset ->
-                    List.range 0 (blockHeight - 1)
+                (\row ->
+                    List.range 0 (blockRows - 1)
                         |> List.map
-                            (\blockColOffset ->
-                                { startRow = startRow + blockRowOffset * blockHeight
-                                , startCol = startCol + blockColOffset * blockWidth
-                                , endRow = startRow + (blockRowOffset + 1) * blockHeight - 1
-                                , endCol = startCol + (blockColOffset + 1) * blockWidth - 1
+                            (\col ->
+                                { startRow = startRow + row * blockRows
+                                , startCol = startCol + col * blockCols
+                                , endRow = startRow + (row + 1) * blockRows - 1
+                                , endCol = startCol + (col + 1) * blockCols - 1
                                 }
                             )
                 )
+            |> Debug.log "Blocks"
     , rows =
         List.range startRow (blockSize + startRow - 1)
             |> List.map
@@ -452,10 +453,10 @@ buildPuzzleAreas blockSize startRow startCol =
 getInitialUnlockedBlocksCount : Int -> Int -> Int -> Int
 getInitialUnlockedBlocksCount blockSize overlapRows overlapCols =
     let
-        ( blockWidth, blockHeight ) =
+        ( blockRows, blockCols ) =
             blockSizeToDimensions blockSize
     in
-    if modBy blockWidth overlapRows == 0 && modBy blockHeight overlapCols == 0 then
+    if modBy blockRows overlapRows == 0 && modBy blockCols overlapCols == 0 then
         blockSize * 2 - 1
 
     else
@@ -481,7 +482,7 @@ buildBlockUnlockOrder :
     -> ( List ( Int, Int ), Random.Seed )
 buildBlockUnlockOrder unlocked blockSize blockAreas clusterPositions seed =
     let
-        ( blockWidth, blockHeight ) =
+        ( blockRows, blockCols ) =
             blockSizeToDimensions blockSize
 
         allBlocks : Set ( Int, Int )
@@ -504,14 +505,14 @@ buildBlockUnlockOrder unlocked blockSize blockAreas clusterPositions seed =
 
         blocksFromPosition : ( Int, Int ) -> Set ( Int, Int )
         blocksFromPosition ( row, col ) =
-            List.range 0 (blockWidth - 1)
+            List.range 0 (blockCols - 1)
                 |> List.concatMap
-                    (\rowOffset ->
-                        List.range 0 (blockHeight - 1)
+                    (\blockRow ->
+                        List.range 0 (blockRows - 1)
                             |> List.map
-                                (\colOffset ->
-                                    ( row + rowOffset * blockHeight
-                                    , col + colOffset * blockWidth
+                                (\blockCol ->
+                                    ( row + blockRow * blockRows
+                                    , col + blockCol * blockCols
                                     )
                                 )
                     )
@@ -879,16 +880,16 @@ blockSizeToDimensions blockSize =
             ( 2, 2 )
 
         6 ->
-            ( 3, 2 )
+            ( 2, 3 )
 
         8 ->
-            ( 4, 2 )
+            ( 2, 4 )
 
         9 ->
             ( 3, 3 )
 
         12 ->
-            ( 4, 3 )
+            ( 3, 4 )
 
         16 ->
             ( 4, 4 )

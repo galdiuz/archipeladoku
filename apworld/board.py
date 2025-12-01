@@ -7,21 +7,35 @@ from collections import defaultdict
 def block_size_to_dimensions(block_size: int) -> (int, int):
     """Convert block size to board dimensions (rows, columns)."""
 
-    if block_size == 4: return (2, 2)
-    if block_size == 6: return (3, 2)
-    if block_size == 8: return (4, 2)
-    if block_size == 9: return (3, 3)
-    if block_size == 12: return (4, 3)
-    if block_size == 16: return (4, 4)
-    return (1, 1)
+    match block_size:
+        case 4: return (2, 2)
+        case 6: return (2, 3)
+        case 8: return (2, 4)
+        case 9: return (3, 3)
+        case 12: return (3, 4)
+        case 16: return (4, 4)
+        case _: raise ValueError("Unsupported block size")
+
+
+def block_size_to_overlap(block_size: int) -> (int, int):
+    """Convert block size to default overlap (rows, columns)."""
+
+    match block_size:
+        case 4: return (1, 1)
+        case 6: return (2, 2)
+        case 8: return (2, 2)
+        case 9: return (3, 3)
+        case 12: return (3, 4)
+        case 16: return (4, 4)
+        case _: raise ValueError("Unsupported block size")
 
 
 def get_initial_unlock_count(block_size: int, overlap_rows: int, overlap_cols: int) -> int:
     """Get the initial number of unlocked blocks."""
 
-    [ block_width, block_height ] = block_size_to_dimensions(block_size)
+    [ block_rows, block_cols ] = block_size_to_dimensions(block_size)
 
-    if overlap_rows % block_width == 0 and overlap_cols % block_height == 0:
+    if overlap_rows % block_rows == 0 and overlap_cols % block_cols == 0:
         return block_size * 2 - 1
 
     else:
@@ -66,15 +80,15 @@ def position_boards(block_size: int, overlap_rows: int, overlap_cols: int, numbe
 def build_blocks(block_size: int, board_position: tuple[int, int]) -> set[tuple[int, int]]:
     """Generate the set of blocks for a given board position."""
 
-    [ block_width, block_height ] = block_size_to_dimensions(block_size)
+    [ block_rows, block_cols ] = block_size_to_dimensions(block_size)
     (board_row, board_col) = board_position
 
     blocks = set()
 
-    for row_offset in range(block_height):
-        for col_offset in range(block_width):
-            block_row = board_row + row_offset * block_height
-            block_col = board_col + col_offset * block_width
+    for row in range(block_cols):
+        for col in range(block_rows):
+            block_row = board_row + row * block_rows
+            block_col = board_col + col * block_cols
             blocks.add((block_row, block_col))
 
     return blocks

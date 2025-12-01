@@ -11,6 +11,8 @@ self.onmessage = function(event) {
         case 'generateBoard':
             app.ports.receiveGenerateArgs.send(event.data.data);
 
+            break;
+
         case 'generateFromServer':
             app.ports.receiveGenerateArgs2.send(event.data.data);
 

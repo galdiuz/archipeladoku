@@ -669,23 +669,26 @@ view model =
             Nothing ->
                 Html.div
                     []
-                    [ Html.input
-                        [ HA.type_ "text"
-                        , HA.placeholder "Host"
-                        , HA.value model.host
-                        , HE.onInput HostInputChanged
+                    [ Html.form
+                        [ HE.onSubmit ConnectPressed ]
+                        [ Html.input
+                            [ HA.type_ "text"
+                            , HA.placeholder "Host"
+                            , HA.value model.host
+                            , HE.onInput HostInputChanged
+                            ]
+                            []
+                        , Html.input
+                            [ HA.type_ "text"
+                            , HA.placeholder "Player name"
+                            , HA.value model.player
+                            , HE.onInput PlayerInputChanged
+                            ]
+                            []
+                        , Html.button
+                            []
+                            [ Html.text "Connect"]
                         ]
-                        []
-                    , Html.input
-                        [ HA.type_ "text"
-                        , HA.placeholder "Player name"
-                        , HA.value model.player
-                        , HE.onInput PlayerInputChanged
-                        ]
-                        []
-                    , Html.button
-                        [ HE.onClick ConnectPressed ]
-                        [ Html.text "Connect"]
                     , Html.br [] []
                     , Html.button
                         [ HE.onClick PlayLocalPressed ]

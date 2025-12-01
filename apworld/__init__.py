@@ -16,9 +16,8 @@ class ArchipeladokuWorld(World):
     item_name_to_id = {}
     location_name_to_id = {}
 
-    block_unlock_order = []
-    clusters = {}
-    initial_unlock_count = None
+    block_unlock_order = defaultdict(list)
+    clusters = defaultdict(dict)
 
 
     def generate_early(self):
@@ -42,17 +41,17 @@ class ArchipeladokuWorld(World):
                 positions=set(positions)
             )
 
-            self.clusters[idx] = cluster
+            self.clusters[self.player][idx] = cluster
 
-        self.initial_unlock_count = board.get_initial_unlock_count(
+        initial_unlock_count = board.get_initial_unlock_count(
             self.options.block_size.value,
             self.options.overlap_rows.value,
             self.options.overlap_cols.value,
         )
 
-        self.block_unlock_order = board.build_block_unlock_order(
-            self.initial_unlock_count,
-            self.clusters,
+        self.block_unlock_order[self.player] = board.build_block_unlock_order(
+            initial_unlock_count,
+            self.clusters[self.player],
             self.random,
         )
 
@@ -61,16 +60,22 @@ class ArchipeladokuWorld(World):
         menu = Region("Menu", self.player, self.multiworld)
         self.multiworld.regions.append(menu)
 
-        initial_blocks = set(self.block_unlock_order[:self.initial_unlock_count])
+        initial_unlock_count = board.get_initial_unlock_count(
+            self.options.block_size.value,
+            self.options.overlap_rows.value,
+            self.options.overlap_cols.value,
+        )
+
+        initial_blocks = set(self.block_unlock_order[self.player][:initial_unlock_count])
         block_cluster_map = defaultdict(list)
 
-        for cluster in self.clusters.values():
+        for cluster in self.clusters[self.player].values():
             for block in cluster.blocks:
                 block_cluster_map[block].append(cluster.blocks.difference(initial_blocks))
 
         blocks_added = set()
 
-        for cluster in self.clusters.values():
+        for cluster in self.clusters[self.player].values():
             # TODO: Name as Board/Cluster based on number of positions
             region = Region(f"Board {cluster.id}", self.player, self.multiworld)
             self.multiworld.regions.append(region)
@@ -145,7 +150,7 @@ class ArchipeladokuWorld(World):
             case options.BlockUnlocks.option_shuffled:
                 victory_location.access_rule = lambda state: \
                     state.has_all(
-                        [self.block_name(row, col) for (row, col) in self.block_unlock_order[self.initial_unlock_count:] if row > 0],
+                        [self.block_name(row, col) for (row, col) in self.block_unlock_order[self.player][initial_unlock_count:] if row > 0],
                         self.player,
                     )
 
@@ -155,12 +160,18 @@ class ArchipeladokuWorld(World):
         self.multiworld.completion_condition[self.player] = lambda state: \
             state.has(victory_item.name, self.player)
 
-        print("Locations", self.multiworld.regions.location_cache)
-        print("Locations", len(self.multiworld.regions.location_cache))
+        # print("Locations", self.multiworld.regions.location_cache)
+        print("Locations", len(self.multiworld.regions.location_cache[self.player]))
 
 
     def create_items(self):
-        for ( row, col ) in self.block_unlock_order[self.initial_unlock_count:]:
+        initial_unlock_count = board.get_initial_unlock_count(
+            self.options.block_size.value,
+            self.options.overlap_rows.value,
+            self.options.overlap_cols.value,
+        )
+
+        for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
             name = self.block_name(row, col) if row > 0 else "Filler"
             classification = ItemClassification.progression if row > 0 else ItemClassification.filler
             code = 2000000 + row * 1000 + col if row > 0 else 1
@@ -174,17 +185,23 @@ class ArchipeladokuWorld(World):
             self.multiworld.itempool.append(item)
             self.item_name_to_id[item.name] = item.code
 
-        print("Items", self.multiworld.itempool)
+        # print("Items", self.multiworld.itempool)
         print("Items", len(self.multiworld.itempool))
 
 
     def fill_slot_data(self) -> Dict[str, Any]:
+        initial_unlock_count = board.get_initial_unlock_count(
+            self.options.block_size.value,
+            self.options.overlap_rows.value,
+            self.options.overlap_cols.value,
+        )
+
         return {
             "blockSize": self.options.block_size.value,
-            "blockUnlockOrder": self.block_unlock_order,
-            "clusters": [cluster.positions for cluster in self.clusters.values()],
+            "blockUnlockOrder": self.block_unlock_order[self.player],
+            "clusters": [cluster.positions for cluster in self.clusters[self.player].values()],
             "seed": self.random.getrandbits(32),
-            "unlockedBlocks": self.initial_unlock_count,
+            "unlockedBlocks": initial_unlock_count,
         }
 
 

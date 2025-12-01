@@ -39,7 +39,7 @@
         });
 
         client.room.on('locationsChecked', locations => {
-            console.log('Location checked:', locations);
+            console.log('Locations checked:', locations);
             ui.ports.receiveCheckedLocations.send(locations);
         });
 

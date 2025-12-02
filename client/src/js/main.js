@@ -24,6 +24,29 @@ ui.ports.checkLocation && ui.ports.checkLocation.subscribe(data => {
     }
 });
 
+ui.ports.scoutLocations && ui.ports.scoutLocations.subscribe(ids => {
+    try {
+        client.scout(ids)
+            .then(scoutedItems => {
+                let data = [];
+                for (let item of scoutedItems) {
+                    data.push({
+                        locationId: item.locationId,
+                        locationName: item.locationName,
+                        itemName: item.name,
+                        playerName: item.receiver.alias,
+                        gameName: item.game,
+                        itemClass: item.flags,
+                    });
+                }
+                console.log('Scouted items', data)
+                ui.ports.receiveScoutedItems.send(data);
+            });
+    } catch (error) {
+        console.error('Scout location error:', error);
+    }
+});
+
 client.items.on('itemsReceived', items => {
     console.log('Received items:', items.map(item => item.name));
     ui.ports.receiveItems.send(items.map(item => item.id));

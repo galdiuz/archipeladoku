@@ -97,7 +97,7 @@ class ArchipeladokuWorld(World):
 
                 loc = Location(
                     self.player,
-                    f"Solved {self.block_name(row, col)}",
+                    f"Solve {self.block_name(row, col)}",
                     ItemClassification.progression,
                     region,
                 )
@@ -126,7 +126,7 @@ class ArchipeladokuWorld(World):
 
         victory_location = Location(
             self.player,
-            "Solved Everything",
+            "Solve Everything",
             None,
             menu,
         )

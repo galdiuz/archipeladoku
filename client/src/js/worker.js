@@ -1,4 +1,4 @@
-importScripts('app.js');
+import { Elm } from '../Archipeladoku/Worker.elm';
 
 const app = Elm.Archipeladoku.Worker.init({
     flags: {}

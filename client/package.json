@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "archipelago.js": "^2.0.4"
+  },
+  "devDependencies": {
+    "vite": "^7.2.6",
+    "vite-plugin-elm": "^3.0.1"
+  }
+}

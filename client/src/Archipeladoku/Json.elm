@@ -10,7 +10,6 @@ encodeBoard : Engine.Board -> Encode.Value
 encodeBoard board =
     Encode.object
         [ ( "blockSize", Encode.int board.blockSize )
-        , ( "cellBlocks", encodeCellsDict (Encode.list encodeArea) board.cellBlocks )
         , ( "givens", encodeCellsDict Encode.int board.givens )
         , ( "puzzleAreas", encodePuzzleAreas board.puzzleAreas )
         , ( "solution", encodeCellsDict Encode.int board.solution )
@@ -21,9 +20,8 @@ encodeBoard board =
 
 boardDecoder : Decode.Decoder Engine.Board
 boardDecoder =
-    Decode.map7 Engine.Board
+    Decode.map6 Engine.Board
         (Decode.field "blockSize" Decode.int)
-        (Decode.field "cellBlocks" (cellsDictDecoder (Decode.list areaDecoder)))
         (Decode.field "givens" (cellsDictDecoder Decode.int))
         (Decode.field "puzzleAreas" puzzleAreasDecoder)
         (Decode.field "solution" (cellsDictDecoder Decode.int))
@@ -81,6 +79,7 @@ encodePuzzleAreas : Engine.PuzzleAreas -> Encode.Value
 encodePuzzleAreas puzzleAreas =
     Encode.object
         [ ( "blocks", Encode.list encodeArea puzzleAreas.blocks )
+        , ( "boards", Encode.list encodeArea puzzleAreas.boards )
         , ( "rows", Encode.list encodeArea puzzleAreas.rows )
         , ( "cols", Encode.list encodeArea puzzleAreas.cols )
         ]
@@ -88,8 +87,9 @@ encodePuzzleAreas puzzleAreas =
 
 puzzleAreasDecoder : Decode.Decoder Engine.PuzzleAreas
 puzzleAreasDecoder =
-    Decode.map3 Engine.PuzzleAreas
+    Decode.map4 Engine.PuzzleAreas
         (Decode.field "blocks" (Decode.list areaDecoder))
+        (Decode.field "boards" (Decode.list areaDecoder))
         (Decode.field "rows" (Decode.list areaDecoder))
         (Decode.field "cols" (Decode.list areaDecoder))
 

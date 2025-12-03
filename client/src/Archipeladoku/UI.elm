@@ -31,7 +31,7 @@ type alias Model =
     { board : Maybe BoardState
     , gameIsLocal : Bool
     , host : String
-    , pendingBlockUnlocks : List ( Int, Int )
+    , pendingBlockUnlocks : List Item
     , pendingCellChanges : Set ( Int, Int )
     , pendingSolvedBlocks : Set ( Int, Int )
     , player : String
@@ -56,6 +56,7 @@ type Msg
 type alias BoardState =
     { blockSize : Int
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
+    , cellBoards : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
     , errors : Dict ( Int, Int ) (Set Int)
     , lockedBlocks : List ( Int, Int )
@@ -69,6 +70,23 @@ type CellValue
     = Given Int
     | Single Int
     | Multiple (Set Int)
+
+
+type Item
+    = ProgressiveBlock
+    | Block ( Int, Int )
+
+
+itemFromId : Int -> Maybe Item
+itemFromId id =
+    if id >= 1000000 then
+        Just <| Block (cellFromId id)
+
+    else if id == 100 then
+        Just ProgressiveBlock
+
+    else
+        Nothing
 
 
 type alias ScoutedItem =
@@ -248,7 +266,8 @@ update msg model =
                     ( { model
                         | board =
                             Just
-                                { cellBlocks = board.cellBlocks
+                                { cellBlocks = Engine.buildCellAreasMap board.puzzleAreas.blocks
+                                , cellBoards = Engine.buildCellAreasMap board.puzzleAreas.boards
                                 , blockSize = board.blockSize
                                 , current = Dict.map (\_ v -> Given v) board.givens
                                 , errors = Dict.empty
@@ -264,7 +283,7 @@ update msg model =
                       else
                         unlockedBlocks
                             |> Set.toList
-                            |> List.map cellToLocationId
+                            |> List.map cellToBlockId
                             |> scoutLocations
                     )
                         |> updateBoard
@@ -285,7 +304,7 @@ update msg model =
                             |> List.filterMap
                                 (\id ->
                                     if id >= 1000000 then
-                                        Just (blockFromId id)
+                                        Just (cellFromId id)
 
                                     else
                                         Nothing
@@ -328,17 +347,7 @@ update msg model =
                     List.append
                         model.pendingBlockUnlocks
                         (itemIds
-                            |> List.filterMap
-                                (\id ->
-                                    if id >= 1000000 then
-                                        Just (blockFromId id)
-
-                                    else if id == 1 then
-                                        Just (0, 0)
-
-                                    else
-                                        Nothing
-                                )
+                            |> List.filterMap itemFromId
                             |> Debug.log "Received blocks"
                         )
               }
@@ -384,7 +393,7 @@ update msg model =
             , generateBoard
                 (Json.encodeGenerateArgs
                     { blockSize = 4
-                    , numberOfBoards = 5
+                    , numberOfBoards = 13
                     , seed = 1
                     }
                 )
@@ -471,76 +480,115 @@ updateBoardErrors model =
 
 updateBoardCellChange : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
 updateBoardCellChange updatedCell initialModel =
-    List.foldl
-        (\block ->
-            andThen
-                (\model ->
-                    case model.board of
-                        Nothing ->
-                            ( model
-                            , Cmd.none
-                            )
+    let
+        listFoldlChain : (a -> b -> b) -> List a -> b -> b
+        listFoldlChain fun list initial =
+            List.foldl fun initial list
 
-                        Just board ->
-                            let
-                                isSolved : ( Int, Int ) -> Bool
-                                isSolved cell =
-                                    case ( Dict.get cell board.current, Dict.get cell board.solution ) of
-                                        ( Just (Given v), Just sol ) ->
-                                            v == sol
+        isSolved : BoardState -> ( Int, Int ) -> Bool
+        isSolved board cell =
+            case ( Dict.get cell board.current, Dict.get cell board.solution ) of
+                ( Just (Given v), Just sol ) ->
+                    v == sol
 
-                                        ( Just (Single v), Just sol ) ->
-                                            v == sol
+                ( Just (Single v), Just sol ) ->
+                    v == sol
 
-                                        _ ->
-                                            False
-
-                                blockCells : List ( Int, Int )
-                                blockCells =
-                                    Engine.getAreaCells block
-                            in
-                            if List.all isSolved blockCells then
-                                let
-                                    newBoard : BoardState
-                                    newBoard =
-                                        { board
-                                            | current =
-                                                List.foldl
-                                                    (\cell acc ->
-                                                        Dict.insert
-                                                            cell
-                                                            (Given (Dict.get cell board.solution |> Maybe.withDefault 0))
-                                                            acc
-                                                    )
-                                                    board.current
-                                                    blockCells
-                                        }
-                                in
-                                if model.gameIsLocal then
-                                    ( updateBoardStateInModel model newBoard
-                                    , Cmd.none
-                                    )
-                                        |> andThen (unlockNextBlock newBoard)
-
-                                else
-                                    ( updateBoardStateInModel model newBoard
-                                    , checkLocation (cellToLocationId ( block.startRow, block.startCol ))
-                                    )
-
-                            else
+                _ ->
+                    False
+    in
+    ( initialModel
+    , Cmd.none
+    )
+        |> listFoldlChain
+            (\block ->
+                andThen
+                    (\model ->
+                        case model.board of
+                            Nothing ->
                                 ( model
                                 , Cmd.none
                                 )
-                )
-        )
-        ( initialModel
-        , Cmd.none
-        )
-        (initialModel.board
-            |> Maybe.andThen
-                (\board -> Dict.get updatedCell board.cellBlocks)
-            |> Maybe.withDefault []
-        )
+
+                            Just board ->
+                                let
+                                    blockCells : List ( Int, Int )
+                                    blockCells =
+                                        Engine.getAreaCells block
+                                in
+                                if List.all (isSolved board) blockCells then
+                                    let
+                                        newBoard : BoardState
+                                        newBoard =
+                                            { board
+                                                | current =
+                                                    List.foldl
+                                                        (\cell acc ->
+                                                            Dict.insert
+                                                                cell
+                                                                (Given (Dict.get cell board.solution |> Maybe.withDefault 0))
+                                                                acc
+                                                        )
+                                                        board.current
+                                                        blockCells
+                                            }
+                                    in
+                                    if model.gameIsLocal then
+                                        ( updateBoardStateInModel model newBoard
+                                        , Cmd.none
+                                        )
+                                            |> andThen (unlockNextBlock newBoard)
+
+                                    else
+                                        ( updateBoardStateInModel model newBoard
+                                        , checkLocation (cellToBlockId ( block.startRow, block.startCol ))
+                                        )
+
+                                else
+                                    ( model
+                                    , Cmd.none
+                                    )
+                    )
+            )
+            (initialModel.board
+                |> Maybe.andThen
+                    (\board -> Dict.get updatedCell board.cellBlocks)
+                |> Maybe.withDefault []
+            )
+        |> listFoldlChain
+            (\boardArea ->
+                andThen
+                    (\model ->
+                        case model.board of
+                            Nothing ->
+                                ( model
+                                , Cmd.none
+                                )
+
+                            Just board ->
+                                if List.all (isSolved board) (Engine.getAreaCells boardArea) then
+                                    if model.gameIsLocal then
+                                        ( model
+                                        , Cmd.none
+                                        )
+                                            |> andThen (unlockNextBlock board)
+
+                                    else
+                                        ( model
+                                        , checkLocation (cellToBoardId ( boardArea.startRow, boardArea.startCol ))
+                                        )
+
+                                else
+                                    ( model
+                                    , Cmd.none
+                                    )
+                    )
+            )
+            (initialModel.board
+                |> Maybe.andThen
+                    (\board -> Dict.get updatedCell board.cellBoards)
+                |> Maybe.withDefault []
+            )
 
 
 unlockNextBlock : BoardState -> Model -> ( Model, Cmd Msg )
@@ -556,7 +604,7 @@ unlockNextBlock board model =
                 Cmd.none
 
               else
-                scoutLocations [ cellToLocationId block ]
+                scoutLocations [ cellToBlockId block ]
             )
 
         [] ->
@@ -662,13 +710,13 @@ getBoardErrors board =
         )
 
 
-updateBoardBlockUnlock : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
-updateBoardBlockUnlock cell model =
-    case ( model.board, cell ) of
-        ( Just board, ( 0, 0 ) ) ->
+updateBoardBlockUnlock : Item -> Model -> ( Model, Cmd Msg )
+updateBoardBlockUnlock item model =
+    case ( model.board, item ) of
+        ( Just board, ProgressiveBlock ) ->
             unlockNextBlock board model
 
-        ( Just board, _ ) ->
+        ( Just board, Block cell ) ->
             ( { board
                 | lockedBlocks =
                     List.filter ((/=) cell) board.lockedBlocks
@@ -782,6 +830,7 @@ view model =
                 Html.div
                     [ HA.style "display" "flex"
                     , HA.style "justify-content" "space-between"
+                    , HA.style "max-height" "100vh"
                     ]
                     [ viewBoard model board
                     , viewFoo model board
@@ -1073,7 +1122,7 @@ viewFoo model board =
                                             , ")"
                                             ]
                                         )
-                                    , case Dict.get (cellToLocationId ( block.startRow, block.startCol )) model.scoutedItems of
+                                    , case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.scoutedItems of
                                         Just item ->
                                             Html.div
                                                 []
@@ -1096,6 +1145,8 @@ viewFoo model board =
                                             Html.div
                                                 []
                                                 [ Html.text "Reward: ???" ]
+
+                                    -- TODO: List unlock conditions
                                     ]
                             )
                             (Dict.get ( row, col ) board.cellBlocks
@@ -1208,13 +1259,18 @@ rowToLabelHelper row label =
         rowToLabelHelper next (char ++ label)
 
 
-cellToLocationId : ( Int, Int ) -> Int
-cellToLocationId ( row, col ) =
+cellToBlockId : ( Int, Int ) -> Int
+cellToBlockId ( row, col ) =
     1000000 + row * 1000 + col
 
 
-blockFromId : Int -> ( Int, Int )
-blockFromId id =
+cellToBoardId : ( Int, Int ) -> Int
+cellToBoardId ( row, col ) =
+    2000000 + row * 1000 + col
+
+
+cellFromId : Int -> ( Int, Int )
+cellFromId id =
     ( (modBy 1000000 id) // 1000, modBy 1000 id )
 
 

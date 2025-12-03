@@ -12,7 +12,6 @@ import Set.Extra
 
 type alias Board =
     { blockSize : Int
-    , cellBlocks : Dict ( Int, Int ) (List Area)
     , givens : Dict ( Int, Int ) Int
     , puzzleAreas : PuzzleAreas
     , solution : Dict ( Int, Int ) Int
@@ -31,6 +30,7 @@ type alias Area =
 
 type alias PuzzleAreas =
     { blocks : List Area
+    , boards : List Area
     , rows : List Area
     , cols : List Area
     }
@@ -60,7 +60,6 @@ type BoardGenerationState
 type alias ClusterGenerationState =
     { allCells : Set ( Int, Int )
     , allNumbers : Set Int
-    , blockAreasMap : Dict ( Int, Int ) (List Area)
     , blockSize : Int
     , blockUnlockOrder : List ( Int, Int )
     , cellAreasMap : Dict ( Int, Int ) (List Area)
@@ -110,44 +109,14 @@ generateWithValidArgs args =
                 )
                 positions
 
-        buildAreasMap : (PuzzleAreas -> List Area) -> Dict ( Int, Int ) (List Area)
-        buildAreasMap mapFun =
-            List.foldl
-                (\area acc ->
-                    let
-                        areaCells : List ( Int, Int )
-                        areaCells =
-                            getAreaCells area
-                    in
-                    List.foldl
-                        (\cell acc2 ->
-                            let
-                                existingAreas : List Area
-                                existingAreas =
-                                    Dict.get cell acc2
-                                        |> Maybe.withDefault []
-                            in
-                            Dict.insert cell (area :: existingAreas) acc2
-                        )
-                        acc
-                        areaCells
-                )
-                Dict.empty
-                (List.concatMap
-                    mapFun
-                    puzzleAreas
-                )
-
         cellAreas : Dict ( Int, Int ) (List Area)
         cellAreas =
-            buildAreasMap
+            getAreasFromPuzzleAreas
+                puzzleAreas
                 (\puzzleArea ->
                     puzzleArea.blocks ++ puzzleArea.rows ++ puzzleArea.cols
                 )
-
-        blockAreasMap : Dict ( Int, Int ) (List Area)
-        blockAreasMap =
-            buildAreasMap .blocks
+                |> buildCellAreasMap
 
         cells : Set ( Int, Int )
         cells =
@@ -214,7 +183,6 @@ generateWithValidArgs args =
     Generating
         { allCells = cells
         , allNumbers = allNumbersForSize args.blockSize
-        , blockAreasMap = blockAreasMap
         , blockSize = args.blockSize
         , blockUnlockOrder = blockUnlockOrder
         , cellAreasMap = cellAreas
@@ -252,40 +220,14 @@ generateFromServer args =
                 )
                 positions
 
-        buildAreasMap : (PuzzleAreas -> List Area) -> Dict ( Int, Int ) (List Area)
-        buildAreasMap mapFun =
-            List.foldl
-                (\area acc ->
-                    let
-                        areaCells : List ( Int, Int )
-                        areaCells =
-                            getAreaCells area
-                    in
-                    List.foldl
-                        (\cell acc2 ->
-                            let
-                                existingAreas : List Area
-                                existingAreas =
-                                    Dict.get cell acc2
-                                        |> Maybe.withDefault []
-                            in
-                            Dict.insert cell (area :: existingAreas) acc2
-                        )
-                        acc
-                        areaCells
-                )
-                Dict.empty
-                (List.concatMap
-                    mapFun
-                    puzzleAreas
-                )
-
         cellAreas : Dict ( Int, Int ) (List Area)
         cellAreas =
-            buildAreasMap
+            getAreasFromPuzzleAreas
+                puzzleAreas
                 (\puzzleArea ->
                     puzzleArea.blocks ++ puzzleArea.rows ++ puzzleArea.cols
                 )
+                |> buildCellAreasMap
 
         cells : Set ( Int, Int )
         cells =
@@ -306,10 +248,6 @@ generateFromServer args =
                 Set.empty
                 positions
 
-        blockAreasMap : Dict ( Int, Int ) (List Area)
-        blockAreasMap =
-            buildAreasMap .blocks
-
         joinedPuzzleAreas : PuzzleAreas
         joinedPuzzleAreas =
             joinPuzzleAreas puzzleAreas
@@ -326,7 +264,6 @@ generateFromServer args =
     Generating
         { allCells = cells
         , allNumbers = allNumbersForSize args.blockSize
-        , blockAreasMap = blockAreasMap
         , blockSize = args.blockSize
         , blockUnlockOrder = args.blockUnlockOrder
         , cellAreasMap = cellAreas
@@ -340,6 +277,38 @@ generateFromServer args =
         , unlockCount = args.unlockedBlocks
         }
 
+
+getAreasFromPuzzleAreas : List PuzzleAreas -> (PuzzleAreas -> List Area) -> List Area
+getAreasFromPuzzleAreas puzzleAreas mapFun =
+    List.concatMap
+        mapFun
+        puzzleAreas
+
+
+buildCellAreasMap : List Area -> Dict ( Int, Int ) (List Area)
+buildCellAreasMap areas =
+    List.foldl
+        (\area acc ->
+            let
+                areaCells : List ( Int, Int )
+                areaCells =
+                    getAreaCells area
+            in
+            List.foldl
+                (\cell acc2 ->
+                    let
+                        existingAreas : List Area
+                        existingAreas =
+                            Dict.get cell acc2
+                                |> Maybe.withDefault []
+                    in
+                    Dict.insert cell (area :: existingAreas) acc2
+                )
+                acc
+                areaCells
+        )
+        Dict.empty
+        areas
 
 
 positionBoards : Int -> Int -> List ( Int, Int )
@@ -423,6 +392,13 @@ buildPuzzleAreas blockSize startRow startCol =
                                 }
                             )
                 )
+    , boards =
+        { startRow = startRow
+        , startCol = startCol
+        , endRow = startRow + blockSize - 1
+        , endCol = startCol + blockSize - 1
+        }
+            |> List.singleton
     , rows =
         List.range startRow (blockSize + startRow - 1)
             |> List.map
@@ -707,7 +683,6 @@ continueGeneration state =
                 [] ->
                     Completed
                         { blockSize = clusterState.blockSize
-                        , cellBlocks = clusterState.blockAreasMap
                         , givens = clusterState.givens
                         , puzzleAreas = clusterState.puzzleAreas
                         , solution = clusterState.solution
@@ -731,7 +706,6 @@ continueGeneration state =
                             if List.isEmpty remainingGroups then
                                 Completed
                                     { blockSize = newClusterState.blockSize
-                                    , cellBlocks = newClusterState.blockAreasMap
                                     , givens = newClusterState.givens
                                     , puzzleAreas = newClusterState.puzzleAreas
                                     , solution = newClusterState.solution
@@ -926,6 +900,9 @@ joinPuzzleAreas : List PuzzleAreas -> PuzzleAreas
 joinPuzzleAreas puzzleAreas =
     { blocks =
         List.concatMap .blocks puzzleAreas
+            |> List.Extra.unique
+    , boards =
+        List.concatMap .boards puzzleAreas
             |> List.Extra.unique
     , rows =
         List.concatMap .rows puzzleAreas

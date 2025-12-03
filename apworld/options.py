@@ -15,8 +15,8 @@ class BlockSize(Choice):
 class NumberOfBoards(Range):
     """How many boards to generate in the archipelago."""
     display_name = "Number of Boards"
-    range_start = 1
-    range_end = 50
+    range_start = 3
+    range_end = 100
     default = 5
 
 class BlockUnlocks(Choice):

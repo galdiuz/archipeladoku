@@ -4,6 +4,13 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 
+@dataclass
+class Cluster:
+    id: int
+    blocks: set[tuple[int, int]]
+    positions: set[tuple[int, int]]
+
+
 def block_size_to_dimensions(block_size: int) -> (int, int):
     """Convert block size to board dimensions (rows, columns)."""
 
@@ -101,13 +108,6 @@ def group_positions(block_size: int, positions: list[tuple[int, int]]) -> dict[i
     """Group board positions into clusters based on block size."""
 
     return dict([(idx + 1, [pos]) for idx, pos in enumerate(positions)])  # Placeholder implementation
-
-
-@dataclass
-class Cluster:
-    id: int
-    blocks: set[tuple[int, int]]
-    positions: set[tuple[int, int]]
 
 
 def build_block_unlock_order(
@@ -208,3 +208,35 @@ def calculate_cluster_unlock_requirements(
             cluster_requirements[cluster.id] = max(0, max(indices) + 1 - initial_unlock_count)
 
     return cluster_requirements
+
+
+def block_id(row: int, col: int) -> int:
+    return 1000000 + row * 1000 + col
+
+
+def block_name(row: int, col: int) -> str:
+    return f"Block {row_to_label(row)}{col}"
+
+
+def board_id(row: int, col: int) -> int:
+    return 2000000 + row * 1000 + col
+
+
+def board_name(row: int, col: int) -> str:
+    return f"Board {row_to_label(row)}{col}"
+
+
+def row_to_label(row: int) -> str:
+    chars = [
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M',
+        'N', 'P', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+    ]
+    base = len(chars)
+    label = ""
+
+    while row > 0:
+        rem = (row - 1) % base
+        row = (row - 1) // base
+        label = chars[rem] + label
+
+    return label

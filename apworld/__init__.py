@@ -14,11 +14,13 @@ class ArchipeladokuWorld(World):
     options: options.ArchipeladokuOptions
 
     item_name_to_id = {
+        # 0xx: Filler Items
+        "Filler": 0,
+        "Solve Random Cell": 1,
         # 1xx: Progression Items
         "Progressive Block": 100,
         # 2xx: Useful Items
-        # 3xx: Filler Items
-        "Filler": 300,
+        "Solve Selected Cell": 200,
         # 4xx: Trap Items
         # 1xxxyyy: Block Items, row xxx, col yyy, added dynamically
     }
@@ -117,7 +119,8 @@ class ArchipeladokuWorld(World):
                         loc.access_rule = lambda state: True
 
                     case options.BlockUnlocks.option_shuffled:
-                        def board_is_unlocked(state, cluster_blocks=cluster.blocks):
+                        cluster_blocks = cluster.blocks.difference(initial_blocks)
+                        def board_is_unlocked(state, cluster_blocks=cluster_blocks):
                             block_names = [utils.block_name(row, col) for (row, col) in cluster_blocks]
                             return state.has_all(block_names, self.player)
 
@@ -240,30 +243,49 @@ class ArchipeladokuWorld(World):
 
     def create_item(self, name: str) -> "ArchipeladokuItem":
 
-        match name:
-            case "Progressive Block":
-                return ArchipeladokuItem(
-                    name,
-                    ItemClassification.progression,
-                    self.item_name_to_id[name],
-                    self.player,
-                )
+        id = self.item_name_to_id.get(name)
 
-            case "Filler":
-                return ArchipeladokuItem(
-                    name,
-                    ItemClassification.filler,
-                    self.item_name_to_id[name],
-                    self.player,
-                )
+        if id is None:
+            raise ValueError(f"Invalid item name: {name}")
 
-            case _:
-                raise ValueError(f"Invalid item name: {name}")
+        if id < 100:
+            classification = ItemClassification.filler
+        elif id >= 100 and id < 200:
+            classification = ItemClassification.progression
+        elif id >= 200 and id < 300:
+            classification = ItemClassification.useful
+        elif id >= 400 and id < 500:
+            classification = ItemClassification.trap
+        else:
+            raise ValueError(f"Invalid item id: {id}")
+
+        return ArchipeladokuItem(
+            name,
+            classification,
+            id,
+            self.player,
+        )
 
 
     def get_filler_item_name(self) -> str:
 
-        return "Filler"
+        weights = self.get_filler_weights()
+        filler = self.random.choices(list(weights.keys()), weights=list(weights.values()))[0]
+
+        return filler
+
+
+    def get_filler_weights(self) -> Dict[str, int]:
+
+        weights = {
+            "Solve Selected Cell": self.options.solve_selected_cell_weight.value,
+            "Solve Random Cell": self.options.solve_random_cell_weight.value,
+        }
+
+        if all(weight == 0 for weight in weights.values()):
+            weights["Filler"] = 1
+
+        return weights
 
 
 class ArchipeladokuLocation(Location):

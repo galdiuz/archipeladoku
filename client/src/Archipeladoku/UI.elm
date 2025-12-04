@@ -3,6 +3,7 @@ port module Archipeladoku.UI exposing (..)
 import Archipeladoku.Engine as Engine
 import Archipeladoku.Json as Json
 import Array exposing (Array)
+import Bitwise
 import Browser
 import Browser.Events
 import Dict exposing (Dict)
@@ -31,12 +32,15 @@ type alias Model =
     { board : Maybe BoardState
     , gameIsLocal : Bool
     , host : String
-    , pendingBlockUnlocks : List Item
     , pendingCellChanges : Set ( Int, Int )
+    , pendingItems : List Item
     , pendingSolvedBlocks : Set ( Int, Int )
     , player : String
     , scoutedItems : Dict Int ScoutedItem
+    , seed : Random.Seed
     , selectedCell : Maybe ( Int, Int )
+    , solveSelectedCellUses : Int -- TODO: Need to persist these counts
+    , solveRandomCellUses : Int
     }
 
 
@@ -48,9 +52,11 @@ type Msg
     | GotScoutedItems Decode.Value
     | GotItems (List Int)
     | HostInputChanged String
-    | KeyPressed Int
+    | KeyPressed Bool Int
     | PlayLocalPressed
     | PlayerInputChanged String
+    | SolveRandomCellPressed
+    | SolveSelectedCellPressed
 
 
 type alias BoardState =
@@ -75,6 +81,8 @@ type CellValue
 type Item
     = ProgressiveBlock
     | Block ( Int, Int )
+    | SolveSelectedCell
+    | SolveRandomCell
 
 
 itemFromId : Int -> Maybe Item
@@ -82,8 +90,14 @@ itemFromId id =
     if id >= 1000000 then
         Just <| Block (cellFromId id)
 
+    else if id == 1 then
+        Just SolveRandomCell
+
     else if id == 100 then
         Just ProgressiveBlock
+
+    else if id == 200 then
+        Just SolveSelectedCell
 
     else
         Nothing
@@ -115,18 +129,17 @@ itemClassDecoder =
     Decode.int
         |> Decode.andThen
             (\value ->
-                case value of
-                    1 ->
-                        Decode.succeed Progression
+                if Bitwise.and 1 value == 1 then
+                    Decode.succeed Progression
 
-                    2 ->
-                        Decode.succeed Useful
+                else if Bitwise.and 2 value == 2 then
+                    Decode.succeed Useful
 
-                    4 ->
-                        Decode.succeed Trap
+                else if Bitwise.and 4 value == 4 then
+                    Decode.succeed Trap
 
-                    _ ->
-                        Decode.succeed Filler
+                else
+                    Decode.succeed Filler
             )
 
 
@@ -168,12 +181,15 @@ init flagsValue =
     ( { board = Nothing
       , gameIsLocal = False
       , host = "localhost:8123"
-      , pendingBlockUnlocks = []
       , pendingCellChanges = Set.empty
+      , pendingItems = []
       , pendingSolvedBlocks = Set.empty
       , player = "Player1"
       , scoutedItems = Dict.empty
+      , seed = Random.initialSeed 1 -- TODO: Use flags to set seed
       , selectedCell = Nothing
+      , solveSelectedCellUses = 0
+      , solveRandomCellUses = 0
       }
     , Cmd.none
     -- , connect
@@ -200,7 +216,7 @@ subscriptions model =
         , receiveItems GotItems
         , receiveCheckedLocations GotCheckedLocations
         , receiveScoutedItems GotScoutedItems
-        , Browser.Events.onKeyPress keyDecoder
+        , Browser.Events.onKeyPress <| Decode.oneOf [ keyCodeDecoder, keyDecoder ]
         ]
 
 
@@ -213,17 +229,17 @@ keyDecoder =
                     Just char ->
                         if Char.isHexDigit char then
                             if char == '0' then
-                                KeyPressed 10
+                                KeyPressed False 10
                                     |> Decode.succeed
 
                             else if Char.isDigit char then
                                 Char.toCode char - Char.toCode '0'
-                                    |> KeyPressed
+                                    |> KeyPressed False
                                     |> Decode.succeed
 
                             else
                                 Char.toCode (Char.toUpper char) - Char.toCode 'A' + 11
-                                    |> KeyPressed
+                                    |> KeyPressed False
                                     |> Decode.succeed
 
                         else
@@ -231,6 +247,50 @@ keyDecoder =
 
                     Nothing ->
                         Decode.fail key
+            )
+
+
+keyCodeDecoder : Decode.Decoder Msg
+keyCodeDecoder =
+    Decode.field "code" Decode.string
+        |> Decode.andThen
+            (\code ->
+                case code of
+                    "Digit1" -> Decode.succeed 1
+                    "Digit2" -> Decode.succeed 2
+                    "Digit3" -> Decode.succeed 3
+                    "Digit4" -> Decode.succeed 4
+                    "Digit5" -> Decode.succeed 5
+                    "Digit6" -> Decode.succeed 6
+                    "Digit7" -> Decode.succeed 7
+                    "Digit8" -> Decode.succeed 8
+                    "Digit9" -> Decode.succeed 9
+                    "Digit0" -> Decode.succeed 10
+                    "Numpad1" -> Decode.succeed 1
+                    "Numpad2" -> Decode.succeed 2
+                    "Numpad3" -> Decode.succeed 3
+                    "Numpad4" -> Decode.succeed 4
+                    "Numpad5" -> Decode.succeed 5
+                    "Numpad6" -> Decode.succeed 6
+                    "Numpad7" -> Decode.succeed 7
+                    "Numpad8" -> Decode.succeed 8
+                    "Numpad9" -> Decode.succeed 9
+                    "Numpad0" -> Decode.succeed 10
+                    "KeyA" -> Decode.succeed 11
+                    "KeyB" -> Decode.succeed 12
+                    "KeyC" -> Decode.succeed 13
+                    "KeyD" -> Decode.succeed 14
+                    "KeyE" -> Decode.succeed 15
+                    "KeyF" -> Decode.succeed 16
+                    _ -> Decode.fail code
+            )
+        |> Decode.andThen
+            (\number ->
+                Decode.field "shiftKey" Decode.bool
+                    |> Decode.andThen
+                        (\shift ->
+                            Decode.succeed (KeyPressed shift number)
+                        )
             )
 
 
@@ -343,12 +403,12 @@ update msg model =
 
         GotItems itemIds ->
             ( { model
-                | pendingBlockUnlocks =
+                | pendingItems =
                     List.append
-                        model.pendingBlockUnlocks
+                        model.pendingItems
                         (itemIds
                             |> List.filterMap itemFromId
-                            |> Debug.log "Received blocks"
+                            |> Debug.log "Received item"
                         )
               }
             , Cmd.none
@@ -360,7 +420,7 @@ update msg model =
             , Cmd.none
             )
 
-        KeyPressed number ->
+        KeyPressed shift number ->
             case ( model.selectedCell, model.board ) of
                 ( Just ( row, col ), Just board ) ->
                     let
@@ -370,10 +430,17 @@ update msg model =
                                 board.current
 
                             else
-                                Dict.update
-                                    ( row, col )
-                                    (toggleNumber number)
-                                    board.current
+                                if shift then
+                                    Dict.update
+                                        ( row, col )
+                                        (toggleNumber number)
+                                        board.current
+
+                                else
+                                    Dict.insert
+                                        ( row, col )
+                                        (Single number)
+                                        board.current
                     in
                     ( { model
                         | board = Just { board | current = newCurrent }
@@ -404,6 +471,112 @@ update msg model =
             , Cmd.none
             )
 
+        SolveRandomCellPressed ->
+            case model.board of
+                Just board ->
+                    let
+                        cellCandidates : List ( Int, Int )
+                        cellCandidates =
+                            List.filterMap
+                                (\cell ->
+                                    case Dict.get cell board.current of
+                                        Just (Given _) ->
+                                            Nothing
+
+                                        _ ->
+                                            if cellIsVisible cell then
+                                                Just cell
+
+                                            else
+                                                Nothing
+                                )
+                                (Dict.keys board.solution)
+
+                        cellIsVisible : ( Int, Int ) -> Bool
+                        cellIsVisible cell =
+                            Set.intersect
+                                (Dict.get cell board.cellBlocks
+                                    |> Maybe.withDefault []
+                                    |> List.map (\blockArea -> ( blockArea.startRow, blockArea.startCol ))
+                                    |> Set.fromList
+                                )
+                                board.unlockedBlocks
+                                |> Set.isEmpty
+                                |> not
+
+                        ( selectedCell, newSeed ) =
+                            case cellCandidates of
+                                [] ->
+                                    ( (-1, -1), model.seed )
+
+                                firstCandidate :: restCandidates ->
+                                    Random.step
+                                        (Random.uniform firstCandidate restCandidates)
+                                        model.seed
+                    in
+                    if selectedCell == (-1, -1) then
+                        ( model, Cmd.none )
+
+                    else
+                        ( { model
+                            | board =
+                                { board
+                                    | current =
+                                        Dict.insert
+                                            selectedCell
+                                            (Dict.get selectedCell board.solution
+                                                |> Maybe.withDefault 0
+                                                |> Given
+                                            )
+                                            board.current
+                                }
+                                    |> Just
+                            , pendingCellChanges = Set.insert selectedCell model.pendingCellChanges
+                            , seed = newSeed
+                            , solveRandomCellUses = model.solveRandomCellUses - 1
+                          }
+                        , Cmd.none
+                        )
+                            |> updateBoard
+
+                Nothing ->
+                    ( model
+                    , Cmd.none
+                    )
+
+        SolveSelectedCellPressed ->
+            case ( model.board, model.selectedCell ) of
+                ( Just board, Just cell ) ->
+                    case Dict.get cell board.current of
+                        Just (Given _) ->
+                            ( model, Cmd.none )
+
+                        _ ->
+                            ( { model
+                                | board =
+                                    { board
+                                        | current =
+                                            Dict.insert
+                                                cell
+                                                (Dict.get cell board.solution
+                                                    |> Maybe.withDefault 0
+                                                    |> Given
+                                                )
+                                                board.current
+                                    }
+                                        |> Just
+                                , pendingCellChanges = Set.insert cell model.pendingCellChanges
+                                , solveSelectedCellUses = model.solveSelectedCellUses - 1
+                              }
+                            , Cmd.none
+                            )
+                                |> updateBoard
+
+                _ ->
+                    ( model
+                    , Cmd.none
+                    )
+
 
 andThen : (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
 andThen fun ( model, cmd ) =
@@ -425,7 +598,7 @@ updateBoard ( model, cmd ) =
         Just _ ->
             ( model, cmd )
                 |> andThen updateBoardCellChanges
-                |> andThen updateBoardBlockUnlocks
+                |> andThen updateBoardItems
                 |> andThen updateBoardSolvedBlocks
                 |> andThen updateBoardErrors
 
@@ -443,14 +616,14 @@ updateBoardCellChanges model =
         model.pendingCellChanges
 
 
-updateBoardBlockUnlocks : Model -> ( Model, Cmd Msg )
-updateBoardBlockUnlocks model =
+updateBoardItems : Model -> ( Model, Cmd Msg )
+updateBoardItems model =
     List.foldl
-        (andThen << updateBoardBlockUnlock)
-        ( { model | pendingBlockUnlocks = [] }
+        (andThen << updateBoardItem)
+        ( { model | pendingItems = [] }
         , Cmd.none
         )
-        model.pendingBlockUnlocks
+        model.pendingItems
 
 
 updateBoardSolvedBlocks : Model -> ( Model, Cmd Msg )
@@ -710,8 +883,8 @@ getBoardErrors board =
         )
 
 
-updateBoardBlockUnlock : Item -> Model -> ( Model, Cmd Msg )
-updateBoardBlockUnlock item model =
+updateBoardItem : Item -> Model -> ( Model, Cmd Msg )
+updateBoardItem item model =
     case ( model.board, item ) of
         ( Just board, ProgressiveBlock ) ->
             unlockNextBlock board model
@@ -724,6 +897,20 @@ updateBoardBlockUnlock item model =
                     Set.insert cell board.unlockedBlocks
               }
                 |> updateBoardStateInModel model
+            , Cmd.none
+            )
+
+        ( _, SolveSelectedCell ) ->
+            ( { model
+                | solveSelectedCellUses = model.solveSelectedCellUses + 1
+              }
+            , Cmd.none
+            )
+
+        ( _, SolveRandomCell ) ->
+            ( { model
+                | solveRandomCellUses = model.solveRandomCellUses + 1
+              }
             , Cmd.none
             )
 
@@ -802,20 +989,13 @@ toggleNumber number maybeCellValue =
 
         Just (Multiple numbers) ->
             if Set.member number numbers then
-                if Set.size numbers == 2 then
-                    Set.remove number numbers
-                        |> Set.toList
-                        |> List.head
-                        |> Maybe.map Single
-
-                else
-                    Just <| Multiple <| Set.remove number numbers
+                Just <| Multiple <| Set.remove number numbers
 
             else
                 Just <| Multiple <| Set.insert number numbers
 
         Nothing ->
-            Just <| Single number
+            Just <| Multiple (Set.singleton number)
 
 
 view : Model -> Html Msg
@@ -1122,6 +1302,8 @@ viewFoo model board =
                                             , ")"
                                             ]
                                         )
+
+                                    -- TODO: Only show in online mode
                                     , case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.scoutedItems of
                                         Just item ->
                                             Html.div
@@ -1159,6 +1341,37 @@ viewFoo model board =
                     [ Html.text "Selected cell: None"
                     ]
             )
+        , Html.div
+            []
+            [ Html.button
+                [ HAE.attributeIf
+                    (model.solveSelectedCellUses > 0)
+                    (HE.onClick SolveSelectedCellPressed)
+                , HA.disabled (model.solveSelectedCellUses <= 0)
+                ]
+                [ Html.text
+                    (String.concat
+                        [ "Solve Selected Cell ("
+                        , String.fromInt model.solveSelectedCellUses
+                        , " uses)"
+                        ]
+                    )
+                ]
+            , Html.button
+                [ HAE.attributeIf
+                    (model.solveRandomCellUses > 0)
+                    (HE.onClick SolveRandomCellPressed)
+                , HA.disabled (model.solveRandomCellUses <= 0)
+                ]
+                [ Html.text
+                    (String.concat
+                        [ "Solve Random Cell ("
+                        , String.fromInt model.solveRandomCellUses
+                        , " uses)"
+                        ]
+                    )
+                ]
+            ]
         ]
 
 

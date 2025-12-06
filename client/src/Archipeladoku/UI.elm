@@ -16,6 +16,7 @@ import Json.Encode as Encode
 import List.Extra
 import Random
 import Set exposing (Set)
+import Set.Extra
 
 
 port receiveBoard : (Decode.Value -> msg) -> Sub msg
@@ -26,6 +27,10 @@ port scoutLocations : List Int -> Cmd msg
 port receiveItems : (List Int -> msg) -> Sub msg
 port receiveCheckedLocations : (List Int -> msg) -> Sub msg
 port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
+port receiveHints : (Decode.Value -> msg) -> Sub msg
+port hintForItem : String -> Cmd msg
+port receiveHintPoints : (Int -> msg) -> Sub msg
+port receiveHintCost : (Int -> msg) -> Sub msg
 
 
 type alias Model =
@@ -35,14 +40,18 @@ type alias Model =
     , current : Dict ( Int, Int ) CellValue
     , errors : Dict ( Int, Int ) (Set Int)
     , gameIsLocal : Bool
+    , hints : Dict Int Hint
+    , hintCost : Int
+    , hintPoints : Int
     , host : String
     , lockedBlocks : List ( Int, Int )
     , pendingCellChanges : Set ( Int, Int )
     , pendingItems : List Item
+    , pendingScoutLocations : Set Int
     , pendingSolvedBlocks : Set ( Int, Int )
     , player : String
     , puzzleAreas : Engine.PuzzleAreas
-    , scoutedItems : Dict Int ScoutedItem
+    , scoutedItems : Dict Int Hint
     , seed : Random.Seed
     , selectedCell : Maybe ( Int, Int )
     , solution : Dict ( Int, Int ) Int
@@ -58,7 +67,11 @@ type Msg
     | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
     | GotScoutedItems Decode.Value
+    | GotHints Decode.Value
+    | GotHintCost Int
+    | GotHintPoints Int
     | GotItems (List Int)
+    | HintItemPressed String
     | HostInputChanged String
     | KeyPressed Bool Int
     | PlayLocalPressed
@@ -103,9 +116,10 @@ itemFromId id =
         Nothing
 
 
-type alias ScoutedItem =
+type alias Hint =
     { locationId : Int
     , locationName : String
+    , itemId : Int
     , itemName : String
     , itemClass : ItemClass
     , playerName : String
@@ -113,11 +127,12 @@ type alias ScoutedItem =
     }
 
 
-decodeScoutedItem : Decode.Decoder ScoutedItem
-decodeScoutedItem =
-    Decode.map6 ScoutedItem
+decodeHint : Decode.Decoder Hint
+decodeHint =
+    Decode.map7 Hint
         (Decode.field "locationId" Decode.int)
         (Decode.field "locationName" Decode.string)
+        (Decode.field "itemId" Decode.int)
         (Decode.field "itemName" Decode.string)
         (Decode.field "itemClass" itemClassDecoder)
         (Decode.field "playerName" Decode.string)
@@ -184,10 +199,14 @@ init flags =
       , current = Dict.empty
       , errors = Dict.empty
       , gameIsLocal = False
+      , hints = Dict.empty
+      , hintCost = 0
+      , hintPoints = 0
       , host = "localhost:8123"
       , lockedBlocks = []
       , pendingCellChanges = Set.empty
       , pendingItems = []
+      , pendingScoutLocations = Set.empty
       , pendingSolvedBlocks = Set.empty
       , player = "Player1"
       , puzzleAreas =
@@ -229,6 +248,9 @@ subscriptions model =
         , receiveItems GotItems
         , receiveCheckedLocations GotCheckedLocations
         , receiveScoutedItems GotScoutedItems
+        , receiveHints GotHints
+        , receiveHintCost GotHintCost
+        , receiveHintPoints GotHintPoints
         , Browser.Events.onKeyPress <| Decode.oneOf [ keyCodeDecoder, keyDecoder ]
         ]
 
@@ -329,33 +351,25 @@ update msg model =
         GotBoard value ->
             case Decode.decodeValue Json.boardDecoder value of
                 Ok board ->
-                    let
-                        unlockedBlocks : Set ( Int, Int )
-                        unlockedBlocks =
-                            board.unlockOrder
-                                |> List.take board.unlockCount
-                                |> Set.fromList
-                    in
-                    ( { model
-                        | cellBlocks = Engine.buildCellAreasMap board.puzzleAreas.blocks
-                        , cellBoards = Engine.buildCellAreasMap board.puzzleAreas.boards
-                        , blockSize = board.blockSize
-                        , current = Dict.map (\_ v -> Given v) board.givens
-                        , errors = Dict.empty
-                        , lockedBlocks = List.drop board.unlockCount board.unlockOrder
-                        , puzzleAreas = board.puzzleAreas
-                        , solution = board.solution
-                        , unlockedBlocks = unlockedBlocks
-                      }
-                    , if model.gameIsLocal then
-                        Cmd.none
-
-                      else
-                        unlockedBlocks
-                            |> Set.toList
-                            |> List.map cellToBlockId
-                            |> scoutLocations
-                    )
+                    List.foldl
+                        (\_ ->
+                            andThen unlockNextBlock
+                        )
+                        ( { model
+                            | cellBlocks = Engine.buildCellAreasMap board.puzzleAreas.blocks
+                            , cellBoards = Engine.buildCellAreasMap board.puzzleAreas.boards
+                            , blockSize = board.blockSize
+                            , current = Dict.map (\_ v -> Given v) board.givens
+                            , errors = Dict.empty
+                            , lockedBlocks = board.unlockOrder
+                            , puzzleAreas = board.puzzleAreas
+                            , solution = board.solution
+                            , unlockedBlocks = Set.empty
+                            , pendingItems = model.pendingItems
+                          }
+                        , Cmd.none
+                        )
+                        (List.range 1 board.unlockCount)
                         |> updateState
 
                 Err err ->
@@ -383,7 +397,7 @@ update msg model =
                 |> updateState
 
         GotScoutedItems value ->
-            case Decode.decodeValue (Decode.list decodeScoutedItem) value of
+            case Decode.decodeValue (Decode.list decodeHint) value of
                 Ok scoutedItems ->
                     ( { model
                         | scoutedItems =
@@ -402,6 +416,36 @@ update msg model =
                     , Cmd.none
                     )
 
+        GotHints value ->
+            case Decode.decodeValue (Decode.list decodeHint) value of
+                Ok hints ->
+                    ( { model
+                        | hints =
+                            List.foldl
+                                (\item acc ->
+                                    Dict.insert item.itemId item acc
+                                )
+                                model.hints
+                                hints
+                      }
+                    , Cmd.none
+                    )
+
+                Err err ->
+                    ( model
+                    , Cmd.none
+                    )
+
+        GotHintCost cost ->
+            ( { model | hintCost = cost }
+            , Cmd.none
+            )
+
+        GotHintPoints points ->
+            ( { model | hintPoints = points }
+            , Cmd.none
+            )
+
         GotItems itemIds ->
             ( { model
                 | pendingItems =
@@ -414,6 +458,11 @@ update msg model =
             , Cmd.none
             )
                 |> updateState
+
+        HintItemPressed name ->
+            ( model
+            , hintForItem name
+            )
 
         HostInputChanged value ->
             ( { model | host = value }
@@ -465,7 +514,7 @@ update msg model =
             ( { model | gameIsLocal = True }
             , generateBoard
                 (Json.encodeGenerateArgs
-                    { blockSize = 6
+                    { blockSize = 4
                     , numberOfBoards = 13
                     , seed = 1
                     }
@@ -568,11 +617,17 @@ andThen fun ( model, cmd ) =
 
 updateState : ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
 updateState ( model, cmd ) =
-    ( model, cmd )
-        |> andThen updateStateCellChanges
-        |> andThen updateStateItems
-        |> andThen updateStateSolvedBlocks
-        |> andThen updateStateErrors
+    -- TODO: Use a proper flag
+    if model.blockSize == 0 then
+        ( model, cmd )
+
+    else
+        ( model, cmd )
+            |> andThen updateStateCellChanges
+            |> andThen updateStateItems
+            |> andThen updateStateSolvedBlocks
+            |> andThen updateStateErrors
+            |> andThen updateStateScoutLocations
 
 
 updateStateCellChanges : Model -> ( Model, Cmd Msg )
@@ -610,6 +665,19 @@ updateStateErrors model =
     ( { model | errors = getBoardErrors model }
     , Cmd.none
     )
+
+
+updateStateScoutLocations : Model -> ( Model, Cmd Msg )
+updateStateScoutLocations model =
+    if Set.isEmpty model.pendingScoutLocations || model.gameIsLocal then
+        ( model
+        , Cmd.none
+        )
+
+    else
+        ( { model | pendingScoutLocations = Set.empty }
+        , scoutLocations (Set.toList model.pendingScoutLocations)
+        )
 
 
 updateStateCellChange : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
@@ -699,15 +767,24 @@ unlockNextBlock : Model -> ( Model, Cmd Msg )
 unlockNextBlock model =
     case model.lockedBlocks of
         block :: remainingBlocks ->
-            ( { model
-                | lockedBlocks = remainingBlocks
-                , unlockedBlocks = Set.insert block model.unlockedBlocks
+            let
+                unlockedModel : Model
+                unlockedModel =
+                    { model
+                        | lockedBlocks = remainingBlocks
+                        , unlockedBlocks = Set.insert block model.unlockedBlocks
+                    }
+            in
+            ( { unlockedModel
+                | pendingScoutLocations =
+                    unlockedModel.pendingScoutLocations
+                        |> Set.insert (cellToBlockId block)
+                        |> Set.union
+                            (unlockedBoardsAtCell unlockedModel block
+                                |> Set.map cellToBoardId
+                            )
               }
-            , if model.gameIsLocal then
-                Cmd.none
-
-              else
-                scoutLocations [ cellToBlockId block ]
+            , Cmd.none
             )
 
         [] ->
@@ -808,11 +885,24 @@ updateStateItem item model =
             unlockNextBlock model
 
         Block cell ->
-            ( { model
-                | lockedBlocks =
-                    List.filter ((/=) cell) model.lockedBlocks
-                , unlockedBlocks =
-                    Set.insert cell model.unlockedBlocks
+            let
+                unlockedModel : Model
+                unlockedModel =
+                    { model
+                        | lockedBlocks =
+                            List.filter ((/=) cell) model.lockedBlocks
+                            , unlockedBlocks =
+                                Set.insert cell model.unlockedBlocks
+                    }
+            in
+            ( { unlockedModel
+                | pendingScoutLocations =
+                    unlockedModel.pendingScoutLocations
+                        |> Set.insert (cellToBlockId cell)
+                        |> Set.union
+                            (unlockedBoardsAtCell unlockedModel cell
+                                |> Set.map cellToBoardId
+                            )
               }
             , Cmd.none
             )
@@ -924,10 +1014,27 @@ cellIsVisible model cell =
         |> not
 
 
+unlockedBoardsAtCell : Model -> ( Int, Int ) -> Set ( Int, Int )
+unlockedBoardsAtCell model cell =
+    Dict.get cell model.cellBoards
+        |> Maybe.withDefault []
+        |> List.map (\area -> ( area.startRow, area.startCol ))
+        |> List.filter
+            (\( boardRow, boardCol ) ->
+                Engine.buildPuzzleAreas model.blockSize boardRow boardCol
+                    |> .blocks
+                    |> List.map (\blockArea -> ( blockArea.startRow, blockArea.startCol ))
+                    |> Set.fromList
+                    |> Set.Extra.isSubsetOf model.unlockedBlocks
+            )
+        |> Set.fromList
+
+
 view : Model -> Html Msg
 view model =
     Html.div
         []
+        -- TODO: Use a proper flag
         [ if model.blockSize > 0 then
             Html.div
                 [ HA.style "display" "flex"
@@ -935,37 +1042,42 @@ view model =
                 , HA.style "max-height" "100vh"
                 ]
                 [ viewBoard model
-                , viewFoo model
+                , viewInfoPanel model
                 ]
 
           else
-            Html.div
-                []
-                [ Html.form
-                    [ HE.onSubmit ConnectPressed ]
-                    [ Html.input
-                        [ HA.type_ "text"
-                        , HA.placeholder "Host"
-                        , HA.value model.host
-                        , HE.onInput HostInputChanged
-                        ]
-                        []
-                    , Html.input
-                        [ HA.type_ "text"
-                        , HA.placeholder "Player name"
-                        , HA.value model.player
-                        , HE.onInput PlayerInputChanged
-                        ]
-                        []
-                    , Html.button
-                        []
-                        [ Html.text "Connect"]
-                    ]
-                , Html.br [] []
-                , Html.button
-                    [ HE.onClick PlayLocalPressed ]
-                    [ Html.text "Play Singleplayer" ]
+            viewMenu model
+        ]
+
+
+viewMenu : Model -> Html Msg
+viewMenu model =
+    Html.div
+        []
+        [ Html.form
+            [ HE.onSubmit ConnectPressed ]
+            [ Html.input
+                [ HA.type_ "text"
+                , HA.placeholder "Host"
+                , HA.value model.host
+                , HE.onInput HostInputChanged
                 ]
+                []
+            , Html.input
+                [ HA.type_ "text"
+                , HA.placeholder "Player name"
+                , HA.value model.player
+                , HE.onInput PlayerInputChanged
+                ]
+                []
+            , Html.button
+                []
+                [ Html.text "Connect"]
+            ]
+        , Html.br [] []
+        , Html.button
+            [ HE.onClick PlayLocalPressed ]
+            [ Html.text "Play Singleplayer" ]
         ]
 
 
@@ -1167,8 +1279,8 @@ viewMultipleNumbers blockSize errorsAtCell numbers =
         (Set.toList numbers)
 
 
-viewFoo : Model -> Html Msg
-viewFoo model =
+viewInfoPanel : Model -> Html Msg
+viewInfoPanel model =
     Html.div
         [ HA.style "display" "flex"
         , HA.style "flex-direction" "column"
@@ -1183,79 +1295,31 @@ viewFoo model =
             (case model.selectedCell of
                 Just ( row, col ) ->
                     List.concat
-                        [
-                          [ Html.text
-                            (String.concat
-                                [ "Cell: "
-                                , rowToLabel row
-                                , String.fromInt col
-                                , " (r"
-                                , String.fromInt row
-                                , "c"
-                                , String.fromInt col
-                                , ")"
-                                ]
-                            )
-                          ]
+                        [ [ viewCellInfo model ( row, col ) ]
                         , List.map
-                            (\block ->
-                                Html.div
-                                    [ HA.style "display" "flex"
-                                    , HA.style "flex-direction" "column"
-                                    ]
-                                    [ Html.text
-                                        (String.concat
-                                            [ "Block: "
-                                            , rowToLabel block.startRow
-                                            , String.fromInt block.startCol
-                                            , " (r"
-                                            , String.fromInt block.startRow
-                                            , "c"
-                                            , String.fromInt block.startCol
-                                            , ")"
-                                            ]
-                                        )
-
-                                    -- TODO: Only show in online mode
-                                    , case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.scoutedItems of
-                                        Just item ->
-                                            Html.div
-                                                []
-                                                [ Html.text
-                                                    (String.concat
-                                                        [ "Reward: "
-                                                        , item.itemName
-                                                        , " ("
-                                                        , itemClassToString item.itemClass
-                                                        , ", "
-                                                        , item.playerName
-                                                        , ", "
-                                                        , item.gameName
-                                                        , ")"
-                                                        ]
-                                                    )
-                                                ]
-
-                                        Nothing ->
-                                            Html.div
-                                                []
-                                                [ Html.text "Reward: ???" ]
-
-                                    -- TODO: List unlock conditions
-                                    ]
-                            )
+                            (viewBlockInfo model)
                             (Dict.get ( row, col ) model.cellBlocks
+                                |> Maybe.withDefault []
+                                |> List.sortBy .startRow
+                            )
+
+                        , List.map
+                            (viewBoardInfo model)
+                            (Dict.get ( row, col ) model.cellBoards
                                 |> Maybe.withDefault []
                                 |> List.sortBy .startRow
                             )
                         ]
 
                 Nothing ->
-                    [ Html.text "Selected cell: None"
-                    ]
+                    []
             )
+        , viewInfoHints model
         , Html.div
-            []
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "row"
+            , HA.style "gap" "0.5em"
+            ]
             [ Html.button
                 [ HAE.attributeIf
                     (model.solveSelectedCellUses > 0)
@@ -1286,6 +1350,192 @@ viewFoo model =
                 ]
             ]
         ]
+
+
+viewCellInfo : Model -> ( Int, Int ) -> Html Msg
+viewCellInfo model ( row, col ) =
+    Html.div
+        []
+        [ Html.text
+            (String.concat
+                [ "Cell "
+                , rowToLabel row
+                , String.fromInt col
+                , " (r"
+                , String.fromInt row
+                , "c"
+                , String.fromInt col
+                , ")"
+                ]
+            )
+        ]
+
+
+viewBlockInfo : Model -> Engine.Area -> Html Msg
+viewBlockInfo model block =
+    Html.div
+        [ HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        ]
+        [ Html.text
+            (String.concat
+                [ "Block "
+                , rowToLabel block.startRow
+                , String.fromInt block.startCol
+                , " (r"
+                , String.fromInt block.startRow
+                , "c"
+                , String.fromInt block.startCol
+                , ")"
+                ]
+            )
+
+        , if model.gameIsLocal then
+            Html.text ""
+
+          else
+            case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.scoutedItems of
+                Just item ->
+                    Html.div
+                        []
+                        [ Html.text
+                            (String.concat
+                                [ "Reward: "
+                                , item.itemName
+                                , " ("
+                                , itemClassToString item.itemClass
+                                , ", "
+                                , item.playerName
+                                , ", "
+                                , item.gameName
+                                , ")"
+                                ]
+                            )
+                        ]
+
+                Nothing ->
+                    Html.div
+                        []
+                        [ Html.text "Reward: ???" ]
+
+        -- TODO: Only if unlock method is fixed
+        , if model.gameIsLocal
+            || Set.member ( block.startRow, block.startCol ) model.unlockedBlocks
+          then
+            Html.text ""
+
+          else
+            case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.hints of
+                Just item ->
+                    Html.div
+                        []
+                        [ Html.text
+                            (String.concat
+                                [ "Unlock: "
+                                , item.locationName
+                                , " ("
+                                , item.playerName
+                                , ", "
+                                , item.gameName
+                                , ")"
+                                ]
+                            )
+                        ]
+
+                Nothing ->
+                    Html.div
+                        [ HA.style "display" "flex"
+                        , HA.style "gap" "0.5em"
+                        ]
+                        [ Html.text "Unlock: ???"
+                        , Html.button
+                            [ HE.onClick
+                                (HintItemPressed
+                                    (String.concat
+                                        [ "Block "
+                                        , rowToLabel block.startRow
+                                        , String.fromInt block.startCol
+                                        ]
+                                    )
+                                )
+                            , HA.disabled (model.hintPoints < model.hintCost)
+                            ]
+                            [ Html.text "Hint" ]
+                        ]
+        ]
+
+
+viewBoardInfo : Model -> Engine.Area -> Html Msg
+viewBoardInfo model board =
+    Html.div
+        [ HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        ]
+        [ Html.text
+            (String.concat
+                [ "Board "
+                , rowToLabel board.startRow
+                , String.fromInt board.startCol
+                , " (r"
+                , String.fromInt board.startRow
+                , "c"
+                , String.fromInt board.startCol
+                , ")"
+                ]
+            )
+
+        , if model.gameIsLocal then
+            Html.text ""
+
+          else
+            case Dict.get (cellToBoardId ( board.startRow, board.startCol )) model.scoutedItems of
+                Just item ->
+                    Html.div
+                        []
+                        [ Html.text
+                            (String.concat
+                                [ "Reward: "
+                                , item.itemName
+                                , " ("
+                                , itemClassToString item.itemClass
+                                , ", "
+                                , item.playerName
+                                , ", "
+                                , item.gameName
+                                , ")"
+                                ]
+                            )
+                        ]
+
+                Nothing ->
+                    Html.div
+                        []
+                        [ Html.text "Reward: ???" ]
+
+        -- TODO: List unlock conditions
+        ]
+
+
+viewInfoHints : Model -> Html Msg
+viewInfoHints model =
+    if model.gameIsLocal then
+        Html.text ""
+
+    else
+        Html.div
+            []
+            [ Html.text
+                (String.concat
+                    [ "Hints available: "
+                    , String.fromInt <| model.hintPoints // model.hintCost
+                    , " ("
+                    , String.fromInt model.hintPoints
+                    , " points, cost "
+                    , String.fromInt model.hintCost
+                    , ")"
+                    ]
+                )
+            ]
 
 
 cellValueToInt : CellValue -> Maybe Int

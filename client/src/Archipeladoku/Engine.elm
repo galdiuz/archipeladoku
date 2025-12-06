@@ -696,7 +696,7 @@ continueGeneration state =
                         }
 
                 cluster :: remainingClusters ->
-                    case generateCluster cluster clusterState of
+                    case placeNumbersInCluster cluster clusterState of
                         Ok newClusterState ->
                             if List.isEmpty remainingClusters then
                                 RemovingGivens
@@ -779,23 +779,23 @@ getClusterCells blockSize positions =
         positions
 
 
-generateCluster :
+placeNumbersInCluster :
     List ( Int, Int )
     -> ClusterGenerationState
     -> Result String ClusterGenerationState
-generateCluster clusterPositions inputState =
+placeNumbersInCluster clusterPositions state =
     let
         clusterCells : Set ( Int, Int )
         clusterCells =
             getClusterCells
-                inputState.blockSize
+                state.blockSize
                 clusterPositions
 
         allPossibilities : Possibilities
         allPossibilities =
             Set.foldl
                 (\cell acc ->
-                    Dict.insert cell inputState.allNumbers acc
+                    Dict.insert cell state.allNumbers acc
                 )
                 Dict.empty
                 clusterCells
@@ -804,51 +804,42 @@ generateCluster clusterPositions inputState =
         (\cell result ->
             Result.andThen
                 (propagateSolution
-                    inputState.solution
-                    inputState.peerMap
+                    state.solution
+                    state.peerMap
                     cell
                 )
                 result
         )
         (Ok allPossibilities)
-        inputState.allCells
+        state.allCells
         |> Result.andThen
             (\initialPossibilities ->
                 tryPlacingNumbers
-                    { blockSize = inputState.blockSize
-                    , peerMap = inputState.peerMap
+                    { blockSize = state.blockSize
+                    , peerMap = state.peerMap
                     , placed = Dict.empty
                     , possibilities = initialPossibilities
-                    , seed = inputState.seed
+                    , seed = state.seed
                     }
             )
         |> Result.map
             (\placedNumbers ->
-                { inputState
+                { state
                     | givens =
                         Dict.foldl
                             (\cell value acc ->
-                                if Dict.member cell inputState.solution then
+                                if Dict.member cell state.solution then
                                     acc
 
                                 else
                                     Dict.insert cell value acc
                             )
-                            inputState.givens
+                            state.givens
                             placedNumbers.solution
                     , seed = placedNumbers.seed
-                    , solution = Dict.union inputState.solution placedNumbers.solution
+                    , solution = Dict.union state.solution placedNumbers.solution
                 }
             )
-
-
-getPeers : Dict ( Int, Int ) (List Area) -> ( Int, Int ) -> Set ( Int, Int )
-getPeers cellAreas cell =
-    Dict.get cell cellAreas
-        |> Maybe.withDefault []
-        |> List.concatMap getAreaCells
-        |> Set.fromList
-        |> Set.remove cell
 
 
 propagateSolution :
@@ -876,73 +867,6 @@ propagateSolution solution peerMap cell possibilities =
 
         Nothing ->
             Ok possibilities
-
-
-blockSizeToDimensions : Int -> ( Int, Int )
-blockSizeToDimensions blockSize =
-    case blockSize of
-        4 ->
-            ( 2, 2 )
-
-        6 ->
-            ( 2, 3 )
-
-        8 ->
-            ( 2, 4 )
-
-        9 ->
-            ( 3, 3 )
-
-        12 ->
-            ( 3, 4 )
-
-        16 ->
-            ( 4, 4 )
-
-        _ ->
-            ( 1, 1 )
-
-
-blockSizeToOverlap : Int -> ( Int, Int )
-blockSizeToOverlap blockSize =
-    case blockSize of
-        4 ->
-            ( 1, 1 )
-
-        6 ->
-            ( 2, 2 )
-
-        8 ->
-            ( 2, 2 )
-
-        9 ->
-            ( 3, 3 )
-
-        12 ->
-            ( 3, 4 )
-
-        16 ->
-            ( 4, 4 )
-
-        _ ->
-            ( 0, 0 )
-
-
-joinPuzzleAreas : List PuzzleAreas -> PuzzleAreas
-joinPuzzleAreas puzzleAreas =
-    { blocks =
-        List.concatMap .blocks puzzleAreas
-            |> List.Extra.unique
-    , boards =
-        List.concatMap .boards puzzleAreas
-            |> List.Extra.unique
-    , rows =
-        List.concatMap .rows puzzleAreas
-            |> List.Extra.unique
-    , cols =
-        List.concatMap .cols puzzleAreas
-            |> List.Extra.unique
-    }
 
 
 type alias PlaceNumberArgs =
@@ -1062,6 +986,82 @@ propagatePossibilities peers number possibilities =
         )
         (Just possibilities)
         peers
+
+
+getPeers : Dict ( Int, Int ) (List Area) -> ( Int, Int ) -> Set ( Int, Int )
+getPeers cellAreas cell =
+    Dict.get cell cellAreas
+        |> Maybe.withDefault []
+        |> List.concatMap getAreaCells
+        |> Set.fromList
+        |> Set.remove cell
+
+
+blockSizeToDimensions : Int -> ( Int, Int )
+blockSizeToDimensions blockSize =
+    case blockSize of
+        4 ->
+            ( 2, 2 )
+
+        6 ->
+            ( 2, 3 )
+
+        8 ->
+            ( 2, 4 )
+
+        9 ->
+            ( 3, 3 )
+
+        12 ->
+            ( 3, 4 )
+
+        16 ->
+            ( 4, 4 )
+
+        _ ->
+            ( 1, 1 )
+
+
+blockSizeToOverlap : Int -> ( Int, Int )
+blockSizeToOverlap blockSize =
+    case blockSize of
+        4 ->
+            ( 1, 1 )
+
+        6 ->
+            ( 2, 2 )
+
+        8 ->
+            ( 2, 2 )
+
+        9 ->
+            ( 3, 3 )
+
+        12 ->
+            ( 3, 4 )
+
+        16 ->
+            ( 4, 4 )
+
+        _ ->
+            ( 0, 0 )
+
+
+joinPuzzleAreas : List PuzzleAreas -> PuzzleAreas
+joinPuzzleAreas puzzleAreas =
+    { blocks =
+        List.concatMap .blocks puzzleAreas
+            |> List.Extra.unique
+    , boards =
+        List.concatMap .boards puzzleAreas
+            |> List.Extra.unique
+    , rows =
+        List.concatMap .rows puzzleAreas
+            |> List.Extra.unique
+    , cols =
+        List.concatMap .cols puzzleAreas
+            |> List.Extra.unique
+    }
 
 
 removeGivenNumbers :

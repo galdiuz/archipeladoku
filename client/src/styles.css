@@ -1,0 +1,239 @@
+:root {
+    color-scheme: dark;
+
+    --h4-1: 0;
+    --h4-2: 60;
+    --h4-3: 120;
+    --h4-4: 210;
+
+    --h6-1: 0;
+    --h6-2: 40;
+    --h6-3: 110;
+    --h6-4: 180;
+    --h6-5: 240;
+    --h6-6: 300;
+
+    --h8-1: 0;
+    --h8-2: 35;
+    --h8-3: 65;
+    --h8-4: 120;
+    --h8-5: 170;
+    --h8-6: 220;
+    --h8-7: 275;
+    --h8-8: 320;
+
+    --h9-1: 0;
+    --h9-2: 30;
+    --h9-3: 60;
+    --h9-4: 90;
+    --h9-5: 150;
+    --h9-6: 195;
+    --h9-7: 225;
+    --h9-8: 270;
+    --h9-9: 315;
+
+    --h12-1: 0;
+    --h12-2: 30;
+    --h12-3: 60;
+    --h12-4: 90;
+    --h12-5: 120;
+    --h12-6: 150;
+    --h12-7: 180;
+    --h12-8: 210;
+    --h12-9: 240;
+    --h12-10: 270;
+    --h12-11: 300;
+    --h12-12: 330;
+
+    --h16-1: 0;
+    --h16-2: 22;
+    --h16-3: 45;
+    --h16-4: 67;
+    --h16-5: 90;
+    --h16-6: 112;
+    --h16-7: 135;
+    --h16-8: 157;
+    --h16-9: 180;
+    --h16-10: 202;
+    --h16-11: 225;
+    --h16-12: 247;
+    --h16-13: 270;
+    --h16-14: 292;
+    --h16-15: 315;
+    --h16-16: 337;
+}
+
+body {
+    background-color: light-dark(#eeeeee, #222222);
+    color: light-dark(#000000, #eeeeee);
+    padding: 0;
+    margin: 0;
+}
+
+.board {
+    display: grid;
+    grid-auto-rows: 1.5em;
+    grid-auto-columns: 1.5em;
+    font-size: 32px;
+    overflow: auto;
+}
+
+.cell {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: inherit;
+    color: inherit;
+    font-size: inherit;
+    font-family: inherit;
+    padding: 0;
+    border-top: 1px solid #888888;
+    border-bottom: none;
+    border-left: 1px solid #888888;
+    border-right: none;
+}
+
+.cell.selected {
+    z-index: 10;
+    box-shadow: 1px 1px 0 2px light-dark(#aaaaaa, #aaaaaa),
+                1px 1px 0 5px light-dark(#0066cc, #00d9ff);
+}
+
+.cell.given {
+    font-weight: 700;
+    font-family: arial;
+}
+
+.cell.multi {
+    display: grid;
+    align-items: stretch;
+}
+
+.cell.error, .cell .error {
+    color: light-dark(#aa0000, #ff8888);
+    text-decoration: underline;
+    font-weight: 700;
+}
+
+.cell.hidden {
+    background-color: light-dark(#888888, #888888);
+}
+
+.block-4 .cell.multi {
+    grid-template-rows: repeat(2, 1fr);
+    grid-template-columns: repeat(2, 1fr);
+    font-size: 0.6em;
+}
+
+.block-6 .cell.multi {
+    grid-template-rows: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
+    font-size: 0.5em;
+}
+
+.block-8 .cell.multi {
+    grid-template-rows: repeat(2, 1fr);
+    grid-template-columns: repeat(4, 1fr);
+    font-size: 0.45em;
+}
+
+.block-9 .cell.multi {
+    grid-template-rows: repeat(3, 1fr);
+    grid-template-columns: repeat(3, 1fr);
+    font-size: 0.4em;
+}
+
+.block-12 .cell.multi {
+    grid-template-rows: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
+    font-size: 0.4em;
+}
+
+.block-16 .cell.multi {
+    grid-template-rows: repeat(4, 1fr);
+    grid-template-columns: repeat(4, 1fr);
+    font-size: 0.3em;
+}
+
+.center {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.block-border-top {
+    border-top: 2px solid #aaaaaa;
+}
+
+.block-border-bottom {
+    border-bottom: 2px solid #aaaaaa;
+}
+
+.block-border-left {
+    border-left: 2px solid #aaaaaa;
+}
+
+.block-border-right {
+    border-right: 2px solid #aaaaaa;
+}
+
+.block-4 .val-1 { background-color: light-dark(hsl(var(--h4-1), 60%, 80%), hsl(var(--h4-1), 60%, 25%)); }
+.block-4 .val-2 { background-color: light-dark(hsl(var(--h4-2), 60%, 80%), hsl(var(--h4-2), 60%, 20%)); }
+.block-4 .val-3 { background-color: light-dark(hsl(var(--h4-3), 60%, 80%), hsl(var(--h4-3), 60%, 25%)); }
+.block-4 .val-4 { background-color: light-dark(hsl(var(--h4-4), 60%, 80%), hsl(var(--h4-4), 60%, 30%)); }
+
+.block-6 .val-1 { background-color: light-dark(hsl(var(--h6-1), 60%, 80%), hsl(var(--h6-1), 60%, 25%)); }
+.block-6 .val-2 { background-color: light-dark(hsl(var(--h6-2), 60%, 80%), hsl(var(--h6-2), 60%, 20%)); }
+.block-6 .val-3 { background-color: light-dark(hsl(var(--h6-3), 60%, 80%), hsl(var(--h6-3), 60%, 20%)); }
+.block-6 .val-4 { background-color: light-dark(hsl(var(--h6-4), 60%, 80%), hsl(var(--h6-4), 60%, 25%)); }
+.block-6 .val-5 { background-color: light-dark(hsl(var(--h6-5), 60%, 80%), hsl(var(--h6-5), 60%, 30%)); }
+.block-6 .val-6 { background-color: light-dark(hsl(var(--h6-6), 60%, 80%), hsl(var(--h6-6), 60%, 25%)); }
+
+.block-8 .val-1 { background-color: light-dark(hsl(var(--h8-1), 60%, 80%), hsl(var(--h8-1), 60%, 25%)); }
+.block-8 .val-2 { background-color: light-dark(hsl(var(--h8-2), 60%, 80%), hsl(var(--h8-2), 60%, 25%)); }
+.block-8 .val-3 { background-color: light-dark(hsl(var(--h8-3), 60%, 80%), hsl(var(--h8-3), 60%, 20%)); }
+.block-8 .val-4 { background-color: light-dark(hsl(var(--h8-4), 60%, 80%), hsl(var(--h8-4), 60%, 20%)); }
+.block-8 .val-5 { background-color: light-dark(hsl(var(--h8-5), 60%, 80%), hsl(var(--h8-5), 60%, 20%)); }
+.block-8 .val-6 { background-color: light-dark(hsl(var(--h8-6), 60%, 80%), hsl(var(--h8-6), 60%, 30%)); }
+.block-8 .val-7 { background-color: light-dark(hsl(var(--h8-7), 60%, 80%), hsl(var(--h8-7), 60%, 30%)); }
+.block-8 .val-8 { background-color: light-dark(hsl(var(--h8-8), 60%, 80%), hsl(var(--h8-8), 60%, 25%)); }
+
+.block-9 .val-1 { background-color: light-dark(hsl(var(--h9-1), 60%, 80%), hsl(var(--h9-1), 60%, 25%)); }
+.block-9 .val-2 { background-color: light-dark(hsl(var(--h9-2), 60%, 80%), hsl(var(--h9-2), 60%, 25%)); }
+.block-9 .val-3 { background-color: light-dark(hsl(var(--h9-3), 60%, 80%), hsl(var(--h9-3), 60%, 20%)); }
+.block-9 .val-4 { background-color: light-dark(hsl(var(--h9-4), 60%, 80%), hsl(var(--h9-4), 60%, 25%)); }
+.block-9 .val-5 { background-color: light-dark(hsl(var(--h9-5), 60%, 80%), hsl(var(--h9-5), 60%, 25%)); }
+.block-9 .val-6 { background-color: light-dark(hsl(var(--h9-6), 60%, 80%), hsl(var(--h9-6), 60%, 25%)); }
+.block-9 .val-7 { background-color: light-dark(hsl(var(--h9-7), 60%, 80%), hsl(var(--h9-7), 60%, 30%)); }
+.block-9 .val-8 { background-color: light-dark(hsl(var(--h9-8), 60%, 80%), hsl(var(--h9-8), 60%, 30%)); }
+.block-9 .val-9 { background-color: light-dark(hsl(var(--h9-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
+
+.block-12 .val-1 { background-color: light-dark(hsl(var(--h12-1), 60%, 80%), hsl(var(--h12-1), 60%, 25%)); }
+.block-12 .val-2 { background-color: light-dark(hsl(var(--h12-2), 60%, 80%), hsl(var(--h12-2), 60%, 25%)); }
+.block-12 .val-3 { background-color: light-dark(hsl(var(--h12-3), 60%, 80%), hsl(var(--h12-3), 60%, 20%)); }
+.block-12 .val-4 { background-color: light-dark(hsl(var(--h12-4), 60%, 80%), hsl(var(--h12-4), 60%, 20%)); }
+.block-12 .val-5 { background-color: light-dark(hsl(var(--h12-5), 60%, 80%), hsl(var(--h12-5), 60%, 20%)); }
+.block-12 .val-6 { background-color: light-dark(hsl(var(--h12-6), 60%, 80%), hsl(var(--h12-6), 60%, 20%)); }
+.block-12 .val-7 { background-color: light-dark(hsl(var(--h12-7), 60%, 80%), hsl(var(--h12-7), 60%, 25%)); }
+.block-12 .val-8 { background-color: light-dark(hsl(var(--h12-8), 60%, 80%), hsl(var(--h12-8), 60%, 30%)); }
+.block-12 .val-9 { background-color: light-dark(hsl(var(--h12-9), 60%, 80%), hsl(var(--h12-9), 60%, 30%)); }
+.block-12 .val-10 { background-color: light-dark(hsl(var(--h12-10), 60%, 80%), hsl(var(--h12-10), 60%, 30%)); }
+.block-12 .val-11 { background-color: light-dark(hsl(var(--h12-11), 60%, 80%), hsl(var(--h12-11), 60%, 25%)); }
+.block-12 .val-12 { background-color: light-dark(hsl(var(--h12-12), 60%, 80%), hsl(var(--h12-12), 60%, 25%)); }
+
+.block-16 .val-1 { background-color: light-dark(hsl(var(--h16-1), 60%, 80%), hsl(var(--h16-1), 60%, 25%)); }
+.block-16 .val-2 { background-color: light-dark(hsl(var(--h16-2), 60%, 80%), hsl(var(--h16-2), 60%, 25%)); }
+.block-16 .val-3 { background-color: light-dark(hsl(var(--h16-3), 60%, 80%), hsl(var(--h16-3), 60%, 20%)); }
+.block-16 .val-4 { background-color: light-dark(hsl(var(--h16-4), 60%, 80%), hsl(var(--h16-4), 60%, 20%)); }
+.block-16 .val-5 { background-color: light-dark(hsl(var(--h16-5), 60%, 80%), hsl(var(--h16-5), 60%, 20%)); }
+.block-16 .val-6 { background-color: light-dark(hsl(var(--h16-6), 60%, 80%), hsl(var(--h16-6), 60%, 20%)); }
+.block-16 .val-7 { background-color: light-dark(hsl(var(--h16-7), 60%, 80%), hsl(var(--h16-7), 60%, 20%)); }
+.block-16 .val-8 { background-color: light-dark(hsl(var(--h16-8), 60%, 80%), hsl(var(--h16-8), 60%, 20%)); }
+.block-16 .val-9 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h16-9), 60%, 25%)); }
+.block-16 .val-10 { background-color: light-dark(hsl(var(--h16-10), 60%, 80%), hsl(var(--h16-10), 60%, 30%)); }
+.block-16 .val-11 { background-color: light-dark(hsl(var(--h16-11), 60%, 80%), hsl(var(--h16-11), 60%, 30%)); }
+.block-16 .val-12 { background-color: light-dark(hsl(var(--h16-12), 60%, 80%), hsl(var(--h16-12), 60%, 30%)); }
+.block-16 .val-13 { background-color: light-dark(hsl(var(--h16-13), 60%, 80%), hsl(var(--h16-13), 60%, 30%)); }
+.block-16 .val-14 { background-color: light-dark(hsl(var(--h16-14), 60%, 80%), hsl(var(--h16-14), 60%, 25%)); }
+.block-16 .val-15 { background-color: light-dark(hsl(var(--h16-15), 60%, 80%), hsl(var(--h16-15), 60%, 25%)); }
+.block-16 .val-16 { background-color: light-dark(hsl(var(--h16-16), 60%, 80%), hsl(var(--h16-16), 60%, 25%)); }

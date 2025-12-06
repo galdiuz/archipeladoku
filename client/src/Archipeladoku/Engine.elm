@@ -278,7 +278,6 @@ generateFromServer args =
         , peerMap = peerMap
         , puzzleAreas = joinedPuzzleAreas
         , remainingClusters = args.clusters
-        -- , remainingClusters = sortClustersByUnlockOrder args.blockUnlockOrder args.clusters
         , seed = Random.initialSeed args.seed
         , solution = Dict.empty
         , unlockCount = args.unlockedBlocks

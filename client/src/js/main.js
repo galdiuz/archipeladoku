@@ -8,7 +8,9 @@ let uiContainer = document.getElementById('ui-container');
 
 let ui = Elm.Archipeladoku.UI.init({
     node: uiContainer,
-    flags: {}
+    flags: {
+        seed: Math.floor(Math.random() * 2147483647)
+    }
 });
 let worker = new Worker(Worker);
 

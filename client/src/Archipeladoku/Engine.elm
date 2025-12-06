@@ -271,7 +271,6 @@ generateFromServer args =
         , peerMap = peerMap
         , puzzleAreas = joinedPuzzleAreas
         , remainingClusters = sortClustersByUnlockOrder args.blockUnlockOrder args.clusters
-            |> Debug.log "Remaining clusters"
         , seed = Random.initialSeed args.seed
         , solution = Dict.empty
         , unlockCount = args.unlockedBlocks

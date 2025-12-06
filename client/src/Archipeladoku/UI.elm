@@ -93,10 +93,10 @@ itemFromId id =
     else if id == 1 then
         Just SolveRandomCell
 
-    else if id == 100 then
+    else if id == 101 then
         Just ProgressiveBlock
 
-    else if id == 200 then
+    else if id == 201 then
         Just SolveSelectedCell
 
     else
@@ -349,10 +349,6 @@ update msg model =
                         |> updateBoard
 
                 Err err ->
-                    let
-                        _ =
-                            Debug.log "Decoding error" err
-                    in
                     ( model, Cmd.none )
 
         GotCheckedLocations locationIds ->
@@ -369,7 +365,6 @@ update msg model =
                                     else
                                         Nothing
                                 )
-                            |> Debug.log "Solved blocks"
                             |> Set.fromList
                         )
               }
@@ -393,10 +388,6 @@ update msg model =
                     )
 
                 Err err ->
-                    let
-                        _ =
-                            Debug.log "Decoding scouted items error" err
-                    in
                     ( model
                     , Cmd.none
                     )
@@ -408,7 +399,6 @@ update msg model =
                         model.pendingItems
                         (itemIds
                             |> List.filterMap itemFromId
-                            |> Debug.log "Received item"
                         )
               }
             , Cmd.none

@@ -65,9 +65,6 @@ update msg model =
                     )
 
                 Err err ->
-                    let
-                        _ = Debug.log "Error decoding generate args" err
-                    in
                     ( model, Cmd.none )
 
         GotGenerateArgs2 value ->
@@ -80,9 +77,6 @@ update msg model =
                     )
 
                 Err err ->
-                    let
-                        _ = Debug.log "Error decoding generate args" err
-                    in
                     ( model, Cmd.none )
 
         GotGenerationState state ->
@@ -93,15 +87,9 @@ update msg model =
                     )
 
                 Engine.Failed err ->
-                    let
-                        _ = Debug.log "Error generating board" err
-                    in
                     ( model, Cmd.none )
 
                 Engine.Generating genState ->
-                    let
-                        _ = Debug.log "Still generating, remaining clusters" genState.remainingClusters
-                    in
                     ( model
                     , Cmd.batch
                         [ Engine.continueGeneration state

@@ -15,12 +15,12 @@ class ArchipeladokuWorld(World):
 
     item_name_to_id = {
         # 0xx: Filler Items
-        "Filler": 0,
         "Solve Random Cell": 1,
+        "Filler": 99,
         # 1xx: Progression Items
-        "Progressive Block": 100,
+        "Progressive Block": 101,
         # 2xx: Useful Items
-        "Solve Selected Cell": 200,
+        "Solve Selected Cell": 201,
         # 4xx: Trap Items
         # 1xxxyyy: Block Items, row xxx, col yyy, added dynamically
     }

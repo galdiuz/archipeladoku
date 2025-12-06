@@ -49,6 +49,10 @@ ui.ports.scoutLocations && ui.ports.scoutLocations.subscribe(ids => {
     }
 });
 
+ui.ports.sendMessage && ui.ports.sendMessage.subscribe(text => {
+    client.messages.say(text);
+});
+
 ui.ports.hintForItem && ui.ports.hintForItem.subscribe(itemName => {
     client.messages.say(`!hint ${itemName}`);
 });
@@ -107,9 +111,79 @@ client.items.on('hintReceived', _ => {
     ui.ports.receiveHints.send(data);
 });
 
-client.messages.on('message', message => {
-    console.log('Message received:', message);
-    // ui.ports.receiveMessage.send(message);
+client.messages.on('adminCommand', (text, nodes) => {
+    console.log('Admin command received:', text, nodes);
+    ui.ports.receiveMessage.send({ type: 'adminCommand', nodes: nodes });
+});
+
+client.messages.on('chat', (text, player, nodes) => {
+    console.log('Chat message received:', text, player, nodes);
+    ui.ports.receiveMessage.send({ type: 'chat', player: player, nodes: nodes });
+});
+
+client.messages.on('collected', (text, player, nodes) => {
+    console.log('Collected message received:', text, player, nodes);
+    ui.ports.receiveMessage.send({ type: 'collected', player: player, nodes: nodes });
+});
+
+client.messages.on('connected', (text, player, tags, nodes) => {
+    console.log('Connected message received:', text, player, tags, nodes);
+    ui.ports.receiveMessage.send({ type: 'connected', nodes: nodes });
+});
+
+client.messages.on('countdown', (text, value, nodes) => {
+    console.log('Countdown message received:', text, value, nodes);
+    ui.ports.receiveMessage.send({ type: 'countdown', value: value, nodes: nodes });
+});
+
+client.messages.on('disconnected', (text, player, nodes) => {
+    console.log('Disconnected message received:', text, player, nodes);
+    ui.ports.receiveMessage.send({ type: 'disconnected', player: player, nodes: nodes });
+});
+
+client.messages.on('goaled', (text, player, nodes) => {
+    console.log('Goaled message received:', text, player, nodes);
+    ui.ports.receiveMessage.send({ type: 'goaled', player: player, nodes: nodes });
+});
+
+client.messages.on('itemCheated', (text, item, nodes) => {
+    console.log('Item cheated message received:', text, item, nodes);
+    ui.ports.receiveMessage.send({ type: 'itemCheated', item: item, nodes: nodes });
+});
+
+client.messages.on('itemHinted', (text, item, found, nodes) => {
+    console.log('Item hinted message received:', text, item, found, nodes);
+    ui.ports.receiveMessage.send({ type: 'itemHinted', item: item, found: found, nodes: nodes });
+});
+
+client.messages.on('itemSent', (text, item, nodes) => {
+    console.log('Item sent message received:', text, item, nodes);
+    ui.ports.receiveMessage.send({ type: 'itemSent', item: item, nodes: nodes });
+});
+
+client.messages.on('released', (text, player, nodes) => {
+    console.log('Released message received:', text, player, nodes);
+    ui.ports.receiveMessage.send({ type: 'released', nodes: nodes });
+});
+
+client.messages.on('serverChat', (text, nodes) => {
+    console.log('Server chat message received:', text, nodes);
+    ui.ports.receiveMessage.send({ type: 'serverChat', nodes: nodes });
+});
+
+client.messages.on('tagsUpdated', (text, player, tags, nodes) => {
+    console.log('Tags updated message received:', text, player, tags, nodes);
+    ui.ports.receiveMessage.send({ type: 'tagsUpdated', player: player, tags: tags, nodes: nodes });
+});
+
+client.messages.on('tutorial', (text, nodes) => {
+    console.log('Tutorial message received:', text, nodes);
+    ui.ports.receiveMessage.send({ type: 'tutorial', nodes: nodes });
+});
+
+client.messages.on('userCommand', (text, nodes) => {
+    console.log('User command message received:', text, nodes);
+    ui.ports.receiveMessage.send({ type: 'userCommand', nodes: nodes });
 });
 
 ui.ports.connect && ui.ports.connect.subscribe(data => {

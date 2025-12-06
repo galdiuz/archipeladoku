@@ -31,6 +31,8 @@ port receiveHints : (Decode.Value -> msg) -> Sub msg
 port hintForItem : String -> Cmd msg
 port receiveHintPoints : (Int -> msg) -> Sub msg
 port receiveHintCost : (Int -> msg) -> Sub msg
+port receiveMessage : (Decode.Value -> msg) -> Sub msg
+port sendMessage : String -> Cmd msg
 
 
 type alias Model =
@@ -45,6 +47,8 @@ type alias Model =
     , hintPoints : Int
     , host : String
     , lockedBlocks : List ( Int, Int )
+    , messageInput : String
+    , messages : List Message
     , pendingCellChanges : Set ( Int, Int )
     , pendingItems : List Item
     , pendingScoutLocations : Set Int
@@ -71,11 +75,14 @@ type Msg
     | GotHintCost Int
     | GotHintPoints Int
     | GotItems (List Int)
+    | GotMessage Decode.Value
     | HintItemPressed String
     | HostInputChanged String
     | KeyPressed Bool Int
+    | MessageInputChanged String
     | PlayLocalPressed
     | PlayerInputChanged String
+    | SendMessagePressed
     | SolveRandomCellPressed
     | SolveSelectedCellPressed
 
@@ -181,6 +188,134 @@ itemClassToString classification =
             "Trap"
 
 
+type alias Message =
+    { nodes : List MessageNode
+    , extra : MessageExtra
+    }
+
+
+type MessageExtra
+    = AdminCommandMessage
+    | ChatMessage String
+    | CollectedMessage
+    | ConnectedMessage
+    | CountdownMessage
+    | DisconnectedMessage
+    | GoaledMessage
+    | ItemCheatedMessage
+    | ItemHintedMessage
+    | ItemSentMessage
+    | ReleasedMessage
+    | ServerChatMessage
+    | TagsUpdatedMessage
+    | TutorialMessage
+    | UserCommandMessage
+
+
+messageDecoder : Decode.Decoder Message
+messageDecoder =
+    Decode.map2 Message
+        (Decode.field "nodes" (Decode.list messageNodeDecoder))
+        messageExtraDecoder
+
+
+messageExtraDecoder : Decode.Decoder MessageExtra
+messageExtraDecoder =
+    Decode.field "type" Decode.string
+        |> Decode.andThen
+            (\msgType ->
+                case msgType of
+                    "adminCommand" ->
+                        Decode.succeed AdminCommandMessage
+
+                    "chat" ->
+                        Decode.map ChatMessage
+                            (Decode.at [ "player", "alias" ] Decode.string)
+
+                    "collected" ->
+                        Decode.succeed CollectedMessage
+
+                    "connected" ->
+                        Decode.succeed ConnectedMessage
+
+                    "countdown" ->
+                        Decode.succeed CountdownMessage
+
+                    "disconnected" ->
+                        Decode.succeed DisconnectedMessage
+
+                    "goaled" ->
+                        Decode.succeed GoaledMessage
+
+                    "itemCheated" ->
+                        Decode.succeed ItemCheatedMessage
+
+                    "itemHinted" ->
+                        Decode.succeed ItemHintedMessage
+
+                    "itemSent" ->
+                        Decode.succeed ItemSentMessage
+
+                    "released" ->
+                        Decode.succeed ReleasedMessage
+
+                    "serverChat" ->
+                        Decode.succeed ServerChatMessage
+
+                    "tagsUpdated" ->
+                        Decode.succeed TagsUpdatedMessage
+
+                    "tutorial" ->
+                        Decode.succeed TutorialMessage
+
+                    "userCommand" ->
+                        Decode.succeed UserCommandMessage
+
+                    _ ->
+                        Decode.fail ("Unknown message type: " ++ msgType)
+            )
+
+
+type MessageNode
+    = ItemMessageNode String
+    | LocationMessageNode String
+    | ColorMessageNode String String
+    | TextualMessageNode String
+    | PlayerMessageNode String
+
+
+messageNodeDecoder : Decode.Decoder MessageNode
+messageNodeDecoder =
+    Decode.field "type" Decode.string
+        |> Decode.andThen
+            (\nodeType ->
+                case nodeType of
+                    "item" ->
+                        Decode.map ItemMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    "location" ->
+                        Decode.map LocationMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    "color" ->
+                        Decode.map2 ColorMessageNode
+                            (Decode.field "color" Decode.string)
+                            (Decode.field "text" Decode.string)
+
+                    "text" ->
+                        Decode.map TextualMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    "player" ->
+                        Decode.map PlayerMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    _ ->
+                        Decode.fail ("Unknown message node type: " ++ nodeType)
+            )
+
+
 main : Program Flags Model Msg
 main =
     Browser.element
@@ -204,6 +339,8 @@ init flags =
       , hintPoints = 0
       , host = "localhost:8123"
       , lockedBlocks = []
+      , messageInput = ""
+      , messages = []
       , pendingCellChanges = Set.empty
       , pendingItems = []
       , pendingScoutLocations = Set.empty
@@ -251,6 +388,7 @@ subscriptions model =
         , receiveHints GotHints
         , receiveHintCost GotHintCost
         , receiveHintPoints GotHintPoints
+        , receiveMessage GotMessage
         , Browser.Events.onKeyPress <| Decode.oneOf [ keyCodeDecoder, keyDecoder ]
         ]
 
@@ -459,6 +597,26 @@ update msg model =
             )
                 |> updateState
 
+        GotMessage value ->
+            case Decode.decodeValue messageDecoder value of
+                Ok message ->
+                    ( { model
+                        | messages =
+                            (message :: model.messages)
+                                |> List.take 1000
+
+                      }
+                    , Cmd.none
+                    )
+
+                Err err ->
+                    let
+                        _ = Debug.log "Failed to decode message" err
+                    in
+                    ( model
+                    , Cmd.none
+                    )
+
         HintItemPressed name ->
             ( model
             , hintForItem name
@@ -510,6 +668,11 @@ update msg model =
                     , Cmd.none
                     )
 
+        MessageInputChanged value ->
+            ( { model | messageInput = value }
+            , Cmd.none
+            )
+
         PlayLocalPressed ->
             ( { model | gameIsLocal = True }
             , generateBoard
@@ -524,6 +687,15 @@ update msg model =
         PlayerInputChanged value ->
             ( { model | player = value }
             , Cmd.none
+            )
+
+        SendMessagePressed ->
+            ( { model | messageInput = "" }
+            , if String.isEmpty model.messageInput then
+                Cmd.none
+
+              else
+                sendMessage model.messageInput
             )
 
         SolveRandomCellPressed ->
@@ -1039,7 +1211,7 @@ view model =
             Html.div
                 [ HA.style "display" "flex"
                 , HA.style "justify-content" "space-between"
-                , HA.style "max-height" "100vh"
+                , HA.style "height" "100vh"
                 ]
                 [ viewBoard model
                 , viewInfoPanel model
@@ -1349,6 +1521,7 @@ viewInfoPanel model =
                     )
                 ]
             ]
+        , viewMessages model
         ]
 
 
@@ -1536,6 +1709,78 @@ viewInfoHints model =
                     ]
                 )
             ]
+
+
+viewMessages : Model -> Html Msg
+viewMessages model =
+    Html.div
+        [ HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        , HA.style "gap" "0.5em"
+        , HA.style "flex-grow" "1"
+        , HA.style "justify-content" "flex-end"
+        ]
+        [ Html.div
+            [ HA.style "max-width" "400px"
+            , HA.style "max-height" "400px"
+            , HA.style "overflow-y" "auto"
+            , HA.style "display" "flex"
+            , HA.style "flex-direction" "column-reverse"
+            , HA.style "gap" "0.5em"
+            ]
+            (List.map viewMessage model.messages)
+        , Html.form
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "row"
+            , HA.style "gap" "0.5em"
+            , HE.onSubmit SendMessagePressed
+            ]
+            [ Html.input
+                [ HA.type_ "text"
+                , HA.placeholder "Enter message..."
+                , HA.value model.messageInput
+                , HA.style "flex-grow" "1"
+                , HE.onInput MessageInputChanged
+                ]
+                []
+            , Html.button
+                []
+                [ Html.text "Send" ]
+            ]
+        ]
+
+
+viewMessage : Message -> Html Msg
+viewMessage message =
+    Html.div
+        [ HA.style "white-space-collapse" "preserve" ]
+        (List.map
+            (\node ->
+                case node of
+                    ItemMessageNode item ->
+                        -- TODO: Color the item based on its class
+                        Html.span
+                            []
+                            [ Html.text item ]
+
+                    LocationMessageNode location ->
+                        Html.span
+                            []
+                            [ Html.text location ]
+
+                    ColorMessageNode color text ->
+                        Html.text text
+
+                    TextualMessageNode text ->
+                        Html.text text
+
+                    PlayerMessageNode player ->
+                        Html.span
+                            []
+                            [ Html.text player ]
+            )
+            message.nodes
+        )
 
 
 cellValueToInt : CellValue -> Maybe Int

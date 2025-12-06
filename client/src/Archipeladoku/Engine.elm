@@ -52,17 +52,20 @@ type alias Possibilities =
 
 
 type BoardGenerationState
-    = Generating ClusterGenerationState
+    = PlacingNumbers ClusterGenerationState
+    | RemovingGivens ClusterGenerationState
     | Failed String
     | Completed Board
 
 
 type alias ClusterGenerationState =
     { allCells : Set ( Int, Int )
+    , allClusters : List (List ( Int, Int ))
     , allNumbers : Set Int
     , blockSize : Int
     , blockUnlockOrder : List ( Int, Int )
     , cellAreasMap : Dict ( Int, Int ) (List Area)
+    , cellsToRemoveGivensFrom : Set ( Int, Int )
     , givens : Dict ( Int, Int ) Int
     , peerMap : PeerMap
     , puzzleAreas : PuzzleAreas
@@ -180,16 +183,18 @@ generateWithValidArgs args =
                 clusters
                 groupSeed
     in
-    Generating
+    PlacingNumbers
         { allCells = cells
+        , allClusters = clusters
         , allNumbers = allNumbersForSize args.blockSize
         , blockSize = args.blockSize
         , blockUnlockOrder = blockUnlockOrder
         , cellAreasMap = cellAreas
+        , cellsToRemoveGivensFrom = cells
         , givens = Dict.empty
         , peerMap = peerMap
         , puzzleAreas = joinedPuzzleAreas
-        , remainingClusters = sortClustersByUnlockOrder blockUnlockOrder clusters
+        , remainingClusters = clusters
         , seed = newSeed
         , solution = Dict.empty
         , unlockCount = unlockedBlocks
@@ -261,16 +266,19 @@ generateFromServer args =
                 Dict.empty
                 cells
     in
-    Generating
+    PlacingNumbers
         { allCells = cells
+        , allClusters = args.clusters
         , allNumbers = allNumbersForSize args.blockSize
         , blockSize = args.blockSize
         , blockUnlockOrder = args.blockUnlockOrder
         , cellAreasMap = cellAreas
+        , cellsToRemoveGivensFrom = cells
         , givens = Dict.empty
         , peerMap = peerMap
         , puzzleAreas = joinedPuzzleAreas
-        , remainingClusters = sortClustersByUnlockOrder args.blockUnlockOrder args.clusters
+        , remainingClusters = args.clusters
+        -- , remainingClusters = sortClustersByUnlockOrder args.blockUnlockOrder args.clusters
         , seed = Random.initialSeed args.seed
         , solution = Dict.empty
         , unlockCount = args.unlockedBlocks
@@ -677,7 +685,39 @@ sortClustersByUnlockOrder unlockOrder clusters =
 continueGeneration : BoardGenerationState -> BoardGenerationState
 continueGeneration state =
     case state of
-        Generating clusterState ->
+        PlacingNumbers clusterState ->
+            case clusterState.remainingClusters of
+                [] ->
+                    RemovingGivens
+                        { clusterState
+                            | remainingClusters =
+                                sortClustersByUnlockOrder
+                                    clusterState.blockUnlockOrder
+                                    clusterState.allClusters
+                        }
+
+                cluster :: remainingClusters ->
+                    case generateCluster cluster clusterState of
+                        Ok newClusterState ->
+                            if List.isEmpty remainingClusters then
+                                RemovingGivens
+                                    { newClusterState
+                                        | remainingClusters =
+                                            sortClustersByUnlockOrder
+                                                newClusterState.blockUnlockOrder
+                                                newClusterState.allClusters
+                                    }
+
+                            else
+                                PlacingNumbers
+                                    { newClusterState
+                                        | remainingClusters = remainingClusters
+                                    }
+
+                        Err errMsg ->
+                            Failed errMsg
+
+        RemovingGivens clusterState ->
             case clusterState.remainingClusters of
                 [] ->
                     Completed
@@ -689,40 +729,55 @@ continueGeneration state =
                         , unlockCount = clusterState.unlockCount
                         }
 
-                positionGroup :: remainingGroups ->
+                cluster :: remainingClusters ->
                     let
-                        updatedClusterStateResult =
-                            generateCluster positionGroup clusterState
-                                |> Result.map
-                                    (\newState ->
-                                        { newState
-                                            | remainingClusters = remainingGroups
-                                        }
-                                    )
+                        newClusterState : ClusterGenerationState
+                        newClusterState =
+                            removeGivenNumbers
+                                (getClusterCells clusterState.blockSize cluster)
+                                clusterState
                     in
-                    case updatedClusterStateResult of
-                        Ok newClusterState ->
-                            if List.isEmpty remainingGroups then
-                                Completed
-                                    { blockSize = newClusterState.blockSize
-                                    , givens = newClusterState.givens
-                                    , puzzleAreas = newClusterState.puzzleAreas
-                                    , solution = newClusterState.solution
-                                    , unlockOrder = newClusterState.blockUnlockOrder
-                                    , unlockCount = newClusterState.unlockCount
-                                    }
+                    if List.isEmpty remainingClusters then
+                        Completed
+                            { blockSize = newClusterState.blockSize
+                            , givens = newClusterState.givens
+                            , puzzleAreas = newClusterState.puzzleAreas
+                            , solution = newClusterState.solution
+                            , unlockOrder = newClusterState.blockUnlockOrder
+                            , unlockCount = newClusterState.unlockCount
+                            }
 
-                            else
-                                Generating newClusterState
-
-                        Err errMsg ->
-                            Failed errMsg
+                    else
+                        RemovingGivens
+                            { newClusterState
+                                | remainingClusters = remainingClusters
+                            }
 
         Failed errMsg ->
             Failed errMsg
 
         Completed board ->
             Completed board
+
+
+getClusterCells : Int -> List ( Int, Int ) -> Set ( Int, Int )
+getClusterCells blockSize positions =
+    List.foldl
+        (\( startRow, startCol ) set1 ->
+            List.foldl
+                (\row set2 ->
+                    List.foldl
+                        (\col set3 ->
+                            Set.insert ( row, col ) set3
+                        )
+                        set2
+                        (List.range startCol (startCol + blockSize - 1))
+                )
+                set1
+                (List.range startRow (startRow + blockSize - 1))
+        )
+        Set.empty
+        positions
 
 
 generateCluster :
@@ -733,21 +788,8 @@ generateCluster clusterPositions inputState =
     let
         clusterCells : Set ( Int, Int )
         clusterCells =
-            List.foldl
-                (\( startRow, startCol ) set1 ->
-                    List.foldl
-                        (\row set2 ->
-                            List.foldl
-                                (\col set3 ->
-                                    Set.insert ( row, col ) set3
-                                )
-                                set2
-                                (List.range startCol (startCol + inputState.blockSize - 1))
-                        )
-                        set1
-                        (List.range startRow (startRow + inputState.blockSize - 1))
-                )
-                Set.empty
+            getClusterCells
+                inputState.blockSize
                 clusterPositions
 
         allPossibilities : Possibilities
@@ -783,29 +825,21 @@ generateCluster clusterPositions inputState =
             )
         |> Result.map
             (\placedNumbers ->
-                removeGivenNumbers
-                    clusterCells
-                    (Set.filter
-                        (\cell ->
-                            not (Dict.member cell inputState.solution)
-                        )
-                        clusterCells
-                    )
-                    { inputState
-                        | givens =
-                            Dict.foldl
-                                (\cell value acc ->
-                                    if Dict.member cell inputState.solution then
-                                        acc
+                { inputState
+                    | givens =
+                        Dict.foldl
+                            (\cell value acc ->
+                                if Dict.member cell inputState.solution then
+                                    acc
 
-                                    else
-                                        Dict.insert cell value acc
-                                )
-                                inputState.givens
-                                placedNumbers.solution
-                        , seed = placedNumbers.seed
-                        , solution = Dict.union inputState.solution placedNumbers.solution
-                    }
+                                else
+                                    Dict.insert cell value acc
+                            )
+                            inputState.givens
+                            placedNumbers.solution
+                    , seed = placedNumbers.seed
+                    , solution = Dict.union inputState.solution placedNumbers.solution
+                }
             )
 
 
@@ -1033,23 +1067,21 @@ propagatePossibilities peers number possibilities =
 
 removeGivenNumbers :
     Set ( Int, Int )
-    -> Set ( Int, Int )
     -> ClusterGenerationState
     -> ClusterGenerationState
-removeGivenNumbers clusterCells cellsToRemoveFrom inputState =
+removeGivenNumbers clusterCells inputState =
     if inputState.blockSize <= 9 then
-        removeGivenNumbersBacktrack clusterCells cellsToRemoveFrom inputState
+        removeGivenNumbersBacktrack clusterCells inputState
 
     else
-        removeGivenNumbersLogical clusterCells cellsToRemoveFrom inputState
+        removeGivenNumbersLogical clusterCells inputState
 
 
 removeGivenNumbersBacktrack :
     Set ( Int, Int )
-    -> Set ( Int, Int )
     -> ClusterGenerationState
     -> ClusterGenerationState
-removeGivenNumbersBacktrack clusterCells cellsToRemoveFrom inputState =
+removeGivenNumbersBacktrack clusterCells inputState =
     let
         allPossibilities : Possibilities
         allPossibilities =
@@ -1059,6 +1091,10 @@ removeGivenNumbersBacktrack clusterCells cellsToRemoveFrom inputState =
                 )
                 Dict.empty
                 clusterCells
+
+        cellsToRemoveFrom : Set ( Int, Int )
+        cellsToRemoveFrom =
+            Set.intersect inputState.cellsToRemoveGivensFrom clusterCells
 
         ( shuffledCells, nextSeed ) =
             Random.step
@@ -1096,7 +1132,11 @@ removeGivenNumbersBacktrack clusterCells cellsToRemoveFrom inputState =
             else
                 state
         )
-        { inputState | seed = nextSeed }
+        { inputState
+            | cellsToRemoveGivensFrom =
+                Set.diff inputState.cellsToRemoveGivensFrom clusterCells
+            , seed = nextSeed
+        }
         shuffledCells
 
 
@@ -1202,10 +1242,9 @@ findOtherSolutionRecursive peerMap possibilities =
 
 removeGivenNumbersLogical :
     Set ( Int, Int )
-    -> Set ( Int, Int )
     -> ClusterGenerationState
     -> ClusterGenerationState
-removeGivenNumbersLogical clusterCells cellsToRemoveFrom inputState =
+removeGivenNumbersLogical clusterCells inputState =
     let
         allPossibilities : Possibilities
         allPossibilities =
@@ -1215,6 +1254,10 @@ removeGivenNumbersLogical clusterCells cellsToRemoveFrom inputState =
                 )
                 Dict.empty
                 clusterCells
+
+        cellsToRemoveFrom : Set ( Int, Int )
+        cellsToRemoveFrom =
+            Set.intersect inputState.cellsToRemoveGivensFrom clusterCells
 
         ( shuffledCells, nextSeed ) =
             Random.step
@@ -1285,7 +1328,11 @@ removeGivenNumbersLogical clusterCells cellsToRemoveFrom inputState =
                 )
 
         )
-        { inputState | seed = nextSeed }
+        { inputState
+            | cellsToRemoveGivensFrom =
+                Set.diff inputState.cellsToRemoveGivensFrom clusterCells
+            , seed = nextSeed
+        }
         (List.Extra.groupsOf 4 shuffledCells)
 
 

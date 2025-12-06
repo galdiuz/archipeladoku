@@ -87,9 +87,28 @@ update msg model =
                     )
 
                 Engine.Failed err ->
+                    let
+                        _ = Debug.log "Generation failed with error:" err
+                    in
                     ( model, Cmd.none )
 
-                Engine.Generating genState ->
+                Engine.PlacingNumbers genState ->
+                    let
+                        _ = Debug.log "Placing numbers, remaining clusters:" genState.remainingClusters
+                    in
+                    ( model
+                    , Cmd.batch
+                        [ Engine.continueGeneration state
+                            |> Task.succeed
+                            |> Task.perform GotGenerationState
+                        -- TODO: Send progress to UI
+                        ]
+                    )
+
+                Engine.RemovingGivens genState ->
+                    let
+                        _ = Debug.log "Removing givens, remaining clusters:" genState.remainingClusters
+                    in
                     ( model
                     , Cmd.batch
                         [ Engine.continueGeneration state

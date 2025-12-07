@@ -113,6 +113,16 @@ update msg model =
                         ]
                     )
 
+                Engine.RestoringGivens genState ->
+                    ( model
+                    , Cmd.batch
+                        [ Engine.continueGeneration state
+                            |> Task.succeed
+                            |> Task.perform GotGenerationState
+                        , sendProgress (encodeProgress state)
+                        ]
+                    )
+
 
 encodeProgress : Engine.BoardGenerationState -> Encode.Value
 encodeProgress state =
@@ -125,6 +135,9 @@ encodeProgress state =
 
                     Engine.RemovingGivens _ ->
                         "Removing givens"
+
+                    Engine.RestoringGivens _ ->
+                        "Restoring givens"
 
                     _ ->
                         "Unknown"
@@ -150,7 +163,7 @@ encodeProgress state =
                                     |> List.sum
                                     |> toFloat
                         in
-                        50 - (remainingBoards / totalBoards * 50)
+                        34 - (remainingBoards / totalBoards * 34)
 
                     Engine.RemovingGivens genState ->
                         let
@@ -168,7 +181,25 @@ encodeProgress state =
                                     |> List.sum
                                     |> toFloat
                         in
-                        100 - (remainingBoards / totalBoards * 50)
+                        67 - (remainingBoards / totalBoards * 33)
+
+                    Engine.RestoringGivens genState ->
+                        let
+                            totalBoards : Float
+                            totalBoards =
+                                genState.allClusters
+                                    |> List.map List.length
+                                    |> List.sum
+                                    |> toFloat
+
+                            remainingBoards : Float
+                            remainingBoards =
+                                genState.remainingClusters
+                                    |> List.map List.length
+                                    |> List.sum
+                                    |> toFloat
+                        in
+                        100 - (remainingBoards / totalBoards * 33)
 
                     _ ->
                         0.0

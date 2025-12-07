@@ -8,6 +8,7 @@ import Browser
 import Browser.Events
 import Dict exposing (Dict)
 import Html exposing (Html)
+import Html.Extra
 import Html.Attributes as HA
 import Html.Attributes.Extra as HAE
 import Html.Events as HE
@@ -718,7 +719,7 @@ update msg model =
               }
             , generateBoard
                 (Json.encodeGenerateArgs
-                    { blockSize = 4
+                    { blockSize = 9
                     , numberOfBoards = 13
                     , seed = 1
                     }
@@ -732,7 +733,7 @@ update msg model =
 
         SendMessagePressed ->
             ( { model | messageInput = "" }
-            , if String.isEmpty model.messageInput then
+            , if String.isEmpty model.messageInput || model.gameIsLocal then
                 Cmd.none
 
               else
@@ -1785,24 +1786,27 @@ viewMessages model =
             , HA.style "gap" "0.5em"
             ]
             (List.map viewMessage model.messages)
-        , Html.form
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "row"
-            , HA.style "gap" "0.5em"
-            , HE.onSubmit SendMessagePressed
-            ]
-            [ Html.input
-                [ HA.type_ "text"
-                , HA.placeholder "Enter message..."
-                , HA.value model.messageInput
-                , HA.style "flex-grow" "1"
-                , HE.onInput MessageInputChanged
+        , Html.Extra.viewIf
+            (not model.gameIsLocal)
+            (Html.form
+                [ HA.style "display" "flex"
+                , HA.style "flex-direction" "row"
+                , HA.style "gap" "0.5em"
+                , HE.onSubmit SendMessagePressed
                 ]
-                []
-            , Html.button
-                []
-                [ Html.text "Send" ]
-            ]
+                [ Html.input
+                    [ HA.type_ "text"
+                    , HA.placeholder "Enter message..."
+                    , HA.value model.messageInput
+                    , HA.style "flex-grow" "1"
+                    , HE.onInput MessageInputChanged
+                    ]
+                    []
+                , Html.button
+                    []
+                    [ Html.text "Send" ]
+                ]
+            )
         ]
 
 

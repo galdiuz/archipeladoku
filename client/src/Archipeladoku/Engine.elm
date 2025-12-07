@@ -54,6 +54,7 @@ type alias Possibilities =
 type BoardGenerationState
     = PlacingNumbers ClusterGenerationState
     | RemovingGivens ClusterGenerationState
+    | RestoringGivens ClusterGenerationState
     | Failed String
     | Completed Board
 
@@ -66,6 +67,7 @@ type alias ClusterGenerationState =
     , blockUnlockOrder : List ( Int, Int )
     , cellAreasMap : Dict ( Int, Int ) (List Area)
     , cellsToRemoveGivensFrom : Set ( Int, Int )
+    , cellsToRestoreGivensTo : Set ( Int, Int )
     , givens : Dict ( Int, Int ) Int
     , peerMap : PeerMap
     , puzzleAreas : PuzzleAreas
@@ -191,6 +193,7 @@ generateWithValidArgs args =
         , blockUnlockOrder = blockUnlockOrder
         , cellAreasMap = cellAreas
         , cellsToRemoveGivensFrom = cells
+        , cellsToRestoreGivensTo = cells
         , givens = Dict.empty
         , peerMap = peerMap
         , puzzleAreas = joinedPuzzleAreas
@@ -274,6 +277,7 @@ generateFromServer args =
         , blockUnlockOrder = args.blockUnlockOrder
         , cellAreasMap = cellAreas
         , cellsToRemoveGivensFrom = cells
+        , cellsToRestoreGivensTo = cells
         , givens = Dict.empty
         , peerMap = peerMap
         , puzzleAreas = joinedPuzzleAreas
@@ -719,6 +723,34 @@ continueGeneration state =
         RemovingGivens clusterState ->
             case clusterState.remainingClusters of
                 [] ->
+                    RestoringGivens
+                        { clusterState
+                            | remainingClusters = clusterState.allClusters
+                        }
+
+                cluster :: remainingClusters ->
+                    let
+                        newClusterState : ClusterGenerationState
+                        newClusterState =
+                            removeGivenNumbers
+                                (getClusterCells clusterState.blockSize cluster)
+                                clusterState
+                    in
+                    if List.isEmpty remainingClusters then
+                        RestoringGivens
+                            { newClusterState
+                                | remainingClusters = newClusterState.allClusters
+                            }
+
+                    else
+                        RemovingGivens
+                            { newClusterState
+                                | remainingClusters = remainingClusters
+                            }
+
+        RestoringGivens clusterState ->
+            case clusterState.remainingClusters of
+                [] ->
                     Completed
                         { blockSize = clusterState.blockSize
                         , givens = clusterState.givens
@@ -732,7 +764,7 @@ continueGeneration state =
                     let
                         newClusterState : ClusterGenerationState
                         newClusterState =
-                            removeGivenNumbers
+                            restoreGivenNumbers
                                 (getClusterCells clusterState.blockSize cluster)
                                 clusterState
                     in
@@ -747,7 +779,7 @@ continueGeneration state =
                             }
 
                     else
-                        RemovingGivens
+                        RestoringGivens
                             { newClusterState
                                 | remainingClusters = remainingClusters
                             }
@@ -1540,6 +1572,102 @@ solveHiddenSingles args =
 
         Nothing ->
             Stuck
+
+
+restoreGivenNumbers :
+    Set ( Int, Int )
+    -> ClusterGenerationState
+    -> ClusterGenerationState
+restoreGivenNumbers clusterCells inputState =
+    let
+        cellsToRestore : Set ( Int, Int )
+        cellsToRestore =
+            Set.intersect inputState.cellsToRestoreGivensTo clusterCells
+
+        targetNumberOfGivens : Int
+        targetNumberOfGivens =
+            case inputState.blockSize of
+                4 ->
+                    0
+
+                6 ->
+                    0
+
+                8 ->
+                    0
+
+                9 ->
+                    (38 / 81) * toFloat (Set.size clusterCells)
+                        |> round
+
+                12 ->
+                    0
+
+                16 ->
+                    0
+
+                _ ->
+                    0
+
+        ( shuffledCells, nextSeed ) =
+            Random.step
+                (Random.List.shuffle (Set.toList cellsToRestore))
+                inputState.seed
+    in
+    List.Extra.stoppableFoldl
+        (\cell state ->
+            let
+                givensInCluster : Int
+                givensInCluster =
+                    Set.size
+                        (Set.intersect
+                            (Set.fromList (Dict.keys state.givens))
+                            clusterCells
+                        )
+
+                canRestore : Bool
+                canRestore =
+                    Dict.get cell state.cellAreasMap
+                        |> Maybe.withDefault []
+                        |> List.any
+                            (\area ->
+                                let
+                                    areaCells : List ( Int, Int )
+                                    areaCells =
+                                        getAreaCells area
+                                in
+                                List.all
+                                    (\areaCell ->
+                                        Dict.member areaCell state.givens
+                                            || areaCell == cell
+                                    )
+                                    areaCells
+                            )
+                        |> not
+            in
+            if givensInCluster >= targetNumberOfGivens then
+                List.Extra.Stop state
+
+            else if canRestore then
+                { state
+                    | givens =
+                        Dict.insert cell
+                            (Dict.get cell state.solution
+                                |> Maybe.withDefault 0
+                            )
+                            state.givens
+                }
+                    |> List.Extra.Continue
+
+            else
+                List.Extra.Continue state
+        )
+        { inputState
+            | cellsToRestoreGivensTo =
+                Set.diff inputState.cellsToRestoreGivensTo clusterCells
+            , seed = nextSeed
+        }
+        shuffledCells
 
 
 numbersToMask : Set Int -> Bitmask

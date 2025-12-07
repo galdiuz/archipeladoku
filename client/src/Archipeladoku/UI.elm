@@ -221,6 +221,7 @@ type MessageExtra
     | ItemCheatedMessage
     | ItemHintedMessage
     | ItemSentMessage
+    | LocalMessage
     | ReleasedMessage
     | ServerChatMessage
     | TagsUpdatedMessage
@@ -625,7 +626,7 @@ update msg model =
                     ( { model
                         | messages =
                             (message :: model.messages)
-                                |> List.take 1000
+                                |> List.take maxMessages
 
                       }
                     , Cmd.none
@@ -719,8 +720,8 @@ update msg model =
               }
             , generateBoard
                 (Json.encodeGenerateArgs
-                    { blockSize = 9
-                    , numberOfBoards = 13
+                    { blockSize = 4
+                    , numberOfBoards = 25
                     , seed = 1
                     }
                 )
@@ -770,7 +771,14 @@ update msg model =
                                 model.seed
             in
             if selectedCell == (-1, -1) then
-                ( model, Cmd.none )
+                ( { model
+                    | messages =
+                        addLocalMessage
+                            "Solve Random Cell item could not be used because there are no unsolved visible cells."
+                            model.messages
+                  }
+                , Cmd.none
+                )
 
             else
                 ( { model
@@ -785,6 +793,15 @@ update msg model =
                     , pendingCellChanges = Set.insert selectedCell model.pendingCellChanges
                     , seed = newSeed
                     , solveRandomCellUses = model.solveRandomCellUses - 1
+                    , messages =
+                        addLocalMessage
+                            (String.concat
+                                [ "Used Solve Random Cell item at Cell "
+                                , rowToLabel (Tuple.first selectedCell)
+                                , String.fromInt (Tuple.second selectedCell)
+                                ]
+                            )
+                            model.messages
                   }
                 , Cmd.none
                 )
@@ -795,7 +812,20 @@ update msg model =
                 Just cell ->
                     case Dict.get cell model.current of
                         Just (Given _) ->
-                            ( model, Cmd.none )
+                            ( { model
+                                | messages =
+                                    addLocalMessage
+                                        (String.concat
+                                            [ "Solve Selected Cell item at Cell "
+                                            , rowToLabel (Tuple.first cell)
+                                            , String.fromInt (Tuple.second cell)
+                                            , " could not be used because the cell is already given."
+                                            ]
+                                        )
+                                        model.messages
+                              }
+                            , Cmd.none
+                            )
 
                         _ ->
                             ( { model
@@ -809,6 +839,15 @@ update msg model =
                                         model.current
                                 , pendingCellChanges = Set.insert cell model.pendingCellChanges
                                 , solveSelectedCellUses = model.solveSelectedCellUses - 1
+                                , messages =
+                                    addLocalMessage
+                                        (String.concat
+                                            [ "Used Solve Selected Cell item at Cell "
+                                            , rowToLabel (Tuple.first cell)
+                                            , String.fromInt (Tuple.second cell)
+                                            ]
+                                        )
+                                        model.messages
                               }
                             , Cmd.none
                             )
@@ -1953,3 +1992,21 @@ cellToBoardId ( row, col ) =
 cellFromId : Int -> ( Int, Int )
 cellFromId id =
     ( (modBy 1000000 id) // 1000, modBy 1000 id )
+
+
+addLocalMessage : String -> List Message -> List Message
+addLocalMessage text messages =
+    let
+        newMessage : Message
+        newMessage =
+            { nodes = [ TextualMessageNode text ]
+            , extra = LocalMessage
+            }
+    in
+    (newMessage :: messages)
+        |> List.take maxMessages
+
+
+maxMessages : Int
+maxMessages =
+    1000

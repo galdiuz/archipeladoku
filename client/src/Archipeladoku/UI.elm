@@ -23,6 +23,7 @@ import Set.Extra
 port checkLocation : Int -> Cmd msg
 port connect : Encode.Value -> Cmd msg
 port generateBoard : Encode.Value -> Cmd msg
+port goal : () -> Cmd msg
 port hintForItem : String -> Cmd msg
 port log : String -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
@@ -1144,6 +1145,22 @@ updateStateCellChange updatedCell initialModel =
             )
             (Dict.get updatedCell initialModel.cellBoards
                 |> Maybe.withDefault []
+            )
+        |> andThen
+            (\model ->
+                if List.all (cellIsSolved model) (Dict.keys model.solution) then
+                    ( model
+                    , if model.gameIsLocal then
+                        Cmd.none
+
+                    else
+                        goal ()
+                    )
+
+                else
+                    ( model
+                    , Cmd.none
+                    )
             )
 
 

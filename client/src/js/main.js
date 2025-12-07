@@ -15,8 +15,6 @@ let ui = Elm.Archipeladoku.UI.init({
 let worker = new Worker(Worker);
 
 worker.onmessage = function(event) {
-    // console.log(event.data.type, event.data.data);
-
     switch(event.data.type) {
         case 'sendBoard':
             ui.ports.receiveBoard.send(event.data.data);
@@ -36,7 +34,6 @@ worker.onmessage = function(event) {
 ui.ports.connect?.subscribe(data => {
     client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
         .then(slotData => {
-            console.log('Slot Data:', slotData);
             ui.ports.receiveHintCost.send(client.room.hintCost);
             ui.ports.receiveConnectionStatus.send(true);
             worker.postMessage({ type: 'generateFromServer', data: slotData });
@@ -57,6 +54,10 @@ ui.ports.checkLocation?.subscribe(data => {
     } catch (error) {
         console.error('Check location error:', error);
     }
+});
+
+ui.ports.goal?.subscribe(() => {
+    client.goal();
 });
 
 ui.ports.scoutLocations?.subscribe(ids => {
@@ -153,76 +154,61 @@ client.items.on('hintReceived', _ => {
 });
 
 client.messages.on('adminCommand', (text, nodes) => {
-    console.log('Admin command received:', text, nodes);
     ui.ports.receiveMessage.send({ type: 'adminCommand', nodes: nodes });
 });
 
 client.messages.on('chat', (text, player, nodes) => {
-    console.log('Chat message received:', text, player, nodes);
     ui.ports.receiveMessage.send({ type: 'chat', player: player, nodes: nodes });
 });
 
 client.messages.on('collected', (text, player, nodes) => {
-    console.log('Collected message received:', text, player, nodes);
     ui.ports.receiveMessage.send({ type: 'collected', player: player, nodes: nodes });
 });
 
 client.messages.on('connected', (text, player, tags, nodes) => {
-    console.log('Connected message received:', text, player, tags, nodes);
     ui.ports.receiveMessage.send({ type: 'connected', nodes: nodes });
 });
 
 client.messages.on('countdown', (text, value, nodes) => {
-    console.log('Countdown message received:', text, value, nodes);
     ui.ports.receiveMessage.send({ type: 'countdown', value: value, nodes: nodes });
 });
 
 client.messages.on('disconnected', (text, player, nodes) => {
-    console.log('Disconnected message received:', text, player, nodes);
     ui.ports.receiveMessage.send({ type: 'disconnected', player: player, nodes: nodes });
 });
 
 client.messages.on('goaled', (text, player, nodes) => {
-    console.log('Goaled message received:', text, player, nodes);
     ui.ports.receiveMessage.send({ type: 'goaled', player: player, nodes: nodes });
 });
 
 client.messages.on('itemCheated', (text, item, nodes) => {
-    console.log('Item cheated message received:', text, item, nodes);
     ui.ports.receiveMessage.send({ type: 'itemCheated', item: item, nodes: nodes });
 });
 
 client.messages.on('itemHinted', (text, item, found, nodes) => {
-    console.log('Item hinted message received:', text, item, found, nodes);
     ui.ports.receiveMessage.send({ type: 'itemHinted', item: item, found: found, nodes: nodes });
 });
 
 client.messages.on('itemSent', (text, item, nodes) => {
-    console.log('Item sent message received:', text, item, nodes);
     ui.ports.receiveMessage.send({ type: 'itemSent', item: item, nodes: nodes });
 });
 
 client.messages.on('released', (text, player, nodes) => {
-    console.log('Released message received:', text, player, nodes);
     ui.ports.receiveMessage.send({ type: 'released', nodes: nodes });
 });
 
 client.messages.on('serverChat', (text, nodes) => {
-    console.log('Server chat message received:', text, nodes);
     ui.ports.receiveMessage.send({ type: 'serverChat', nodes: nodes });
 });
 
 client.messages.on('tagsUpdated', (text, player, tags, nodes) => {
-    console.log('Tags updated message received:', text, player, tags, nodes);
     ui.ports.receiveMessage.send({ type: 'tagsUpdated', player: player, tags: tags, nodes: nodes });
 });
 
 client.messages.on('tutorial', (text, nodes) => {
-    console.log('Tutorial message received:', text, nodes);
     ui.ports.receiveMessage.send({ type: 'tutorial', nodes: nodes });
 });
 
 client.messages.on('userCommand', (text, nodes) => {
-    console.log('User command message received:', text, nodes);
     ui.ports.receiveMessage.send({ type: 'userCommand', nodes: nodes });
 });

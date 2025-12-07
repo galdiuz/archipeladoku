@@ -14,11 +14,44 @@ let ui = Elm.Archipeladoku.UI.init({
 });
 let worker = new Worker(Worker);
 
-ui.ports.generateBoard && ui.ports.generateBoard.subscribe(data => {
+worker.onmessage = function(event) {
+    // console.log(event.data.type, event.data.data);
+
+    switch(event.data.type) {
+        case 'sendBoard':
+            ui.ports.receiveBoard.send(event.data.data);
+
+            break;
+
+        case 'sendProgress':
+            ui.ports.receiveGenerationProgress.send(event.data.data);
+
+            break;
+
+        default:
+            console.log('Unknown message type:', event.data.type);
+    }
+};
+
+ui.ports.connect?.subscribe(data => {
+    client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
+        .then(slotData => {
+            console.log('Slot Data:', slotData);
+            ui.ports.receiveHintCost.send(client.room.hintCost);
+            ui.ports.receiveConnectionStatus.send(true);
+            worker.postMessage({ type: 'generateFromServer', data: slotData });
+        })
+        .catch(error => {
+            console.error('Connection error:', error);
+            ui.ports.receiveConnectionStatus.send(false);
+        });
+})
+
+ui.ports.generateBoard?.subscribe(data => {
     worker.postMessage({ type: 'generateBoard', data: data });
 });
 
-ui.ports.checkLocation && ui.ports.checkLocation.subscribe(data => {
+ui.ports.checkLocation?.subscribe(data => {
     try {
         client.check(data);
     } catch (error) {
@@ -26,7 +59,7 @@ ui.ports.checkLocation && ui.ports.checkLocation.subscribe(data => {
     }
 });
 
-ui.ports.scoutLocations && ui.ports.scoutLocations.subscribe(ids => {
+ui.ports.scoutLocations?.subscribe(ids => {
     try {
         client.scout(ids, 2)
             .then(scoutedItems => {
@@ -49,12 +82,20 @@ ui.ports.scoutLocations && ui.ports.scoutLocations.subscribe(ids => {
     }
 });
 
-ui.ports.sendMessage && ui.ports.sendMessage.subscribe(text => {
+ui.ports.sendMessage?.subscribe(text => {
     client.messages.say(text);
 });
 
-ui.ports.hintForItem && ui.ports.hintForItem.subscribe(itemName => {
+ui.ports.hintForItem?.subscribe(itemName => {
     client.messages.say(`!hint ${itemName}`);
+});
+
+ui.ports.log?.subscribe(text => {
+    console.log('[UI]', text);
+});
+
+client.socket.on('disconnected', () => {
+    ui.ports.receiveConnectionStatus.send(false);
 });
 
 client.items.on('itemsReceived', items => {
@@ -185,29 +226,3 @@ client.messages.on('userCommand', (text, nodes) => {
     console.log('User command message received:', text, nodes);
     ui.ports.receiveMessage.send({ type: 'userCommand', nodes: nodes });
 });
-
-ui.ports.connect && ui.ports.connect.subscribe(data => {
-    client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
-        .then(slotData => {
-            console.log('Slot Data:', slotData);
-            ui.ports.receiveHintCost.send(client.room.hintCost);
-            worker.postMessage({ type: 'generateFromServer', data: slotData });
-        })
-        .catch(error => {
-            console.error('Connection error:', error);
-        });
-})
-
-worker.onmessage = function(event) {
-    console.log(event.data.type, event.data.data);
-
-    switch(event.data.type) {
-        case 'sendBoard':
-            ui.ports.receiveBoard.send(event.data.data);
-
-            break;
-
-        default:
-            console.log('Unknown message type:', event.data.type);
-    }
-};

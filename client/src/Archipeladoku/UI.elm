@@ -19,20 +19,24 @@ import Set exposing (Set)
 import Set.Extra
 
 
-port receiveBoard : (Decode.Value -> msg) -> Sub msg
-port generateBoard : Encode.Value -> Cmd msg
-port connect : Encode.Value -> Cmd msg
 port checkLocation : Int -> Cmd msg
-port scoutLocations : List Int -> Cmd msg
-port receiveItems : (List Int -> msg) -> Sub msg
-port receiveCheckedLocations : (List Int -> msg) -> Sub msg
-port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
-port receiveHints : (Decode.Value -> msg) -> Sub msg
+port connect : Encode.Value -> Cmd msg
+port generateBoard : Encode.Value -> Cmd msg
 port hintForItem : String -> Cmd msg
-port receiveHintPoints : (Int -> msg) -> Sub msg
-port receiveHintCost : (Int -> msg) -> Sub msg
-port receiveMessage : (Decode.Value -> msg) -> Sub msg
+port log : String -> Cmd msg
+port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
+
+port receiveBoard : (Decode.Value -> msg) -> Sub msg
+port receiveCheckedLocations : (List Int -> msg) -> Sub msg
+port receiveConnectionStatus : (Bool -> msg) -> Sub msg
+port receiveGenerationProgress : (Decode.Value -> msg) -> Sub msg
+port receiveHintCost : (Int -> msg) -> Sub msg
+port receiveHintPoints : (Int -> msg) -> Sub msg
+port receiveHints : (Decode.Value -> msg) -> Sub msg
+port receiveItems : (List Int -> msg) -> Sub msg
+port receiveMessage : (Decode.Value -> msg) -> Sub msg
+port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
@@ -41,7 +45,9 @@ type alias Model =
     , cellBoards : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
     , errors : Dict ( Int, Int ) (Set Int)
+    , generationProgress : ( String, Float )
     , gameIsLocal : Bool
+    , gameState : GameState
     , hints : Dict Int Hint
     , hintCost : Int
     , hintPoints : Int
@@ -70,12 +76,14 @@ type Msg
     | ConnectPressed
     | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
-    | GotScoutedItems Decode.Value
-    | GotHints Decode.Value
+    | GotConnectionStatus Bool
+    | GotGenerationProgress Decode.Value
     | GotHintCost Int
     | GotHintPoints Int
+    | GotHints Decode.Value
     | GotItems (List Int)
     | GotMessage Decode.Value
+    | GotScoutedItems Decode.Value
     | HintItemPressed String
     | HostInputChanged String
     | KeyPressed Bool Int
@@ -90,6 +98,13 @@ type Msg
 type alias Flags =
     { seed : Int
     }
+
+
+type GameState
+    = MainMenu
+    | Connecting
+    | Generating
+    | Playing
 
 
 type CellValue
@@ -316,6 +331,13 @@ messageNodeDecoder =
             )
 
 
+decodeGenerationProgress : Decode.Decoder ( String, Float )
+decodeGenerationProgress =
+    Decode.map2 Tuple.pair
+        (Decode.field "label" Decode.string)
+        (Decode.field "percent" Decode.float)
+
+
 main : Program Flags Model Msg
 main =
     Browser.element
@@ -333,7 +355,9 @@ init flags =
       , cellBoards = Dict.empty
       , current = Dict.empty
       , errors = Dict.empty
+      , generationProgress = ( "", 0 )
       , gameIsLocal = False
+      , gameState = MainMenu
       , hints = Dict.empty
       , hintCost = 0
       , hintPoints = 0
@@ -361,20 +385,6 @@ init flags =
       , unlockedBlocks = Set.empty
       }
     , Cmd.none
-    -- , connect
-    --     (Encode.object
-    --         [ ( "host", Encode.string "localhost:8123" )
-    --         , ( "player", Encode.string "Player1" )
-    --         , ( "password", Encode.null )
-    --         ]
-    --     )
-    -- , generateBoard
-    --     (Json.encodeGenerateArgs
-    --         { blockSize = 4
-    --         , numberOfBoards = 5
-    --         , seed = 1
-    --         }
-    --     )
     )
 
 
@@ -382,13 +392,15 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ receiveBoard GotBoard
-        , receiveItems GotItems
         , receiveCheckedLocations GotCheckedLocations
-        , receiveScoutedItems GotScoutedItems
-        , receiveHints GotHints
+        , receiveConnectionStatus GotConnectionStatus
+        , receiveGenerationProgress GotGenerationProgress
         , receiveHintCost GotHintCost
         , receiveHintPoints GotHintPoints
+        , receiveHints GotHints
+        , receiveItems GotItems
         , receiveMessage GotMessage
+        , receiveScoutedItems GotScoutedItems
         , Browser.Events.onKeyPress <| Decode.oneOf [ keyCodeDecoder, keyDecoder ]
         ]
 
@@ -476,7 +488,7 @@ update msg model =
             )
 
         ConnectPressed ->
-            ( model
+            ( { model | gameState = Connecting }
             , connect
                 (Encode.object
                     [ ( "host", Encode.string model.host )
@@ -499,6 +511,7 @@ update msg model =
                             , blockSize = board.blockSize
                             , current = Dict.map (\_ v -> Given v) board.givens
                             , errors = Dict.empty
+                            , gameState = Playing
                             , lockedBlocks = board.unlockOrder
                             , puzzleAreas = board.puzzleAreas
                             , solution = board.solution
@@ -534,25 +547,43 @@ update msg model =
             )
                 |> updateState
 
-        GotScoutedItems value ->
-            case Decode.decodeValue (Decode.list decodeHint) value of
-                Ok scoutedItems ->
-                    ( { model
-                        | scoutedItems =
-                            List.foldl
-                                (\item acc ->
-                                    Dict.insert item.locationId item acc
-                                )
-                                model.scoutedItems
-                                scoutedItems
-                      }
+        GotConnectionStatus status ->
+            ( { model
+                | gameState =
+                    case ( status, model.gameState ) of
+                        ( True, Connecting ) ->
+                            Generating
+
+                        ( False, Connecting ) ->
+                            MainMenu
+
+                        -- TODO: Handle disconnect during play
+
+                        _ ->
+                            model.gameState
+              }
+            , Cmd.none
+            )
+
+        GotGenerationProgress value ->
+            case Decode.decodeValue decodeGenerationProgress value of
+                Ok progress ->
+                    ( { model | generationProgress = progress }
                     , Cmd.none
                     )
 
                 Err err ->
-                    ( model
-                    , Cmd.none
-                    )
+                    ( model, Cmd.none )
+
+        GotHintCost cost ->
+            ( { model | hintCost = cost }
+            , Cmd.none
+            )
+
+        GotHintPoints points ->
+            ( { model | hintPoints = points }
+            , Cmd.none
+            )
 
         GotHints value ->
             case Decode.decodeValue (Decode.list decodeHint) value of
@@ -573,16 +604,6 @@ update msg model =
                     ( model
                     , Cmd.none
                     )
-
-        GotHintCost cost ->
-            ( { model | hintCost = cost }
-            , Cmd.none
-            )
-
-        GotHintPoints points ->
-            ( { model | hintPoints = points }
-            , Cmd.none
-            )
 
         GotItems itemIds ->
             ( { model
@@ -610,9 +631,26 @@ update msg model =
                     )
 
                 Err err ->
-                    let
-                        _ = Debug.log "Failed to decode message" err
-                    in
+                    ( model
+                    , log (Decode.errorToString err)
+                    )
+
+        GotScoutedItems value ->
+            case Decode.decodeValue (Decode.list decodeHint) value of
+                Ok scoutedItems ->
+                    ( { model
+                        | scoutedItems =
+                            List.foldl
+                                (\item acc ->
+                                    Dict.insert item.locationId item acc
+                                )
+                                model.scoutedItems
+                                scoutedItems
+                      }
+                    , Cmd.none
+                    )
+
+                Err err ->
                     ( model
                     , Cmd.none
                     )
@@ -674,7 +712,10 @@ update msg model =
             )
 
         PlayLocalPressed ->
-            ( { model | gameIsLocal = True }
+            ( { model
+                | gameIsLocal = True
+                , gameState = Generating
+              }
             , generateBoard
                 (Json.encodeGenerateArgs
                     { blockSize = 4
@@ -789,17 +830,17 @@ andThen fun ( model, cmd ) =
 
 updateState : ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
 updateState ( model, cmd ) =
-    -- TODO: Use a proper flag
-    if model.blockSize == 0 then
-        ( model, cmd )
+    case model.gameState of
+        Playing ->
+            ( model, cmd )
+                |> andThen updateStateCellChanges
+                |> andThen updateStateItems
+                |> andThen updateStateSolvedBlocks
+                |> andThen updateStateErrors
+                |> andThen updateStateScoutLocations
 
-    else
-        ( model, cmd )
-            |> andThen updateStateCellChanges
-            |> andThen updateStateItems
-            |> andThen updateStateSolvedBlocks
-            |> andThen updateStateErrors
-            |> andThen updateStateScoutLocations
+        _ ->
+            ( model, cmd )
 
 
 updateStateCellChanges : Model -> ( Model, Cmd Msg )
@@ -1204,10 +1245,29 @@ unlockedBoardsAtCell model cell =
 
 view : Model -> Html Msg
 view model =
-    Html.div
-        []
-        -- TODO: Use a proper flag
-        [ if model.blockSize > 0 then
+    case model.gameState of
+        MainMenu ->
+            viewMenu model
+
+        Connecting ->
+            Html.div
+                []
+                [ Html.text "Connecting..." ]
+
+        Generating ->
+            Html.div
+                []
+                [ Html.text (Tuple.first model.generationProgress)
+                , Html.text " "
+                , Html.text
+                    (Tuple.second model.generationProgress
+                        |> round
+                        |> String.fromInt
+                    )
+                , Html.text "%"
+                ]
+
+        Playing ->
             Html.div
                 [ HA.style "display" "flex"
                 , HA.style "justify-content" "space-between"
@@ -1216,10 +1276,6 @@ view model =
                 [ viewBoard model
                 , viewInfoPanel model
                 ]
-
-          else
-            viewMenu model
-        ]
 
 
 viewMenu : Model -> Html Msg
@@ -1459,14 +1515,14 @@ viewInfoPanel model =
         , HA.style "gap" "1em"
         , HA.style "padding" "1em"
         ]
-        [ Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "column"
-            , HA.style "gap" "0.5em"
-            ]
-            (case model.selectedCell of
-                Just ( row, col ) ->
-                    List.concat
+        [ case model.selectedCell of
+            Just ( row, col ) ->
+                Html.div
+                    [ HA.style "display" "flex"
+                    , HA.style "flex-direction" "column"
+                    , HA.style "gap" "0.5em"
+                    ]
+                    (List.concat
                         [ [ viewCellInfo model ( row, col ) ]
                         , List.map
                             (viewBlockInfo model)
@@ -1482,10 +1538,10 @@ viewInfoPanel model =
                                 |> List.sortBy .startRow
                             )
                         ]
+                    )
 
-                Nothing ->
-                    []
-            )
+            Nothing ->
+                Html.text ""
         , viewInfoHints model
         , Html.div
             [ HA.style "display" "flex"

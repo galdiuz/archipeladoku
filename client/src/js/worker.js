@@ -1,6 +1,6 @@
 import { Elm } from '../Archipeladoku/Worker.elm';
 
-const app = Elm.Archipeladoku.Worker.init({
+const worker = Elm.Archipeladoku.Worker.init({
     flags: {}
 });
 
@@ -9,12 +9,12 @@ self.onmessage = function(event) {
 
     switch(event.data.type) {
         case 'generateBoard':
-            app.ports.receiveGenerateArgs.send(event.data.data);
+            worker.ports.receiveGenerateArgs.send(event.data.data);
 
             break;
 
         case 'generateFromServer':
-            app.ports.receiveGenerateArgs2.send(event.data.data);
+            worker.ports.receiveGenerateArgs2.send(event.data.data);
 
             break;
 
@@ -23,6 +23,14 @@ self.onmessage = function(event) {
     }
 };
 
-app.ports.sendBoard.subscribe(function(data) {
+worker.ports.sendBoard.subscribe(function(data) {
     self.postMessage({ type: 'sendBoard', data: data });
+});
+
+worker.ports.sendProgress.subscribe(function(data) {
+    self.postMessage({ type: 'sendProgress', data: data });
+});
+
+worker.ports.log?.subscribe(function(text) {
+    console.log('[Worker]', text);
 });

@@ -9,7 +9,9 @@ import Random
 import Task
 
 
+port log : String -> Cmd msg
 port sendBoard : Encode.Value -> Cmd msg
+port sendProgress : Encode.Value -> Cmd msg
 port receiveGenerateArgs : (Encode.Value -> msg) -> Sub msg
 port receiveGenerateArgs2 : (Encode.Value -> msg) -> Sub msg
 
@@ -87,33 +89,89 @@ update msg model =
                     )
 
                 Engine.Failed err ->
-                    let
-                        _ = Debug.log "Generation failed with error:" err
-                    in
-                    ( model, Cmd.none )
+                    ( model
+                    , log ("Generation failed with error: " ++ err)
+                    )
 
                 Engine.PlacingNumbers genState ->
-                    let
-                        _ = Debug.log "Placing numbers, remaining clusters:" genState.remainingClusters
-                    in
                     ( model
                     , Cmd.batch
                         [ Engine.continueGeneration state
                             |> Task.succeed
                             |> Task.perform GotGenerationState
-                        -- TODO: Send progress to UI
+                        , sendProgress (encodeProgress state)
                         ]
                     )
 
                 Engine.RemovingGivens genState ->
-                    let
-                        _ = Debug.log "Removing givens, remaining clusters:" genState.remainingClusters
-                    in
                     ( model
                     , Cmd.batch
                         [ Engine.continueGeneration state
                             |> Task.succeed
                             |> Task.perform GotGenerationState
-                        -- TODO: Send progress to UI
+                        , sendProgress (encodeProgress state)
                         ]
                     )
+
+
+encodeProgress : Engine.BoardGenerationState -> Encode.Value
+encodeProgress state =
+    Encode.object
+        [ ( "label"
+          , Encode.string
+                (case state of
+                    Engine.PlacingNumbers _ ->
+                        "Placing numbers"
+
+                    Engine.RemovingGivens _ ->
+                        "Removing givens"
+
+                    _ ->
+                        "Unknown"
+                )
+
+          )
+        , ( "percent"
+          , Encode.float
+                (case state of
+                    Engine.PlacingNumbers genState ->
+                        let
+                            totalBoards : Float
+                            totalBoards =
+                                genState.allClusters
+                                    |> List.map List.length
+                                    |> List.sum
+                                    |> toFloat
+
+                            remainingBoards : Float
+                            remainingBoards =
+                                genState.remainingClusters
+                                    |> List.map List.length
+                                    |> List.sum
+                                    |> toFloat
+                        in
+                        50 - (remainingBoards / totalBoards * 50)
+
+                    Engine.RemovingGivens genState ->
+                        let
+                            totalBoards : Float
+                            totalBoards =
+                                genState.allClusters
+                                    |> List.map List.length
+                                    |> List.sum
+                                    |> toFloat
+
+                            remainingBoards : Float
+                            remainingBoards =
+                                genState.remainingClusters
+                                    |> List.map List.length
+                                    |> List.sum
+                                    |> toFloat
+                        in
+                        100 - (remainingBoards / totalBoards * 50)
+
+                    _ ->
+                        0.0
+                )
+          )
+        ]

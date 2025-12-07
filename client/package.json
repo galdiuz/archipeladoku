@@ -3,6 +3,7 @@
     "archipelago.js": "^2.0.4"
   },
   "devDependencies": {
+    "elm": "^0.19.1-6",
     "vite": "^7.2.6",
     "vite-plugin-elm": "^3.0.1"
   },

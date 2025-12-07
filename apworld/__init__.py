@@ -13,21 +13,8 @@ class ArchipeladokuWorld(World):
     options_dataclass = options.ArchipeladokuOptions
     options: options.ArchipeladokuOptions
 
-    item_name_to_id = {
-        # 0xx: Filler Items
-        "Solve Random Cell": 1,
-        "Filler": 99,
-        # 1xx: Progression Items
-        "Progressive Block": 101,
-        # 2xx: Useful Items
-        "Solve Selected Cell": 201,
-        # 4xx: Trap Items
-        # 1xxxyyy: Block Items, row xxx, col yyy, added dynamically
-    }
-    location_name_to_id = {
-        # 1xxxyyy: Solve Block Locations, row xxx, col yyy, added dynamically
-        # 2xxxyyy: Solve Board Locations, row xxx, col yyy, added dynamically
-    }
+    item_name_to_id = utils.item_name_to_id
+    location_name_to_id = utils.location_name_to_id
 
     block_unlock_order = defaultdict(list)
     clusters = defaultdict(dict)
@@ -112,7 +99,6 @@ class ArchipeladokuWorld(World):
                     region,
                 )
                 region.locations.append(loc)
-                self.location_name_to_id[loc.name] = loc.address
 
                 match self.options.block_unlocks:
                     case options.BlockUnlocks.option_fixed:
@@ -142,7 +128,6 @@ class ArchipeladokuWorld(World):
                     region,
                 )
                 region.locations.append(loc)
-                self.location_name_to_id[loc.name] = loc.address
 
                 match self.options.block_unlocks:
                     case options.BlockUnlocks.option_fixed:
@@ -218,7 +203,6 @@ class ArchipeladokuWorld(World):
                         self.player,
                     )
                     self.multiworld.itempool.append(item)
-                    self.item_name_to_id[item.name] = item.code
 
                 case _:
                     raise ValueError("Invalid block unlock option")
@@ -235,6 +219,7 @@ class ArchipeladokuWorld(World):
         return {
             "blockSize": self.options.block_size.value,
             "blockUnlockOrder": self.block_unlock_order[self.player],
+            "blockUnlocks": self.options.block_unlocks.value,
             "clusters": [cluster.positions for cluster in self.clusters[self.player].values()],
             "seed": self.random.getrandbits(32),
             "unlockedBlocks": initial_unlock_count,
@@ -256,6 +241,8 @@ class ArchipeladokuWorld(World):
             classification = ItemClassification.useful
         elif id >= 400 and id < 500:
             classification = ItemClassification.trap
+        elif id >= 1000000:
+            classification = ItemClassification.progression
         else:
             raise ValueError(f"Invalid item id: {id}")
 
@@ -283,7 +270,7 @@ class ArchipeladokuWorld(World):
         }
 
         if all(weight == 0 for weight in weights.values()):
-            weights["Filler"] = 1
+            weights["Nothing"] = 1
 
         return weights
 

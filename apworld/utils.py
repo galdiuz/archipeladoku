@@ -240,3 +240,25 @@ def row_to_label(row: int) -> str:
         label = chars[rem] + label
 
     return label
+
+
+item_name_to_id = {
+    # 0xx: Filler Items
+    "Solve Random Cell": 1,
+    "Nothing": 99,
+    # 1xx: Progression Items
+    "Progressive Block": 101,
+    # 2xx: Useful Items
+    "Solve Selected Cell": 201,
+    # 4xx: Trap Items
+    # 1xxxyyy: Block Items, row xxx, col yyy, added below
+}
+location_name_to_id = {
+    # 1xxxyyy: Solve Block Locations, row xxx, col yyy, added below
+    # 2xxxyyy: Solve Board Locations, row xxx, col yyy, added below
+}
+for row in range(1, 300):
+    for col in range(1, 300):
+        item_name_to_id[block_name(row, col)] = block_id(row, col)
+        location_name_to_id["Solve " + block_name(row, col)] = board_id(row, col)
+        location_name_to_id["Solve " + board_name(row, col)] = board_id(row, col)

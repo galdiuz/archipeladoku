@@ -42,6 +42,7 @@ port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
 
 type alias Model =
     { blockSize : Int
+    , candidateMode : Bool
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
     , cellBoards : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
@@ -49,6 +50,7 @@ type alias Model =
     , generationProgress : ( String, Float )
     , gameIsLocal : Bool
     , gameState : GameState
+    , heldKeys : Set String
     , hints : Dict Int Hint
     , hintCost : Int
     , hintPoints : Int
@@ -87,13 +89,15 @@ type Msg
     | GotScoutedItems Decode.Value
     | HintItemPressed String
     | HostInputChanged String
-    | KeyPressed Bool Int
+    | KeyPressed Key
+    | KeyReleased Key
     | MessageInputChanged String
     | PlayLocalPressed
     | PlayerInputChanged String
     | SendMessagePressed
     | SolveRandomCellPressed
     | SolveSelectedCellPressed
+    | ToggleCandidateModePressed
 
 
 type alias Flags =
@@ -119,6 +123,12 @@ type Item
     | Block ( Int, Int )
     | SolveSelectedCell
     | SolveRandomCell
+
+
+type Key
+    = BackspaceKey
+    | NumberKey Int
+    | ShiftKey
 
 
 itemFromId : Int -> Maybe Item
@@ -353,6 +363,7 @@ main =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { blockSize = 0
+      , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
       , current = Dict.empty
@@ -360,6 +371,7 @@ init flags =
       , generationProgress = ( "", 0 )
       , gameIsLocal = False
       , gameState = MainMenu
+      , heldKeys = Set.empty
       , hints = Dict.empty
       , hintCost = 0
       , hintPoints = 0
@@ -403,12 +415,65 @@ subscriptions model =
         , receiveItems GotItems
         , receiveMessage GotMessage
         , receiveScoutedItems GotScoutedItems
-        , Browser.Events.onKeyPress <| Decode.oneOf [ keyCodeDecoder, keyDecoder ]
+        , Browser.Events.onKeyDown (keyDownDecoder model)
+        , Browser.Events.onKeyUp keyUpDecoder
+        , Browser.Events.onKeyPress <| Decode.oneOf [ keyPressCodeDecoder, keyPressKeyDecoder ]
         ]
 
 
-keyDecoder : Decode.Decoder Msg
-keyDecoder =
+keyDownDecoder : Model -> Decode.Decoder Msg
+keyDownDecoder model =
+    Decode.field "code" Decode.string
+        |> Decode.andThen
+            (\code ->
+                let
+                    keyMap : Dict String ( String, Key )
+                    keyMap =
+                        [ ( "Backspace", ( "Backspace", BackspaceKey ) )
+                        , ( "Delete", ( "Backspace", BackspaceKey ) )
+                        , ( "ShiftLeft", ( "Shift", ShiftKey ) )
+                        , ( "ShiftRight", ( "Shift", ShiftKey ) )
+                        ]
+                        |> Dict.fromList
+                in
+                case Dict.get code keyMap of
+                    Just ( setKey, key ) ->
+                        if Set.member setKey model.heldKeys then
+                            Decode.fail code
+
+                        else
+                            Decode.succeed (KeyPressed key)
+
+                    Nothing ->
+                        Decode.fail code
+            )
+
+
+keyUpDecoder : Decode.Decoder Msg
+keyUpDecoder =
+    Decode.field "code" Decode.string
+        |> Decode.andThen
+            (\code ->
+                case code of
+                    "Backspace" ->
+                        Decode.succeed (KeyReleased BackspaceKey)
+
+                    "Delete" ->
+                        Decode.succeed (KeyReleased BackspaceKey)
+
+                    "ShiftLeft" ->
+                        Decode.succeed (KeyReleased ShiftKey)
+
+                    "ShiftRight" ->
+                        Decode.succeed (KeyReleased ShiftKey)
+
+                    _ ->
+                        Decode.fail code
+            )
+
+
+keyPressKeyDecoder : Decode.Decoder Msg
+keyPressKeyDecoder =
     Decode.field "key" Decode.string
         |> Decode.andThen
             (\key ->
@@ -416,17 +481,20 @@ keyDecoder =
                     Just char ->
                         if Char.isHexDigit char then
                             if char == '0' then
-                                KeyPressed False 10
+                                NumberKey 10
+                                    |> KeyPressed
                                     |> Decode.succeed
 
                             else if Char.isDigit char then
                                 Char.toCode char - Char.toCode '0'
-                                    |> KeyPressed False
+                                    |> NumberKey
+                                    |> KeyPressed
                                     |> Decode.succeed
 
                             else
                                 Char.toCode (Char.toUpper char) - Char.toCode 'A' + 11
-                                    |> KeyPressed False
+                                    |> NumberKey
+                                    |> KeyPressed
                                     |> Decode.succeed
 
                         else
@@ -437,8 +505,8 @@ keyDecoder =
             )
 
 
-keyCodeDecoder : Decode.Decoder Msg
-keyCodeDecoder =
+keyPressCodeDecoder : Decode.Decoder Msg
+keyPressCodeDecoder =
     Decode.field "code" Decode.string
         |> Decode.andThen
             (\code ->
@@ -471,14 +539,8 @@ keyCodeDecoder =
                     "KeyF" -> Decode.succeed 16
                     _ -> Decode.fail code
             )
-        |> Decode.andThen
-            (\number ->
-                Decode.field "shiftKey" Decode.bool
-                    |> Decode.andThen
-                        (\shift ->
-                            Decode.succeed (KeyPressed shift number)
-                        )
-            )
+        |> Decode.map NumberKey
+        |> Decode.map KeyPressed
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -563,6 +625,12 @@ update msg model =
 
                         _ ->
                             model.gameState
+                , messages =
+                    if status then
+                        model.messages
+
+                    else
+                        addLocalMessage "Disconnected from server, reload page." model.messages
               }
             , Cmd.none
             )
@@ -667,44 +735,102 @@ update msg model =
             , Cmd.none
             )
 
-        KeyPressed shift number ->
-            case model.selectedCell of
-                Just ( row, col ) ->
-                    if cellIsVisible model ( row, col ) then
-                        let
-                            newCurrent : Dict ( Int, Int ) CellValue
-                            newCurrent =
-                                if number < 1 || number > model.blockSize then
-                                    model.current
+        KeyPressed key ->
+            case key of
+                BackspaceKey ->
+                    case model.selectedCell of
+                        Just cell ->
+                            if cellIsVisible model cell && not (cellIsGiven model cell) then
+                                ( { model
+                                    | current =
+                                        Dict.remove cell model.current
+                                    , pendingCellChanges =
+                                        Set.insert cell model.pendingCellChanges
+                                    , heldKeys =
+                                        Set.insert "Backspace" model.heldKeys
+                                  }
+                                , Cmd.none
+                                )
+                                    |> updateState
 
-                                else
-                                    if shift then
-                                        Dict.update
-                                            ( row, col )
-                                            (toggleNumber number)
+                            else
+                                ( model
+                                , Cmd.none
+                                )
+
+                        Nothing ->
+                            ( model
+                            , Cmd.none
+                            )
+
+                NumberKey number ->
+                    case model.selectedCell of
+                        Just ( row, col ) ->
+                            if cellIsVisible model ( row, col ) then
+                                let
+                                    newCurrent : Dict ( Int, Int ) CellValue
+                                    newCurrent =
+                                        if number < 1 || number > model.blockSize then
                                             model.current
 
-                                    else
-                                        Dict.insert
-                                            ( row, col )
-                                            (Single number)
-                                            model.current
-                        in
-                        ( { model
-                            | current = newCurrent
-                            , pendingCellChanges = Set.insert ( row, col ) model.pendingCellChanges
-                          }
-                        , Cmd.none
-                        )
-                            |> updateState
+                                        else
+                                            if model.candidateMode then
+                                                Dict.update
+                                                    ( row, col )
+                                                    (toggleNumber number)
+                                                    model.current
 
-                    else
-                        ( model
-                        , Cmd.none
-                        )
+                                            else
+                                                Dict.insert
+                                                    ( row, col )
+                                                    (Single number)
+                                                    model.current
+                                in
+                                ( { model
+                                    | current = newCurrent
+                                    , pendingCellChanges = Set.insert ( row, col ) model.pendingCellChanges
+                                  }
+                                , Cmd.none
+                                )
+                                    |> updateState
 
-                Nothing ->
+                            else
+                                ( model
+                                , Cmd.none
+                                )
+
+                        Nothing ->
+                            ( model
+                            , Cmd.none
+                            )
+
+                ShiftKey ->
+                    ( { model
+                        | candidateMode = not model.candidateMode
+                        , heldKeys = Set.insert "Shift" model.heldKeys
+                      }
+                    , Cmd.none
+                    )
+
+        KeyReleased key ->
+            case key of
+                BackspaceKey ->
+                    ( { model
+                        | heldKeys = Set.remove "Backspace" model.heldKeys
+                      }
+                    , Cmd.none
+                    )
+
+                NumberKey _ ->
                     ( model
+                    , Cmd.none
+                    )
+
+                ShiftKey ->
+                    ( { model
+                        | candidateMode = not model.candidateMode
+                        , heldKeys = Set.remove "Shift" model.heldKeys
+                      }
                     , Cmd.none
                     )
 
@@ -857,6 +983,11 @@ update msg model =
                     ( model
                     , Cmd.none
                     )
+
+        ToggleCandidateModePressed ->
+            ( { model | candidateMode = not model.candidateMode }
+            , Cmd.none
+            )
 
 
 andThen : (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
@@ -1267,6 +1398,13 @@ cellIsVisible model cell =
         |> not
 
 
+cellIsGiven : Model -> ( Int, Int ) -> Bool
+cellIsGiven model cell =
+    Dict.get cell model.current
+        |> Maybe.map isGiven
+        |> Maybe.withDefault False
+
+
 unlockedBoardsAtCell : Model -> ( Int, Int ) -> Set ( Int, Int )
 unlockedBoardsAtCell model cell =
     Dict.get cell model.cellBoards
@@ -1437,12 +1575,6 @@ viewCell model ( row, col ) =
             Dict.get ( row, col ) model.errors
                 |> Maybe.withDefault Set.empty
 
-        cellIsGiven : Bool
-        cellIsGiven =
-            Dict.get ( row, col ) model.current
-                |> Maybe.map isGiven
-                |> Maybe.withDefault False
-
         cellIsMultiple : Bool
         cellIsMultiple =
             Dict.get ( row, col ) model.current
@@ -1467,7 +1599,7 @@ viewCell model ( row, col ) =
                 )
             , HA.classList
                 [ ( "selected", model.selectedCell == Just ( row, col ) )
-                , ( "given", cellIsGiven )
+                , ( "given", cellIsGiven model ( row, col ) )
                 , ( "block-border-top"
                   , not (cellIsAt ( row - 1, col ))
                     || List.any (.startRow >> (==) row) blocks
@@ -1583,6 +1715,17 @@ viewInfoPanel model =
             Nothing ->
                 Html.text ""
         , viewInfoHints model
+        , Html.div
+            []
+            [ Html.button
+                [ HE.onClick ToggleCandidateModePressed ]
+                [ if model.candidateMode then
+                    Html.text "Insert mode: Candidates (Shift)"
+
+                  else
+                    Html.text "Insert mode: Set (Shift)"
+                ]
+            ]
         , Html.div
             [ HA.style "display" "flex"
             , HA.style "flex-direction" "row"

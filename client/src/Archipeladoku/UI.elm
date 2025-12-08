@@ -368,7 +368,7 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { blockSize = 9
+    ( { blockSize = 4
       , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
@@ -866,7 +866,7 @@ update msg model =
                 (Json.encodeGenerateArgs
                     { blockSize = model.blockSize
                     , numberOfBoards = model.numberOfBoards
-                    , seed = 1
+                    , seed = model.seedInput
                     }
                 )
             )
@@ -1196,25 +1196,84 @@ unlockNextBlock : Model -> ( Model, Cmd Msg )
 unlockNextBlock model =
     case model.lockedBlocks of
         block :: remainingBlocks ->
-            let
-                unlockedModel : Model
-                unlockedModel =
-                    { model
-                        | lockedBlocks = remainingBlocks
-                        , unlockedBlocks = Set.insert block model.unlockedBlocks
-                    }
-            in
-            ( { unlockedModel
-                | pendingScoutLocations =
-                    unlockedModel.pendingScoutLocations
-                        |> Set.insert (cellToBlockId block)
-                        |> Set.union
-                            (unlockedBoardsAtCell unlockedModel block
-                                |> Set.map cellToBoardId
-                            )
-              }
-            , Cmd.none
-            )
+            if Tuple.first block > 0 then
+                let
+                    unlockedModel : Model
+                    unlockedModel =
+                        { model
+                            | lockedBlocks = remainingBlocks
+                            , unlockedBlocks = Set.insert block model.unlockedBlocks
+                        }
+                in
+                ( { unlockedModel
+                    | pendingScoutLocations =
+                        unlockedModel.pendingScoutLocations
+                            |> Set.insert (cellToBlockId block)
+                            |> Set.union
+                                (unlockedBoardsAtCell unlockedModel block
+                                    |> Set.map cellToBoardId
+                                )
+                    , messages =
+                        if model.gameIsLocal then
+                            addLocalMessage
+                                (String.concat
+                                    [ "Unlocked Block at "
+                                    , rowToLabel (Tuple.first block)
+                                    , String.fromInt (Tuple.second block)
+                                    ]
+                                )
+                                model.messages
+
+                        else
+                            model.messages
+                  }
+                , Cmd.none
+                )
+
+            else
+                let
+                    ( rand, newSeed ) =
+                        Random.step (Random.int 0 99) model.seed
+
+                    item : Item
+                    item =
+                        if rand < 70 then
+                            SolveRandomCell
+
+                        else
+                            SolveSelectedCell
+                in
+                ( { model
+                    | lockedBlocks = remainingBlocks
+                    , solveRandomCellUses =
+                        if item == SolveRandomCell then
+                            model.solveRandomCellUses + 1
+
+                        else
+                            model.solveRandomCellUses
+                    , solveSelectedCellUses =
+                        if item == SolveSelectedCell then
+                            model.solveSelectedCellUses + 1
+
+                        else
+                            model.solveSelectedCellUses
+                    , seed = newSeed
+                    , messages =
+                        if model.gameIsLocal then
+                            addLocalMessage
+                                (if item == SolveRandomCell then
+                                    "Unlocked a Solve Random Cell."
+
+                                 else
+                                    "Unlocked a Solve Selected Cell."
+                                )
+                                model.messages
+
+                        else
+                            model.messages
+                  }
+                , Cmd.none
+                )
 
         [] ->
             ( model

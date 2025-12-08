@@ -59,6 +59,7 @@ type alias Model =
     , lockedBlocks : List ( Int, Int )
     , messageInput : String
     , messages : List Message
+    , numberOfBoards : Int
     , pendingCellChanges : Set ( Int, Int )
     , pendingItems : List Item
     , pendingScoutLocations : Set Int
@@ -67,6 +68,7 @@ type alias Model =
     , puzzleAreas : Engine.PuzzleAreas
     , scoutedItems : Dict Int Hint
     , seed : Random.Seed
+    , seedInput : Int
     , selectedCell : Maybe ( Int, Int )
     , solution : Dict ( Int, Int ) Int
     , solveRandomCellUses : Int
@@ -76,7 +78,8 @@ type alias Model =
 
 
 type Msg
-    = CellSelected ( Int, Int )
+    = BlockSizeChanged Int
+    | CellSelected ( Int, Int )
     | ConnectPressed
     | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
@@ -93,8 +96,10 @@ type Msg
     | KeyPressed Key
     | KeyReleased Key
     | MessageInputChanged String
+    | NumberOfBoardsChanged Int
     | PlayLocalPressed
     | PlayerInputChanged String
+    | SeedInputChanged String
     | SendMessagePressed
     | SolveRandomCellPressed
     | SolveSelectedCellPressed
@@ -363,7 +368,7 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { blockSize = 0
+    ( { blockSize = 9
       , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
@@ -380,6 +385,7 @@ init flags =
       , lockedBlocks = []
       , messageInput = ""
       , messages = []
+      , numberOfBoards = 5
       , pendingCellChanges = Set.empty
       , pendingItems = []
       , pendingScoutLocations = Set.empty
@@ -392,7 +398,8 @@ init flags =
             , cols = []
             }
       , scoutedItems = Dict.empty
-      , seed = Random.initialSeed flags.seed
+      , seed = Random.initialSeed (flags.seed + 1)
+      , seedInput = flags.seed
       , selectedCell = Nothing
       , solution = Dict.empty
       , solveRandomCellUses = 0
@@ -547,6 +554,11 @@ keyPressCodeDecoder =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        BlockSizeChanged size ->
+            ( { model | blockSize = size }
+            , Cmd.none
+            )
+
         CellSelected ( row, col ) ->
             ( { model | selectedCell = Just ( row, col ) }
             , Cmd.none
@@ -840,6 +852,11 @@ update msg model =
             , Cmd.none
             )
 
+        NumberOfBoardsChanged value ->
+            ( { model | numberOfBoards = value }
+            , Cmd.none
+            )
+
         PlayLocalPressed ->
             ( { model
                 | gameIsLocal = True
@@ -847,8 +864,8 @@ update msg model =
               }
             , generateBoard
                 (Json.encodeGenerateArgs
-                    { blockSize = 4
-                    , numberOfBoards = 25
+                    { blockSize = model.blockSize
+                    , numberOfBoards = model.numberOfBoards
                     , seed = 1
                     }
                 )
@@ -856,6 +873,17 @@ update msg model =
 
         PlayerInputChanged value ->
             ( { model | player = value }
+            , Cmd.none
+            )
+
+        SeedInputChanged value ->
+            ( { model
+                | seedInput =
+                    value
+                        |> String.filter Char.isDigit
+                        |> String.toInt
+                        |> Maybe.withDefault model.seedInput
+              }
             , Cmd.none
             )
 
@@ -1476,31 +1504,118 @@ view model =
 viewMenu : Model -> Html Msg
 viewMenu model =
     Html.div
-        []
-        [ Html.form
-            [ HE.onSubmit ConnectPressed ]
-            [ Html.input
-                [ HA.type_ "text"
-                , HA.placeholder "Host"
-                , HA.value model.host
-                , HE.onInput HostInputChanged
-                ]
-                []
-            , Html.input
-                [ HA.type_ "text"
-                , HA.placeholder "Player name"
-                , HA.value model.player
-                , HE.onInput PlayerInputChanged
-                ]
-                []
-            , Html.button
-                []
-                [ Html.text "Connect"]
+        [ HA.style "padding" "1em"
+        , HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        , HA.style "gap" "2em"
+        ]
+        [ Html.div
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "column"
+            , HA.style "align-items" "start"
+            , HA.style "gap" "0.5em"
             ]
-        , Html.br [] []
-        , Html.button
-            [ HE.onClick PlayLocalPressed ]
-            [ Html.text "Play Singleplayer" ]
+            [ Html.h2
+                [ HA.style "margin" "0" ]
+                [ Html.text "Connect to Archipelago" ]
+            , Html.form
+                [ HA.style "display" "flex"
+                , HA.style "gap" "0.5em"
+                , HE.onSubmit ConnectPressed
+                ]
+                [ Html.input
+                    [ HA.type_ "text"
+                    , HA.placeholder "Host"
+                    , HA.value model.host
+                    , HE.onInput HostInputChanged
+                    ]
+                    []
+                , Html.input
+                    [ HA.type_ "text"
+                    , HA.placeholder "Player name"
+                    , HA.value model.player
+                    , HE.onInput PlayerInputChanged
+                    ]
+                    []
+                , Html.button
+                    []
+                    [ Html.text "Connect"]
+                ]
+            ]
+        , Html.div
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "column"
+            , HA.style "align-items" "start"
+            , HA.style "gap" "0.5em"
+            ]
+            [ Html.h2
+                [ HA.style "margin" "0" ]
+                [ Html.text "Play Local Game" ]
+            , Html.div
+                []
+                [ Html.text "Block Size:"
+                , Html.div
+                    [ HA.style "display" "flex"
+                    , HA.style "flex-direction" "row"
+                    , HA.style "gap" "0.5em"
+                    ]
+                    [ viewNumberRadioButton 4 model.blockSize "block-size" BlockSizeChanged
+                    , viewNumberRadioButton 9 model.blockSize "block-size" BlockSizeChanged
+                    ]
+                ]
+            , Html.div
+                []
+                [ Html.text "Number of Boards:"
+                , Html.div
+                    [ HA.style "display" "flex"
+                    , HA.style "flex-direction" "row"
+                    , HA.style "gap" "0.5em"
+                    ]
+                    [ viewNumberRadioButton 5 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 8 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 13 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 18 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 25 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    ]
+                ]
+            , Html.div
+                [ HA.style "display" "flex"
+                , HA.style "flex-direction" "row"
+                , HA.style "gap" "0.25em"
+                , HA.style "align-items" "baseline"
+                , HA.min "0"
+                , HA.max (String.fromInt Random.maxInt)
+                ]
+                [ Html.text "Seed:"
+                , Html.input
+                    [ HA.type_ "number"
+                    , HA.value (String.fromInt model.seedInput)
+                    , HE.onInput SeedInputChanged
+                    ]
+                    []
+                ]
+            , Html.button
+                [ HE.onClick PlayLocalPressed ]
+                [ Html.text "Play" ]
+            ]
+        ]
+
+
+viewNumberRadioButton : Int -> Int -> String -> (Int -> Msg) -> Html Msg
+viewNumberRadioButton value selected name msg =
+    Html.label
+        [ HA.style "display" "flex"
+        , HA.style "align-items" "baseline"
+        , HA.style "gap" "0.25em"
+        ]
+        [ Html.input
+            [ HA.type_ "radio"
+            , HA.name name
+            , HA.checked (value == selected)
+            , HE.onCheck (\_ -> msg value)
+            ]
+            []
+        , Html.text (String.fromInt value)
         ]
 
 

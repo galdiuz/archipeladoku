@@ -17,6 +17,9 @@ interface PuzzleAreas {
 type Cell = [number, number]
 
 
+type CellIndex = number
+
+
 type Peers = number[]
 
 
@@ -36,29 +39,56 @@ interface GenerateArgs {
 type BoardGenerationState =
     | PlacingNumbers
     | RemovingGivens
+    | RestoringGivens
     | Completed
     | Failed
 
 
 interface PlacingNumbers {
-    type: "PlacingNumbers"
+    type: 'PlacingNumbers'
     state: ClusterGenerationState
 }
 
 
 interface RemovingGivens {
-    type: "RemovingGivens"
+    type: 'RemovingGivens'
+    state: ClusterGenerationState
+}
+
+
+interface RestoringGivens {
+    type: 'RemovingGivens'
     state: ClusterGenerationState
 }
 
 
 interface Completed {
-    type: "Completed"
+    type: 'Completed'
+    blockSize: number
+    givens: EncodedCellValue[]
+    solution: EncodedCellValue[]
+    puzzleAreas: EncodedPuzzleAreas
+    unlockCount: number
+    unlockOrder: Cell[]
 }
 
 
+type EncodedCellValue = [number, number, number]
+
+
+interface EncodedPuzzleAreas {
+    boards: EncodedArea[]
+    blocks: EncodedArea[]
+    rows: EncodedArea[]
+    cols: EncodedArea[]
+}
+
+
+type EncodedArea = [number, number, number, number]
+
+
 interface Failed {
-    type: "Failed"
+    type: 'Failed'
     reason: string
 }
 
@@ -67,6 +97,7 @@ interface ClusterGenerationState {
     allCells: Set<Cell>
     allClusters: Cell[][]
     blockSize: number
+    cellsToRemoveGivensFrom: Set<Cell>
     givens: Int32Array
     puzzleAreas: PuzzleAreas
     peerMap: PeerMap
@@ -76,54 +107,55 @@ interface ClusterGenerationState {
 }
 
 
-let maxWidth: number = 300
-let totalArraySize: number = maxWidth * maxWidth
+const maxWidth: number = 300
+const totalArraySize: number = maxWidth * maxWidth
 
 
 export function initGeneration(args: GenerateArgs): BoardGenerationState {
     if (args.numberOfBoards < 1 || args.numberOfBoards > 100) {
         return {
-            type: "Failed",
-            reason: "Number of boards must be between 1 and 100",
+            type: 'Failed',
+            reason: 'Number of boards must be between 1 and 100',
         }
     }
 
     if (![4, 6, 8, 9, 12, 16].includes(args.blockSize)) {
         return {
-            type: "Failed",
-            reason: "Unsupported block size",
+            type: 'Failed',
+            reason: 'Unsupported block size',
         }
     }
 
-    let positions: Cell[] = positionBoards(args.blockSize, args.numberOfBoards)
+    const positions: Cell[] = positionBoards(args.blockSize, args.numberOfBoards)
 
-    let boardPuzzleAreas: PuzzleAreas[] = []
-    for (let [startRow, startCol] of positions) {
-        let puzzleAreas = buildPuzzleAreas(args.blockSize, startRow, startCol)
+    const boardPuzzleAreas: PuzzleAreas[] = []
+    for (const [startRow, startCol] of positions) {
+        const puzzleAreas = buildPuzzleAreas(args.blockSize, startRow, startCol)
         boardPuzzleAreas.push(puzzleAreas)
     }
-    let puzzleAreas: PuzzleAreas = joinPuzzleAreas(boardPuzzleAreas)
-    let areas: Area[] = [...puzzleAreas.blocks, ...puzzleAreas.rows, ...puzzleAreas.cols]
-    let cellAreasMap: Area[][] = buildCellAreasMap(areas)
-    let cells: Set<Cell> = new Set()
+    const puzzleAreas: PuzzleAreas = joinPuzzleAreas(boardPuzzleAreas)
+    const areas: Area[] = [...puzzleAreas.blocks, ...puzzleAreas.rows, ...puzzleAreas.cols]
+    const cellAreasMap: Area[][] = buildCellAreasMap(areas)
+    const cells: Set<Cell> = new Set()
 
-    for (let board of puzzleAreas.boards) {
-        let boardCells: Cell[] = getCellsInArea(board)
-        for (let cell of boardCells) {
+    for (const board of puzzleAreas.boards) {
+        const boardCells: Cell[] = getCellsInArea(board)
+        for (const cell of boardCells) {
             cells.add(cell)
         }
     }
 
-    let random: () => number = createRandomGenerator(args.seed)
-    let peerMap: PeerMap = buildPeerMap(cells, cellAreasMap)
-    let clusters: Cell[][] = buildClusters(positions, random)
+    const random: () => number = createRandomGenerator(args.seed)
+    const peerMap: PeerMap = buildPeerMap(cells, cellAreasMap)
+    const clusters: Cell[][] = buildClusters(positions, random)
 
     return {
-        type: "PlacingNumbers",
+        type: 'PlacingNumbers',
         state: {
             allCells: cells,
             allClusters: clusters,
             blockSize: args.blockSize,
+            cellsToRemoveGivensFrom: cells,
             givens: new Int32Array(totalArraySize),
             puzzleAreas: puzzleAreas,
             peerMap: peerMap,
@@ -181,7 +213,7 @@ function positionBoards(blockSize: number, numberOfBoards: number): Cell[] {
 function buildPuzzleAreas(blockSize: number, startRow: number, startCol: number): PuzzleAreas {
     const [blockRows, blockCols] = blockSizeToDimensions(blockSize)
 
-    let blocks: Area[] = []
+    const blocks: Area[] = []
     for (let r = 0; r < blockRows; r++) {
         for (let c = 0; c < blockCols; c++) {
             blocks.push({
@@ -193,7 +225,7 @@ function buildPuzzleAreas(blockSize: number, startRow: number, startCol: number)
         }
     }
 
-    let rows: Area[] = []
+    const rows: Area[] = []
     for (let r = 0; r < blockRows * blockCols; r++) {
         rows.push({
             startRow: startRow + r,
@@ -203,7 +235,7 @@ function buildPuzzleAreas(blockSize: number, startRow: number, startCol: number)
         })
     }
 
-    let cols: Area[] = []
+    const cols: Area[] = []
     for (let c = 0; c < blockRows * blockCols; c++) {
         cols.push({
             startRow: startRow,
@@ -228,12 +260,12 @@ function buildPuzzleAreas(blockSize: number, startRow: number, startCol: number)
 
 
 function joinPuzzleAreas(puzzleAreasList: PuzzleAreas[]): PuzzleAreas {
-    let boards: Area[] = []
-    let blocks: Area[] = []
-    let rows: Area[] = []
-    let cols: Area[] = []
+    const boards: Area[] = []
+    const blocks: Area[] = []
+    const rows: Area[] = []
+    const cols: Area[] = []
 
-    for (let puzzleAreas of puzzleAreasList) {
+    for (const puzzleAreas of puzzleAreasList) {
         boards.push(...puzzleAreas.boards)
         blocks.push(...puzzleAreas.blocks)
         rows.push(...puzzleAreas.rows)
@@ -250,12 +282,12 @@ function joinPuzzleAreas(puzzleAreasList: PuzzleAreas[]): PuzzleAreas {
 
 
 function buildCellAreasMap(areas: Area[]): Area[][] {
-    let cellAreasMap: Area[][] = Array.from({ length: totalArraySize }, () => [])
+    const cellAreasMap: Area[][] = Array.from({ length: totalArraySize }, () => [])
 
-    for (let area of areas) {
-        let cells: Cell[] = getCellsInArea(area)
-        for (let [row, col] of cells) {
-            let cellIndex: number = getCellIndex(row, col)
+    for (const area of areas) {
+        const cells: Cell[] = getCellsInArea(area)
+        for (const [row, col] of cells) {
+            const cellIndex: CellIndex = getCellIndex(row, col)
             cellAreasMap[cellIndex]!.push(area)
         }
     }
@@ -265,7 +297,7 @@ function buildCellAreasMap(areas: Area[]): Area[][] {
 
 
 function getCellsInArea(area: Area): Cell[] {
-    let cells: Cell[] = []
+    const cells: Cell[] = []
     for (let r = area.startRow; r <= area.endRow; r++) {
         for (let c = area.startCol; c <= area.endCol; c++) {
             cells.push([r, c])
@@ -277,17 +309,17 @@ function getCellsInArea(area: Area): Cell[] {
 
 
 function buildPeerMap(cells: Set<Cell>, cellAreasMap: Area[][]): PeerMap {
-    let peerMap: PeerMap = Array.from({ length: totalArraySize }, () => [])
+    const peerMap: PeerMap = Array.from({ length: totalArraySize }, () => [])
 
-    for (let [row, col] of cells) {
-        let cellIndex: number = getCellIndex(row, col)
-        let areas: Area[] = cellAreasMap[cellIndex]!
-        let peerSet: Set<number> = new Set()
+    for (const [row, col] of cells) {
+        const cellIndex: CellIndex = getCellIndex(row, col)
+        const areas: Area[] = cellAreasMap[cellIndex]!
+        const peerSet: Set<number> = new Set()
 
-        for (let area of areas) {
-            let areaCells: Cell[] = getCellsInArea(area)
-            for (let [peerRow, peerCol] of areaCells) {
-                let peerIndex: number = getCellIndex(peerRow, peerCol)
+        for (const area of areas) {
+            const areaCells: Cell[] = getCellsInArea(area)
+            for (const [peerRow, peerCol] of areaCells) {
+                const peerIndex: number = getCellIndex(peerRow, peerCol)
                 if (peerIndex !== cellIndex) {
                     peerSet.add(peerIndex)
                 }
@@ -308,107 +340,112 @@ function buildClusters(positions: Cell[], random: () => number): Cell[][] {
 
 
 export function generate(boardState: BoardGenerationState): BoardGenerationState {
+    let cluster: Cell[]
+
     switch (boardState.type) {
-        case "PlacingNumbers":
+        case 'PlacingNumbers':
             if (boardState.state.remainingClusters.length == 0) {
                 return {
-                    type: "RemovingGivens",
+                    type: 'RemovingGivens',
                     state: boardState.state,
                 }
             }
 
-            let cluster: Cell[] = boardState.state.remainingClusters[0]!
+            cluster = boardState.state.remainingClusters[0]!
             boardState.state.remainingClusters = boardState.state.remainingClusters.slice(1)
 
             try {
                 placeNumbersInCluster(cluster, boardState.state)
             } catch (e) {
                 return {
-                    type: "Failed",
-                    reason: e instanceof Error ? e.message : "Unknown error",
+                    type: 'Failed',
+                    reason: e instanceof Error ? e.message : 'Unknown error',
                 }
             }
 
             if (boardState.state.remainingClusters.length == 0) {
+                // TODO: Sort by unlock order?
+                boardState.state.givens = boardState.state.solution.slice()
+                boardState.state.remainingClusters = boardState.state.allClusters
+
                 return {
-                    type: "RemovingGivens",
+                    type: 'RemovingGivens',
                     state: boardState.state,
                 }
             } else {
                 return {
-                    type: "PlacingNumbers",
+                    type: 'PlacingNumbers',
                     state: boardState.state,
                 }
             }
 
-        case "RemovingGivens":
-            return {
-                type: "Failed",
-                reason: "Generation logic not implemented",
+        case 'RemovingGivens':
+            if (boardState.state.remainingClusters.length == 0) {
+                return clusterStateToCompleted(boardState.state)
             }
 
-        case "Completed":
+            cluster = boardState.state.remainingClusters[0]!
+            boardState.state.remainingClusters = boardState.state.remainingClusters.slice(1)
+
+            removeGivenNumbers(cluster, boardState.state)
+
+
+            if (boardState.state.remainingClusters.length == 0) {
+                boardState.state.remainingClusters = boardState.state.allClusters
+
+                return clusterStateToCompleted(boardState.state)
+            } else {
+                // return {
+                //     type: 'Failed',
+                //     reason: 'Generation logic not implemented',
+                // }
+                return {
+                    type: 'RemovingGivens',
+                    state: boardState.state,
+                }
+            }
+
+        case 'Completed':
             return boardState
 
-        case "Failed":
+        case 'Failed':
             return boardState
     }
 }
 
 
 function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): void {
-    let possibilitiesMap: PossibilitiesMap = new Int32Array(totalArraySize)
+    const possibilitiesMap: PossibilitiesMap = new Int32Array(totalArraySize)
 
-    for (let boardArea of state.puzzleAreas.boards) {
-        let boardCells: Cell[] = getCellsInArea(boardArea)
-        for (let [row, col] of boardCells) {
-            let cellIndex: number = getCellIndex(row, col)
+    for (const boardArea of state.puzzleAreas.boards) {
+        const boardCells: Cell[] = getCellsInArea(boardArea)
+        for (const [row, col] of boardCells) {
+            const cellIndex: CellIndex = getCellIndex(row, col)
             possibilitiesMap[cellIndex] = (1 << state.blockSize) - 1
         }
     }
 
-    for (let [row, col] of state.allCells) {
-        let cellIndex: number = getCellIndex(row, col)
-        propagateSolution(state.solution, state.peerMap, cellIndex)
+    for (const [row, col] of state.allCells) {
+        const cellIndex: CellIndex = getCellIndex(row, col)
+        propagateSolution(possibilitiesMap, state.solution, state.peerMap, cellIndex)
     }
 
-    // run tryPlaceNumbers
+    const clusterCells: Set<Cell> = getClusterCells(state.blockSize, cluster)
+
+    const result: boolean = tryPlacingNumbers(state.solution, possibilitiesMap, clusterCells, state)
+
+    if (!result) {
+        throw new Error('Failed to place numbers in cluster')
+    }
 }
 
 
-//function tryPlaceNumbers(
-
-
-function findBestCell(candidateCells: Cell[], possibilitiesMap: PossibilitiesMap): Cell | null {
-    let bestCell: Cell | null = null
-    let bestCount: number = Infinity
-
-    for (let [row, col] of candidateCells) {
-        let cellIndex: number = getCellIndex(row, col)
-        let possibilities = possibilitiesMap[cellIndex]!
-        let count = countSetBits(possibilities)
-
-        if (count < bestCount) {
-            bestCount = count
-            bestCell = [row, col]
-        }
-    }
-
-    return bestCell
-}
-
-
-function countSetBits(n: number): number {
-    let count = 0
-    while (n) {
-        count += n & 1
-        n >>= 1
-    }
-    return count
-}
-
-
-function propagateSolution(solution: Int32Array, peerMap: PeerMap, cellIndex: number): void {
+function propagateSolution(
+    possibilitiesMap: PossibilitiesMap,
+    solution: Int32Array,
+    peerMap: PeerMap,
+    cellIndex: CellIndex
+): void {
     const number = solution[cellIndex]!
 
     if (number === 0) {
@@ -417,10 +454,10 @@ function propagateSolution(solution: Int32Array, peerMap: PeerMap, cellIndex: nu
 
     const peers: Peers = peerMap[cellIndex]!
 
-    const changes: number[] | null = propagatePossibilities(peers, number, solution)
+    const changes: number[] | null = propagatePossibilities(peers, number, possibilitiesMap)
 
     if (changes === null) {
-        throw new Error("Contradiction encountered during propagation")
+        throw new Error('Contradiction encountered during propagation')
     }
 }
 
@@ -433,7 +470,7 @@ function propagatePossibilities(
     const changes: number[] = []
     const removeMask = ~(1 << (number - 1))
 
-    for (let peerIndex of peers) {
+    for (const peerIndex of peers) {
         const oldVal = possibilitiesMap[peerIndex]!
 
         if ((oldVal & ~removeMask) !== 0) {
@@ -461,13 +498,248 @@ function revertPossibilities(
 ): void {
     const addMask = 1 << (number - 1)
 
-    for (let peerIndex of changes) {
+    for (const peerIndex of changes) {
         possibilitiesMap[peerIndex] = possibilitiesMap[peerIndex]! | addMask
     }
 }
 
 
-function getCellIndex(row: number, col: number): number {
+function getClusterCells(blockSize: number, cluster: Cell[]): Set<Cell> {
+    const clusterCells: Set<Cell> = new Set()
+
+    for (const [startRow, startCol] of cluster) {
+        for (let r = 0; r < blockSize; r++) {
+            for (let c = 0; c < blockSize; c++) {
+                clusterCells.add([startRow + r, startCol + c])
+            }
+        }
+    }
+
+    return clusterCells
+}
+
+
+function tryPlacingNumbers(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    clusterCells: Set<Cell>,
+    state: ClusterGenerationState
+): boolean {
+    const candidateCells: Cell[] = []
+    for (const cell of clusterCells) {
+        const [row, col] = cell
+        const cellIndex: CellIndex = getCellIndex(row, col)
+        if (solution[cellIndex]! === 0) {
+            candidateCells.push(cell)
+        }
+    }
+
+    const bestCell: Cell | null = findBestCell(candidateCells, possibilitiesMap)
+
+    if (bestCell === null) {
+        return true
+    }
+
+    const bestCellIndex: number = getCellIndex(bestCell[0], bestCell[1])
+    const bestCellPossibilities: number = possibilitiesMap[bestCellIndex]!
+    const possibleNumbers: number[] = numbersFromBitmask(bestCellPossibilities)
+
+    // Shuffle possible numbers
+    for (let i = possibleNumbers.length - 1; i > 0; i--) {
+        const j = Math.floor(state.random() * (i + 1))
+        ;[possibleNumbers[i], possibleNumbers[j]] = [possibleNumbers[j]!, possibleNumbers[i]!]
+    }
+
+    for (const number of possibleNumbers) {
+        solution[bestCellIndex] = number
+
+        const changes: number[] | null = propagatePossibilities(
+            state.peerMap[bestCellIndex]!,
+            number,
+            possibilitiesMap
+        )
+
+        if (changes === null) {
+            solution[bestCellIndex] = 0
+
+            continue
+        }
+
+        const result: boolean = tryPlacingNumbers(solution, possibilitiesMap, clusterCells, state)
+
+        if (result) {
+            return true
+        } else {
+            revertPossibilities(changes, number, possibilitiesMap)
+            solution[bestCellIndex] = 0
+        }
+    }
+
+    return false
+}
+
+
+function findBestCell(candidateCells: Cell[], possibilitiesMap: PossibilitiesMap): Cell | null {
+    let bestCell: Cell | null = null
+    let bestCount: number = Infinity
+
+    for (let [row, col] of candidateCells) {
+        const cellIndex: CellIndex = getCellIndex(row, col)
+        const possibilities = possibilitiesMap[cellIndex]!
+        const count = countSetBits(possibilities)
+
+        if (count < bestCount) {
+            bestCount = count
+            bestCell = [row, col]
+        }
+    }
+
+    return bestCell
+}
+
+
+function removeGivenNumbers(cluster: Cell[], state: ClusterGenerationState): void {
+    if (state.blockSize <= 9) {
+        removeGivenNumbersBacktracking(cluster, state)
+    } else {
+        removeGivenNumbersLogical(cluster, state)
+    }
+}
+
+
+function removeGivenNumbersBacktracking(
+    cluster: Cell[],
+    state: ClusterGenerationState
+): void {
+    const solverBuffer: Int32Array = new Int32Array(totalArraySize)
+
+    const clusterCells: Set<Cell> = getClusterCells(state.blockSize, cluster)
+    const clusterCellIndices: number[] = []
+
+    for (const [row, col] of clusterCells) {
+        const cellIndex: CellIndex = getCellIndex(row, col)
+        clusterCellIndices.push(cellIndex)
+    }
+
+    // TODO: Won't work because it's Set<Cell>, should use the indices instead
+    const cellsToRemoveFrom: Set<Cell> = intersectSets(
+        clusterCells,
+        state.cellsToRemoveGivensFrom
+    )
+    state.cellsToRemoveGivensFrom = diffSets(
+        state.cellsToRemoveGivensFrom,
+        cellsToRemoveFrom
+    )
+    const indicesToRemove: number[] = []
+
+    for (const [row, col] of cellsToRemoveFrom) {
+        const cellIndex: CellIndex = getCellIndex(row, col)
+        if (state.givens[cellIndex]! !== 0) {
+            indicesToRemove.push(cellIndex)
+        }
+    }
+
+    for (const cellIndex of indicesToRemove) {
+        const originalValue: number = state.solution[cellIndex]!
+        state.givens[cellIndex] = 0
+        solverBuffer.set(state.givens)
+
+        const possibilitiesMap: PossibilitiesMap = new Int32Array(totalArraySize)
+        // TODO: build possibilities map without the number being removed
+
+        for (const [row, col] of clusterCells) {
+            const idx: number = getCellIndex(row, col)
+            propagateSolution(possibilitiesMap, solverBuffer, state.peerMap, idx)
+        }
+
+        const hasOtherSolution: boolean = tryPlacingNumbers(
+            solverBuffer,
+            possibilitiesMap,
+            clusterCells,
+            state
+        )
+
+        if (hasOtherSolution) {
+            state.givens[cellIndex] = originalValue
+        }
+    }
+}
+
+
+function removeGivenNumbersLogical(
+    cluster: Cell[],
+    state: ClusterGenerationState
+): void {
+    // Placeholder for logical removal of given numbers
+}
+
+
+function clusterStateToCompleted(state: ClusterGenerationState): Completed {
+    let givens: [number, number, number][] = []
+    let solution: [number, number, number][] = []
+
+    for (let [row, col] of state.allCells) {
+        const cellIndex: CellIndex = getCellIndex(row, col)
+        let number: number = state.solution[cellIndex]!
+
+        solution.push([row, col, number])
+
+        if (state.givens[cellIndex]!) {
+            givens.push([row, col, number])
+        }
+    }
+
+    let encodedPuzzleAreas: EncodedPuzzleAreas = {
+        boards: state.puzzleAreas.boards.map(encodeArea),
+        blocks: state.puzzleAreas.blocks.map(encodeArea),
+        rows: state.puzzleAreas.rows.map(encodeArea),
+        cols: state.puzzleAreas.cols.map(encodeArea),
+    }
+
+    return {
+        type: 'Completed',
+        blockSize: state.blockSize,
+        givens: givens,
+        // givens: solution, // TODO: temporarily return full solution as givens
+        puzzleAreas: encodedPuzzleAreas,
+        solution: solution,
+        unlockCount: 0,
+        unlockOrder: [],
+    }
+}
+
+
+function encodeArea(area: Area): [number, number, number, number] {
+    return [area.startRow, area.startCol, area.endRow, area.endCol]
+}
+
+
+function countSetBits(n: number): number {
+    let count = 0
+    while (n) {
+        count += n & 1
+        n >>= 1
+    }
+    return count
+}
+
+
+function numbersFromBitmask(bitmask: number): number[] {
+    const numbers: number[] = []
+    let num = 1
+    while (bitmask) {
+        if (bitmask & 1) {
+            numbers.push(num)
+        }
+        bitmask >>= 1
+        num += 1
+    }
+
+    return numbers
+}
+
+
+function getCellIndex(row: number, col: number): CellIndex {
     return (row - 1) * 300 + (col - 1)
 }
 
@@ -487,7 +759,7 @@ function blockSizeToDimensions(blockSize: number): [number, number] {
         case 16:
             return [4, 4]
         default:
-            throw new Error("Unsupported block size")
+            throw new Error('Unsupported block size')
     }
 }
 
@@ -507,8 +779,35 @@ function blockSizeToOverlap(blockSize: number): [number, number] {
         case 16:
             return [4, 4]
         default:
-            throw new Error("Unsupported block size")
+            throw new Error('Unsupported block size')
     }
+}
+
+
+function diffSets<T>(setA: Set<T>, setB: Set<T>): Set<T> {
+    const difference: Set<T> = new Set()
+
+    for (const item of setA) {
+        if (!setB.has(item)) {
+            difference.add(item)
+        }
+    }
+
+    return difference
+}
+
+
+function intersectSets<T>(setA: Set<T>, setB: Set<T>): Set<T> {
+    const intersection: Set<T> = new Set()
+    const [smallerSet, largerSet] = setA.size < setB.size ? [setA, setB] : [setB, setA]
+
+    for (const item of smallerSet) {
+        if (largerSet.has(item)) {
+            intersection.add(item)
+        }
+    }
+
+    return intersection
 }
 
 

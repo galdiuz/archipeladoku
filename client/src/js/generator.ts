@@ -491,48 +491,11 @@ function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): 
     }
 
     const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
-    const transitiveIndices: Set<CellIndex> = new Set()
 
-    for (const boardArea of state.puzzleAreas.boards) {
-        const boardCellIndices: Set<CellIndex> = new Set(getCellIndicesInArea(boardArea))
-
-        const intersection: Set<CellIndex> = intersectSets(clusterCellIndices, boardCellIndices)
-        if (intersection.size == 0) {
-            continue
-        }
-
-        let isUnsolved: boolean = false
-        for (const cellIndex of boardCellIndices) {
-            if (state.solution[cellIndex] === 0) {
-                isUnsolved = true
-                break
-            }
-        }
-
-        if (!isUnsolved) {
-            continue
-        }
-
-        for (const cellIndex of boardCellIndices) {
-            if (!clusterCellIndices.has(cellIndex) && state.solution[cellIndex] === 0) {
-                transitiveIndices.add(cellIndex)
-            }
-        }
-    }
-
-    const combinedIndices: Set<CellIndex> = new Set([
-        ...clusterCellIndices,
-        ...transitiveIndices,
-    ])
-
-    const result: boolean = tryPlacingNumbers(state.solution, possibilitiesMap, combinedIndices, state)
+    const result: boolean = tryPlacingNumbers(state.solution, possibilitiesMap, clusterCellIndices, state)
 
     if (!result) {
         throw new Error('Failed to place numbers in cluster')
-    }
-
-    for (const cellIndex of transitiveIndices) {
-        state.solution[cellIndex] = 0
     }
 }
 
@@ -724,6 +687,11 @@ function removeGivenNumbersBacktracking(
         if (state.givens[cellIndex]! !== 0) {
             indicesToRemove.push(cellIndex)
         }
+    }
+
+    for (let i = indicesToRemove.length - 1; i > 0; i--) {
+        const j = Math.floor(state.random() * (i + 1))
+        ;[indicesToRemove[i], indicesToRemove[j]] = [indicesToRemove[j]!, indicesToRemove[i]!]
     }
 
     for (const cellIndex of indicesToRemove) {

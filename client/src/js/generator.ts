@@ -36,6 +36,14 @@ interface GenerateArgs {
 }
 
 
+interface BlockOrderCluster {
+    id: number
+    blocks: Map<number, Cell>
+    remaining: number
+    weight: number
+}
+
+
 type BoardGenerationState =
     | PlacingNumbers
     | RemovingGivens
@@ -98,6 +106,7 @@ interface ClusterGenerationState {
     allCellIndices: Set<CellIndex>
     allClusters: Cell[][]
     blockSize: number
+    blockUnlockOrder: Cell[]
     cellAreasMap: Area[][]
     cellIndicesToRemoveGivensFrom: Set<CellIndex>
     cellIndicesToRestoreGivensFrom: Set<CellIndex>
@@ -161,6 +170,13 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
     const random: () => number = createRandomGenerator(args.seed)
     const peerMap: PeerMap = buildPeerMap(cells, cellAreasMap)
     const clusters: Cell[][] = buildClusters(positions, random)
+    const blockUnlockOrder: Cell[] = buildBlockUnlockOrder(
+        args.blockSize,
+        17, // TODO: adjust for other block sizes
+        puzzleAreas.blocks,
+        clusters,
+        random
+    )
 
     return {
         type: 'PlacingNumbers',
@@ -169,6 +185,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             allCellIndices: cellIndices,
             allClusters: clusters,
             blockSize: args.blockSize,
+            blockUnlockOrder: blockUnlockOrder,
             cellAreasMap: cellAreasMap,
             cellIndicesToRemoveGivensFrom: new Set(cellIndices),
             cellIndicesToRestoreGivensFrom: new Set(cellIndices),
@@ -364,6 +381,142 @@ function buildPeerMap(cells: Set<Cell>, cellAreasMap: Area[][]): PeerMap {
 function buildClusters(positions: Cell[], random: () => number): Cell[][] {
     // Placeholder for cluster building logic
     return positions.map(pos => [pos])
+}
+
+
+function buildBlockUnlockOrder(
+    blockSize: number,
+    initialUnlocked: number,
+    allBlocks: Area[],
+    clusters: Cell[][],
+    random: () => number,
+): Cell[] {
+    const blocksToAssign: Map<number, Cell> = new Map()
+    const remainingBlocks: Map<number, Cell> = new Map()
+    const blockOrderClusters: Map<number, BlockOrderCluster> = new Map()
+    const fillerCount = initialUnlocked
+    let fillersAdded = false
+
+    for (const block of allBlocks) {
+        const key = getCellIndex(block.startRow, block.startCol)
+        blocksToAssign.set(key, [block.startRow, block.startCol])
+        remainingBlocks.set(key, [block.startRow, block.startCol])
+    }
+
+    for (let i = 0; i < clusters.length; i++) {
+        const cluster = clusters[i]!
+        const blockOrderCluster: BlockOrderCluster = {
+            id: i,
+            blocks: new Map<number, Cell>(),
+            remaining: 0,
+            weight: 0,
+        }
+        blockOrderClusters.set(i, blockOrderCluster)
+
+        for (const [startRow, startCol] of cluster) {
+            let boardBlocks = buildPuzzleAreas(blockSize, startRow, startCol).blocks
+
+            for (const block of boardBlocks) {
+                const blockKey = getCellIndex(block.startRow, block.startCol)
+                if (!blocksToAssign.has(blockKey)) {
+                    continue
+                }
+
+                blockOrderCluster.blocks.set(blockKey, [block.startRow, block.startCol])
+                blockOrderCluster.remaining += 1
+                blocksToAssign.delete(blockKey)
+            }
+        }
+    }
+
+    let credits: number = initialUnlocked
+    const unlockOrder: Cell[] = []
+
+    while (blockOrderClusters.size > 0) {
+        for (const cluster of blockOrderClusters.values()) {
+            if (cluster.remaining > credits) {
+                cluster.weight = 0
+            } else if (cluster.id === 0) {
+                cluster.weight = 1000000000
+            } else {
+                cluster.weight = credits - cluster.remaining + 1
+            }
+        }
+
+        const blockOrderClustersArray = Array.from(blockOrderClusters.values())
+        const targetCluster = pickCluster(blockOrderClustersArray, random)
+        const targetBlocks = intersectMaps(targetCluster.blocks, remainingBlocks)
+        const remainingBlocksExcludingTarget = diffMaps(remainingBlocks, targetCluster.blocks)
+        const remainingCredits = credits - targetCluster.remaining
+        const randomBudgetMax = Math.min(remainingCredits, remainingBlocksExcludingTarget.size)
+        const randomBudget = Math.floor(random() * randomBudgetMax)
+        const randomBlocks = randomSample(remainingBlocksExcludingTarget, randomBudget, random)
+
+        const blocksToAdd: Cell[] = Array.from(targetBlocks.values())
+            .concat(Array.from(randomBlocks.values()))
+
+        for (let i = 0; i < blocksToAdd.length; i++) {
+            const j = i + Math.floor(random() * (blocksToAdd.length - i))
+            ;[blocksToAdd[i], blocksToAdd[j]] = [blocksToAdd[j]!, blocksToAdd[i]!]
+        }
+
+        for (const block of blocksToAdd) {
+            unlockOrder.push(block)
+            const blockKey = block[0] > 0 ? getCellIndex(block[0], block[1]) : block[0]
+            remainingBlocks.delete(blockKey)
+        }
+
+        blockOrderClusters.delete(targetCluster.id)
+        credits = remainingCredits + targetCluster.blocks.size - randomBlocks.size
+
+        for (const cluster of blockOrderClusters.values()) {
+            cluster.remaining = diffMaps(cluster.blocks, remainingBlocks).size
+        }
+
+        if (!fillersAdded && unlockOrder.length >= initialUnlocked) {
+            fillersAdded = true
+            for (let i = -1; i > -fillerCount - 1; i--) {
+                remainingBlocks.set(i, [i, i])
+            }
+        }
+    }
+
+    for (let block of remainingBlocks.values()) {
+        unlockOrder.push(block)
+    }
+
+    return unlockOrder
+}
+
+
+function pickCluster(clusters: BlockOrderCluster[], random: () => number): BlockOrderCluster {
+    const totalWeight = clusters.reduce((sum, cluster) => sum + cluster.weight, 0)
+    let r = random() * totalWeight
+    for (const cluster of clusters) {
+        if (r < cluster.weight) {
+            return cluster
+        }
+        r -= cluster.weight
+    }
+    return clusters[clusters.length - 1]!
+}
+
+
+function randomSample<K, V>(items: Map<K, V>, sampleSize: number, random: () => number): Map<K, V> {
+    const itemArray = Array.from(items.entries())
+
+    for (let i = 0; i < sampleSize; i++) {
+        const j = i + Math.floor(random() * (itemArray.length - i))
+        ;[itemArray[i], itemArray[j]] = [itemArray[j]!, itemArray[i]!]
+    }
+
+    const sampledItems = new Map<K, V>()
+    for (let i = 0; i < sampleSize; i++) {
+        const [key, value] = itemArray[i]!
+        sampledItems.set(key, value)
+    }
+
+    return sampledItems
 }
 
 
@@ -843,11 +996,10 @@ function clusterStateToCompleted(state: ClusterGenerationState): Completed {
         type: 'Completed',
         blockSize: state.blockSize,
         givens: givens,
-        // givens: solution, // TODO: temporarily return full solution as givens
         puzzleAreas: encodedPuzzleAreas,
         solution: solution,
-        unlockCount: 0,
-        unlockOrder: [],
+        unlockCount: 17,
+        unlockOrder: state.blockUnlockOrder,
     }
 }
 
@@ -947,6 +1099,32 @@ function intersectSets<T>(setA: Set<T>, setB: Set<T>): Set<T> {
     for (const item of smallerSet) {
         if (largerSet.has(item)) {
             intersection.add(item)
+        }
+    }
+
+    return intersection
+}
+
+
+function diffMaps<K, V>(mapA: Map<K, V>, mapB: Map<K, V>): Map<K, V> {
+    const difference: Map<K, V> = new Map()
+
+    for (const [key, value] of mapA) {
+        if (!mapB.has(key)) {
+            difference.set(key, value)
+        }
+    }
+
+    return difference
+}
+
+
+function intersectMaps<K, V>(mapA: Map<K, V>, mapB: Map<K, V>): Map<K, V> {
+    const intersection: Map<K, V> = new Map()
+
+    for (const [key, value] of mapA) {
+        if (mapB.has(key)) {
+            intersection.set(key, value)
         }
     }
 

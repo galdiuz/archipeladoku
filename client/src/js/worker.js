@@ -1,9 +1,5 @@
-import { Elm } from '../Archipeladoku/Worker.elm';
 import * as generator from './generator.ts';
 
-// const worker = Elm.Archipeladoku.Worker.init({
-//     flags: {}
-// });
 
 self.onmessage = function(event) {
     console.log(event.data.type, event.data.data);
@@ -11,8 +7,6 @@ self.onmessage = function(event) {
     switch (event.data.type) {
         case 'generateBoard':
             generate(event.data.data)
-
-            // worker.ports.receiveGenerateArgs.send(event.data.data);
 
             break;
 
@@ -57,9 +51,6 @@ function generate(args) {
 
         state = generator.generate(state);
     }
-    //
-    //
-    // done:
 }
 
 
@@ -98,15 +89,3 @@ function sendProgress(state) {
 
     self.postMessage({ type: 'sendProgress', data: data });
 }
-
-// worker.ports.sendBoard.subscribe(function(data) {
-//     self.postMessage({ type: 'sendBoard', data: data });
-// });
-//
-// worker.ports.sendProgress.subscribe(function(data) {
-//     self.postMessage({ type: 'sendProgress', data: data });
-// });
-//
-// worker.ports.log?.subscribe(function(text) {
-//     console.log('[Worker]', text);
-// });

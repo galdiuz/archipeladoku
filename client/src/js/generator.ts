@@ -98,7 +98,9 @@ interface ClusterGenerationState {
     allCellIndices: Set<CellIndex>
     allClusters: Cell[][]
     blockSize: number
+    cellAreasMap: Area[][]
     cellIndicesToRemoveGivensFrom: Set<CellIndex>
+    cellIndicesToRestoreGivensFrom: Set<CellIndex>
     givens: Int32Array
     puzzleAreas: PuzzleAreas
     peerMap: PeerMap
@@ -167,7 +169,9 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             allCellIndices: cellIndices,
             allClusters: clusters,
             blockSize: args.blockSize,
-            cellIndicesToRemoveGivensFrom: cellIndices,
+            cellAreasMap: cellAreasMap,
+            cellIndicesToRemoveGivensFrom: new Set(cellIndices),
+            cellIndicesToRestoreGivensFrom: new Set(cellIndices),
             givens: new Int32Array(totalArraySize),
             puzzleAreas: puzzleAreas,
             peerMap: peerMap,
@@ -459,7 +463,7 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
 
             cluster = boardState.state.remainingClusters.shift()!
 
-            // TODO: Implement restoring givens
+            restoreGivenNumbers(cluster, boardState.state)
 
             if (boardState.state.remainingClusters.length == 0) {
                 return clusterStateToCompleted(boardState.state)
@@ -730,6 +734,86 @@ function removeGivenNumbersLogical(
     state: ClusterGenerationState
 ): void {
     // Placeholder for logical removal of given numbers
+}
+
+
+function restoreGivenNumbers(
+    cluster: Cell[],
+    state: ClusterGenerationState
+): void {
+
+    const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
+
+    let targetGivens: number = 0;
+
+    switch (state.blockSize) {
+        case 9:
+            targetGivens = Math.round((38 / 81) * clusterCellIndices.size)
+
+            break
+    }
+
+    let currentGivens: number = 0
+    for (const cellIndex of clusterCellIndices) {
+        if (state.givens[cellIndex]! !== 0) {
+            currentGivens += 1
+        }
+    }
+
+    const cellsToRestoreFrom: Set<CellIndex> = intersectSets(
+        clusterCellIndices,
+        state.cellIndicesToRestoreGivensFrom
+    )
+    state.cellIndicesToRestoreGivensFrom = diffSets(
+        state.cellIndicesToRestoreGivensFrom,
+        cellsToRestoreFrom
+    )
+    const indicesToRestore: number[] = []
+
+    for (const cellIndex of cellsToRestoreFrom) {
+        if (state.givens[cellIndex]! === 0) {
+            indicesToRestore.push(cellIndex)
+        }
+    }
+
+    for (let i = indicesToRestore.length - 1; i > 0; i--) {
+        const j = Math.floor(state.random() * (i + 1))
+        ;[indicesToRestore[i], indicesToRestore[j]] = [indicesToRestore[j]!, indicesToRestore[i]!]
+    }
+
+
+    for (const cellIndex of indicesToRestore) {
+        if (currentGivens >= targetGivens) {
+            break
+        }
+
+        let canRestore: boolean = true
+        const cellAreas: Area[] = state.cellAreasMap[cellIndex]!
+
+        // Check if restoring this given would make any area fully given
+        for (const area of cellAreas) {
+            const areaCellIndices: CellIndex[] = getCellIndicesInArea(area)
+            let givenCount: number = 0
+
+            for (const areaCellIndex of areaCellIndices) {
+                if (state.givens[areaCellIndex]! !== 0) {
+                    givenCount += 1
+                }
+            }
+
+            if (givenCount + 1 >= areaCellIndices.length) {
+                canRestore = false
+                break
+            }
+        }
+
+        if (!canRestore) {
+            continue
+        }
+
+        state.givens[cellIndex] = state.solution[cellIndex]!
+        currentGivens += 1
+    }
 }
 
 

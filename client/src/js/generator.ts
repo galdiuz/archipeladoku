@@ -95,9 +95,10 @@ interface Failed {
 
 interface ClusterGenerationState {
     allCells: Set<Cell>
+    allCellIndices: Set<CellIndex>
     allClusters: Cell[][]
     blockSize: number
-    cellsToRemoveGivensFrom: Set<Cell>
+    cellIndicesToRemoveGivensFrom: Set<CellIndex>
     givens: Int32Array
     puzzleAreas: PuzzleAreas
     peerMap: PeerMap
@@ -107,7 +108,7 @@ interface ClusterGenerationState {
 }
 
 
-const maxWidth: number = 300
+const maxWidth: number = 250
 const totalArraySize: number = maxWidth * maxWidth
 
 
@@ -137,11 +138,14 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
     const areas: Area[] = [...puzzleAreas.blocks, ...puzzleAreas.rows, ...puzzleAreas.cols]
     const cellAreasMap: Area[][] = buildCellAreasMap(areas)
     const cells: Set<Cell> = new Set()
+    const cellIndices: Set<CellIndex> = new Set()
 
     for (const board of puzzleAreas.boards) {
         const boardCells: Cell[] = getCellsInArea(board)
-        for (const cell of boardCells) {
-            cells.add(cell)
+        for (const [row, col] of boardCells) {
+            const cellIndex: CellIndex = getCellIndex(row, col)
+            cells.add([row, col])
+            cellIndices.add(cellIndex)
         }
     }
 
@@ -153,9 +157,10 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
         type: 'PlacingNumbers',
         state: {
             allCells: cells,
+            allCellIndices: cellIndices,
             allClusters: clusters,
             blockSize: args.blockSize,
-            cellsToRemoveGivensFrom: cells,
+            cellIndicesToRemoveGivensFrom: cellIndices,
             givens: new Int32Array(totalArraySize),
             puzzleAreas: puzzleAreas,
             peerMap: peerMap,
@@ -425,14 +430,13 @@ function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): 
         }
     }
 
-    for (const [row, col] of state.allCells) {
-        const cellIndex: CellIndex = getCellIndex(row, col)
+    for (const cellIndex of state.allCellIndices) {
         propagateSolution(possibilitiesMap, state.solution, state.peerMap, cellIndex)
     }
 
-    const clusterCells: Set<Cell> = getClusterCells(state.blockSize, cluster)
+    const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
 
-    const result: boolean = tryPlacingNumbers(state.solution, possibilitiesMap, clusterCells, state)
+    const result: boolean = tryPlacingNumbers(state.solution, possibilitiesMap, clusterCellIndices, state)
 
     if (!result) {
         throw new Error('Failed to place numbers in cluster')
@@ -504,44 +508,43 @@ function revertPossibilities(
 }
 
 
-function getClusterCells(blockSize: number, cluster: Cell[]): Set<Cell> {
-    const clusterCells: Set<Cell> = new Set()
+function getClusterCellIndices(blockSize: number, cluster: Cell[]): Set<CellIndex> {
+    const clusterCellIndices: Set<CellIndex> = new Set()
 
     for (const [startRow, startCol] of cluster) {
         for (let r = 0; r < blockSize; r++) {
             for (let c = 0; c < blockSize; c++) {
-                clusterCells.add([startRow + r, startCol + c])
+                const cellIndex: CellIndex = getCellIndex(startRow + r, startCol + c)
+                clusterCellIndices.add(cellIndex)
             }
         }
     }
 
-    return clusterCells
+    return clusterCellIndices
 }
 
 
 function tryPlacingNumbers(
     solution: Int32Array,
     possibilitiesMap: PossibilitiesMap,
-    clusterCells: Set<Cell>,
+    clusterCellIndices: Set<CellIndex>,
     state: ClusterGenerationState
 ): boolean {
-    const candidateCells: Cell[] = []
-    for (const cell of clusterCells) {
-        const [row, col] = cell
-        const cellIndex: CellIndex = getCellIndex(row, col)
+    const candidateCells: CellIndex[] = []
+
+    for (const cellIndex of clusterCellIndices) {
         if (solution[cellIndex]! === 0) {
-            candidateCells.push(cell)
+            candidateCells.push(cellIndex)
         }
     }
 
-    const bestCell: Cell | null = findBestCell(candidateCells, possibilitiesMap)
+    const bestCell: CellIndex | null = findBestCell(candidateCells, possibilitiesMap)
 
     if (bestCell === null) {
         return true
     }
 
-    const bestCellIndex: number = getCellIndex(bestCell[0], bestCell[1])
-    const bestCellPossibilities: number = possibilitiesMap[bestCellIndex]!
+    const bestCellPossibilities: number = possibilitiesMap[bestCell]!
     const possibleNumbers: number[] = numbersFromBitmask(bestCellPossibilities)
 
     // Shuffle possible numbers
@@ -551,27 +554,27 @@ function tryPlacingNumbers(
     }
 
     for (const number of possibleNumbers) {
-        solution[bestCellIndex] = number
+        solution[bestCell] = number
 
         const changes: number[] | null = propagatePossibilities(
-            state.peerMap[bestCellIndex]!,
+            state.peerMap[bestCell]!,
             number,
             possibilitiesMap
         )
 
         if (changes === null) {
-            solution[bestCellIndex] = 0
+            solution[bestCell] = 0
 
             continue
         }
 
-        const result: boolean = tryPlacingNumbers(solution, possibilitiesMap, clusterCells, state)
+        const result: boolean = tryPlacingNumbers(solution, possibilitiesMap, clusterCellIndices, state)
 
         if (result) {
             return true
         } else {
             revertPossibilities(changes, number, possibilitiesMap)
-            solution[bestCellIndex] = 0
+            solution[bestCell] = 0
         }
     }
 
@@ -579,18 +582,17 @@ function tryPlacingNumbers(
 }
 
 
-function findBestCell(candidateCells: Cell[], possibilitiesMap: PossibilitiesMap): Cell | null {
-    let bestCell: Cell | null = null
+function findBestCell(candidateCells: CellIndex[], possibilitiesMap: PossibilitiesMap): CellIndex | null {
+    let bestCell: CellIndex | null = null
     let bestCount: number = Infinity
 
-    for (let [row, col] of candidateCells) {
-        const cellIndex: CellIndex = getCellIndex(row, col)
+    for (const cellIndex of candidateCells) {
         const possibilities = possibilitiesMap[cellIndex]!
         const count = countSetBits(possibilities)
 
         if (count < bestCount) {
             bestCount = count
-            bestCell = [row, col]
+            bestCell = cellIndex
         }
     }
 
@@ -613,27 +615,19 @@ function removeGivenNumbersBacktracking(
 ): void {
     const solverBuffer: Int32Array = new Int32Array(totalArraySize)
 
-    const clusterCells: Set<Cell> = getClusterCells(state.blockSize, cluster)
-    const clusterCellIndices: number[] = []
+    const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
 
-    for (const [row, col] of clusterCells) {
-        const cellIndex: CellIndex = getCellIndex(row, col)
-        clusterCellIndices.push(cellIndex)
-    }
-
-    // TODO: Won't work because it's Set<Cell>, should use the indices instead
-    const cellsToRemoveFrom: Set<Cell> = intersectSets(
-        clusterCells,
-        state.cellsToRemoveGivensFrom
+    const cellsToRemoveFrom: Set<CellIndex> = intersectSets(
+        clusterCellIndices,
+        state.cellIndicesToRemoveGivensFrom
     )
-    state.cellsToRemoveGivensFrom = diffSets(
-        state.cellsToRemoveGivensFrom,
+    state.cellIndicesToRemoveGivensFrom = diffSets(
+        state.cellIndicesToRemoveGivensFrom,
         cellsToRemoveFrom
     )
     const indicesToRemove: number[] = []
 
-    for (const [row, col] of cellsToRemoveFrom) {
-        const cellIndex: CellIndex = getCellIndex(row, col)
+    for (const cellIndex of cellsToRemoveFrom) {
         if (state.givens[cellIndex]! !== 0) {
             indicesToRemove.push(cellIndex)
         }
@@ -645,17 +639,21 @@ function removeGivenNumbersBacktracking(
         solverBuffer.set(state.givens)
 
         const possibilitiesMap: PossibilitiesMap = new Int32Array(totalArraySize)
-        // TODO: build possibilities map without the number being removed
 
-        for (const [row, col] of clusterCells) {
-            const idx: number = getCellIndex(row, col)
+        for (const idx of clusterCellIndices) {
+            possibilitiesMap[idx] = (1 << state.blockSize) - 1
+        }
+
+        for (const idx of clusterCellIndices) {
             propagateSolution(possibilitiesMap, solverBuffer, state.peerMap, idx)
         }
+
+        possibilitiesMap[cellIndex] &= ~(1 << (originalValue - 1))
 
         const hasOtherSolution: boolean = tryPlacingNumbers(
             solverBuffer,
             possibilitiesMap,
-            clusterCells,
+            clusterCellIndices,
             state
         )
 
@@ -740,7 +738,7 @@ function numbersFromBitmask(bitmask: number): number[] {
 
 
 function getCellIndex(row: number, col: number): CellIndex {
-    return (row - 1) * 300 + (col - 1)
+    return (row - 1) * maxWidth + (col - 1)
 }
 
 

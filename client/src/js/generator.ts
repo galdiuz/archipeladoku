@@ -57,7 +57,7 @@ interface RemovingGivens {
 
 
 interface RestoringGivens {
-    type: 'RemovingGivens'
+    type: 'RestoringGivens'
     state: ClusterGenerationState
 }
 
@@ -105,6 +105,13 @@ interface ClusterGenerationState {
     random: () => number
     remainingClusters: Cell[][]
     solution: Int32Array
+    solutionHistory: SolutionHistory[]
+}
+
+
+interface SolutionHistory {
+    solution: Int32Array
+    cluster: Cell[]
 }
 
 
@@ -165,8 +172,9 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             puzzleAreas: puzzleAreas,
             peerMap: peerMap,
             random: random,
-            remainingClusters: clusters,
+            remainingClusters: clusters.slice(),
             solution: new Int32Array(totalArraySize),
+            solutionHistory: [],
         },
     }
 }
@@ -290,9 +298,8 @@ function buildCellAreasMap(areas: Area[]): Area[][] {
     const cellAreasMap: Area[][] = Array.from({ length: totalArraySize }, () => [])
 
     for (const area of areas) {
-        const cells: Cell[] = getCellsInArea(area)
-        for (const [row, col] of cells) {
-            const cellIndex: CellIndex = getCellIndex(row, col)
+        const cellIndices: CellIndex[] = getCellIndicesInArea(area)
+        for (const cellIndex of cellIndices) {
             cellAreasMap[cellIndex]!.push(area)
         }
     }
@@ -313,6 +320,19 @@ function getCellsInArea(area: Area): Cell[] {
 }
 
 
+function getCellIndicesInArea(area: Area): CellIndex[] {
+    const cellIndices: CellIndex[] = []
+    for (let r = area.startRow; r <= area.endRow; r++) {
+        for (let c = area.startCol; c <= area.endCol; c++) {
+            const cellIndex: CellIndex = getCellIndex(r, c)
+            cellIndices.push(cellIndex)
+        }
+    }
+
+    return cellIndices
+}
+
+
 function buildPeerMap(cells: Set<Cell>, cellAreasMap: Area[][]): PeerMap {
     const peerMap: PeerMap = Array.from({ length: totalArraySize }, () => [])
 
@@ -322,11 +342,10 @@ function buildPeerMap(cells: Set<Cell>, cellAreasMap: Area[][]): PeerMap {
         const peerSet: Set<number> = new Set()
 
         for (const area of areas) {
-            const areaCells: Cell[] = getCellsInArea(area)
-            for (const [peerRow, peerCol] of areaCells) {
-                const peerIndex: number = getCellIndex(peerRow, peerCol)
-                if (peerIndex !== cellIndex) {
-                    peerSet.add(peerIndex)
+            const areaIndices: CellIndex[] = getCellIndicesInArea(area)
+            for (const areaIndex of areaIndices) {
+                if (areaIndex !== cellIndex) {
+                    peerSet.add(areaIndex)
                 }
             }
         }
@@ -351,27 +370,46 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
         case 'PlacingNumbers':
             if (boardState.state.remainingClusters.length == 0) {
                 return {
-                    type: 'RemovingGivens',
-                    state: boardState.state,
+                    type: 'Failed',
+                    reason: 'No remaining clusters to place numbers in',
                 }
             }
 
-            cluster = boardState.state.remainingClusters[0]!
-            boardState.state.remainingClusters = boardState.state.remainingClusters.slice(1)
+            cluster = boardState.state.remainingClusters.shift()!
+            const currentSolution = new Int32Array(boardState.state.solution)
 
             try {
                 placeNumbersInCluster(cluster, boardState.state)
+
+                boardState.state.solutionHistory.push({
+                    solution: currentSolution,
+                    cluster: cluster,
+                })
+
             } catch (e) {
+                if (boardState.state.solutionHistory.length == 0) {
+                    return {
+                        type: 'Failed',
+                        reason: e instanceof Error ? e.message : 'Unknown error',
+                    }
+                }
+
+                const previousSolution = boardState.state.solutionHistory.pop()!
+                boardState.state.solution.set(previousSolution.solution)
+                boardState.state.remainingClusters.unshift(cluster)
+                boardState.state.remainingClusters.unshift(previousSolution.cluster)
+
                 return {
-                    type: 'Failed',
-                    reason: e instanceof Error ? e.message : 'Unknown error',
+                    type: 'PlacingNumbers',
+                    state: boardState.state,
                 }
             }
 
             if (boardState.state.remainingClusters.length == 0) {
                 // TODO: Sort by unlock order?
                 boardState.state.givens = boardState.state.solution.slice()
-                boardState.state.remainingClusters = boardState.state.allClusters
+                boardState.state.remainingClusters = boardState.state.allClusters.slice()
+                boardState.state.solutionHistory = []
 
                 return {
                     type: 'RemovingGivens',
@@ -386,26 +424,48 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
 
         case 'RemovingGivens':
             if (boardState.state.remainingClusters.length == 0) {
-                return clusterStateToCompleted(boardState.state)
+                return {
+                    type: 'Failed',
+                    reason: 'No remaining clusters to remove givens from',
+                }
             }
 
-            cluster = boardState.state.remainingClusters[0]!
-            boardState.state.remainingClusters = boardState.state.remainingClusters.slice(1)
+            cluster = boardState.state.remainingClusters.shift()!
 
             removeGivenNumbers(cluster, boardState.state)
 
-
             if (boardState.state.remainingClusters.length == 0) {
-                boardState.state.remainingClusters = boardState.state.allClusters
+                boardState.state.remainingClusters = boardState.state.allClusters.slice()
 
-                return clusterStateToCompleted(boardState.state)
+                return {
+                    type: 'RestoringGivens',
+                    state: boardState.state,
+                }
+
             } else {
-                // return {
-                //     type: 'Failed',
-                //     reason: 'Generation logic not implemented',
-                // }
                 return {
                     type: 'RemovingGivens',
+                    state: boardState.state,
+                }
+            }
+
+        case 'RestoringGivens':
+            if (boardState.state.remainingClusters.length == 0) {
+                return {
+                    type: 'Failed',
+                    reason: 'No remaining clusters to restore givens to',
+                }
+            }
+
+            cluster = boardState.state.remainingClusters.shift()!
+
+            // TODO: Implement restoring givens
+
+            if (boardState.state.remainingClusters.length == 0) {
+                return clusterStateToCompleted(boardState.state)
+            } else {
+                return {
+                    type: 'RestoringGivens',
                     state: boardState.state,
                 }
             }
@@ -422,12 +482,8 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
 function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): void {
     const possibilitiesMap: PossibilitiesMap = new Int32Array(totalArraySize)
 
-    for (const boardArea of state.puzzleAreas.boards) {
-        const boardCells: Cell[] = getCellsInArea(boardArea)
-        for (const [row, col] of boardCells) {
-            const cellIndex: CellIndex = getCellIndex(row, col)
-            possibilitiesMap[cellIndex] = (1 << state.blockSize) - 1
-        }
+    for (const cellIndex of state.allCellIndices) {
+        possibilitiesMap[cellIndex] = (1 << state.blockSize) - 1
     }
 
     for (const cellIndex of state.allCellIndices) {
@@ -435,11 +491,48 @@ function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): 
     }
 
     const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
+    const transitiveIndices: Set<CellIndex> = new Set()
 
-    const result: boolean = tryPlacingNumbers(state.solution, possibilitiesMap, clusterCellIndices, state)
+    for (const boardArea of state.puzzleAreas.boards) {
+        const boardCellIndices: Set<CellIndex> = new Set(getCellIndicesInArea(boardArea))
+
+        const intersection: Set<CellIndex> = intersectSets(clusterCellIndices, boardCellIndices)
+        if (intersection.size == 0) {
+            continue
+        }
+
+        let isUnsolved: boolean = false
+        for (const cellIndex of boardCellIndices) {
+            if (state.solution[cellIndex] === 0) {
+                isUnsolved = true
+                break
+            }
+        }
+
+        if (!isUnsolved) {
+            continue
+        }
+
+        for (const cellIndex of boardCellIndices) {
+            if (!clusterCellIndices.has(cellIndex) && state.solution[cellIndex] === 0) {
+                transitiveIndices.add(cellIndex)
+            }
+        }
+    }
+
+    const combinedIndices: Set<CellIndex> = new Set([
+        ...clusterCellIndices,
+        ...transitiveIndices,
+    ])
+
+    const result: boolean = tryPlacingNumbers(state.solution, possibilitiesMap, combinedIndices, state)
 
     if (!result) {
         throw new Error('Failed to place numbers in cluster')
+    }
+
+    for (const cellIndex of transitiveIndices) {
+        state.solution[cellIndex] = 0
     }
 }
 
@@ -648,7 +741,7 @@ function removeGivenNumbersBacktracking(
             propagateSolution(possibilitiesMap, solverBuffer, state.peerMap, idx)
         }
 
-        possibilitiesMap[cellIndex] &= ~(1 << (originalValue - 1))
+        possibilitiesMap[cellIndex]! &= ~(1 << (originalValue - 1))
 
         const hasOtherSolution: boolean = tryPlacingNumbers(
             solverBuffer,

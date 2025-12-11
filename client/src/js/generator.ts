@@ -470,7 +470,7 @@ function buildBlockUnlockOrder(
         credits = remainingCredits + targetCluster.blocks.size - randomBlocks.size
 
         for (const cluster of blockOrderClusters.values()) {
-            cluster.remaining = diffMaps(cluster.blocks, remainingBlocks).size
+            cluster.remaining = intersectMaps(cluster.blocks, remainingBlocks).size
         }
 
         if (!fillersAdded && unlockOrder.length >= initialUnlocked) {
@@ -481,7 +481,7 @@ function buildBlockUnlockOrder(
         }
     }
 
-    for (let block of remainingBlocks.values()) {
+    for (const block of remainingBlocks.values()) {
         unlockOrder.push(block)
     }
 

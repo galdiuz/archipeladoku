@@ -1,38 +1,34 @@
-import * as generator from './generator.ts';
+import * as generator from './generator.ts'
+
+
+let lastProgress = Date.now()
 
 
 self.onmessage = function(event) {
-    console.log(event.data.type, event.data.data);
+    console.log(event.data.type, event.data.data)
 
     switch (event.data.type) {
         case 'generateBoard':
             generate(event.data.data)
 
-            break;
-
-        case 'generateFromServer':
-            // worker.ports.receiveGenerateArgs2.send(event.data.data);
-
-            break;
+            break
 
         default:
-            console.log('Unknown message type:', event.data.type);
+            console.log('Unknown message type:', event.data.type)
     }
-};
+}
 
 
 function generate(args) {
     let state = generator.initGeneration(args)
-    console.log('Initial generation state:', state);
 
     while (true) {
-        console.log('Generation state:', state);
         switch (state.type) {
             case 'Completed':
                 self.postMessage({
                     type: 'sendBoard',
                     data: state
-                });
+                })
 
                 return
 
@@ -40,21 +36,26 @@ function generate(args) {
                 return
 
             case 'PlacingNumbers':
-                sendProgress(state);
+                sendProgress(state)
 
                 break
 
             case 'RemovingGivens':
-                sendProgress(state);
+                sendProgress(state)
                 break
         }
 
-        state = generator.generate(state);
+        state = generator.generate(state)
     }
 }
 
 
 function sendProgress(state) {
+    if (Date.now() - lastProgress < 100) {
+        return
+    }
+
+    lastProgress = Date.now()
     let totalBoards = state.state.allClusters
         .reduce((sum, cluster) => sum + cluster.length, 0)
     let remainingBoards = state.state.remainingClusters
@@ -64,20 +65,20 @@ function sendProgress(state) {
 
     switch (state.type) {
         case 'PlacingNumbers':
-            label = 'Placing numbers';
-            percent = 34 - (remainingBoards / totalBoards) * 34;
+            label = 'Placing numbers'
+            percent = 100 - (remainingBoards / totalBoards) * 100
 
             break
 
         case 'RemovingGivens':
-            label = 'Removing givens';
-            percent = 67 - (remainingBoards / totalBoards) * 33;
+            label = 'Removing givens'
+            percent = 100 - (remainingBoards / totalBoards) * 100
 
             break
 
         case 'RestoringGivens':
-            label = 'Restoring givens';
-            percent = 100 - (remainingBoards / totalBoards) * 33;
+            label = 'Restoring givens'
+            percent = 100 - (remainingBoards / totalBoards) * 100
 
             break
     }
@@ -87,5 +88,5 @@ function sendProgress(state) {
         percent: percent,
     }
 
-    self.postMessage({ type: 'sendProgress', data: data });
+    self.postMessage({ type: 'sendProgress', data: data })
 }

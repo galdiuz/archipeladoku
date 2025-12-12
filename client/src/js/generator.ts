@@ -262,8 +262,8 @@ function buildPuzzleAreas(blockSize: number, startRow: number, startCol: number)
     const [blockRows, blockCols] = blockSizeToDimensions(blockSize)
 
     const blocks: Area[] = []
-    for (let r = 0; r < blockRows; r++) {
-        for (let c = 0; c < blockCols; c++) {
+    for (let r = 0; r < blockCols; r++) {
+        for (let c = 0; c < blockRows; c++) {
             blocks.push({
                 startRow: startRow + r * blockRows,
                 startCol: startCol + c * blockCols,
@@ -962,29 +962,32 @@ function solveWithLogic(
     while (madeProgress) {
         madeProgress = false
 
-        if (applyNakedSingles(solution, possibilitiesMap, cellIndices, state)) {
-            madeProgress = true
+        const functionsToApply = [
+            () => applyNakedSingles(solution, possibilitiesMap, cellIndices, state),
+            () => applyHiddenSingles(solution, possibilitiesMap, cellIndices, areaIndices, state),
+            () => applyNakedPairs(solution, possibilitiesMap, areaIndices),
+            () => applyHiddenPairs(solution, possibilitiesMap, areaIndices, state),
+        ]
 
-            continue
-        }
+        for (const fun of functionsToApply) {
+            if (fun()) {
+                madeProgress = true
 
-        if (applyHiddenSingles(solution, possibilitiesMap, cellIndices, areaIndices, state)) {
-            madeProgress = true
-
-            continue
+                break
+            }
         }
     }
 
-    let allFilled: boolean = true
+    let solved: boolean = true
     for (const cellIndex of cellIndices) {
         if (solution[cellIndex]! === 0) {
-            allFilled = false
+            solved = false
 
             break
         }
     }
 
-    return allFilled
+    return solved
 }
 
 
@@ -1021,7 +1024,7 @@ function applyHiddenSingles(
     possibilitiesMap: PossibilitiesMap,
     cellIndices: Set<CellIndex>,
     areaIndices: CellIndex[][],
-    state: ClusterGenerationState
+    state: ClusterGenerationState,
 ): boolean {
     let madeProgress: boolean = false
     const counts = new Int32Array(state.blockSize + 1)
@@ -1060,6 +1063,132 @@ function applyHiddenSingles(
 }
 
 
+function applyNakedPairs(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    areaIndices: CellIndex[][],
+): boolean {
+    let madeProgress: boolean = false
+
+    for (const areaCellIndices of areaIndices) {
+        for (let i = 0; i < areaCellIndices.length; i++) {
+            const cellIndexA = areaCellIndices[i]!
+
+            if (solution[cellIndexA]! !== 0) {
+                continue
+            }
+
+            const possibilitiesA = possibilitiesMap[cellIndexA]!
+
+            if (countSetBits(possibilitiesA) !== 2) {
+                continue
+            }
+
+            for (let j = i + 1; j < areaCellIndices.length; j++) {
+                const cellIndexB = areaCellIndices[j]!
+
+                if (solution[cellIndexB]! !== 0) {
+                    continue
+                }
+
+                const possibilitiesB = possibilitiesMap[cellIndexB]!
+
+                if (possibilitiesA !== possibilitiesB) {
+                    continue
+                }
+
+                for (let k = 0; k < areaCellIndices.length; k++) {
+                    if (k === i || k === j) {
+                        continue
+                    }
+
+                    const targetIndex = areaCellIndices[k]!
+
+                    if (solution[targetIndex]! !== 0) {
+                        continue
+                    }
+
+                    const oldPossibilities = possibilitiesMap[targetIndex]!
+                    const newPossibilities = oldPossibilities & ~possibilitiesA
+
+                    if (newPossibilities !== oldPossibilities) {
+                        possibilitiesMap[targetIndex] = newPossibilities
+                        madeProgress = true
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
+function applyHiddenPairs(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    areaIndices: CellIndex[][],
+    state: ClusterGenerationState,
+): boolean {
+    let madeProgress: boolean = false
+    // Index is number, value is array of cell indices where the number can go
+    const positions: number[][] = Array.from({ length: state.blockSize + 1 }, () => [])
+
+    for (const areaCellIndices of areaIndices) {
+        // Reset positions
+        for (let num = 1; num < positions.length; num++) {
+            positions[num]!.length = 0
+        }
+
+        for (const cellIndex of areaCellIndices) {
+            if (solution[cellIndex]! !== 0) {
+                continue
+            }
+
+            const possibilities: number = possibilitiesMap[cellIndex]!
+            for (let num = 1; num < positions.length; num++) {
+                if ((possibilities & (1 << (num - 1))) !== 0) {
+                    positions[num]!.push(cellIndex)
+                }
+            }
+        }
+
+        for (let numA = 1; numA < positions.length; numA++) {
+            const posA = positions[numA]!
+
+            if (posA.length !== 2) {
+                continue
+            }
+
+            for (let numB = numA + 1; numB < positions.length; numB++) {
+                const posB = positions[numB]!
+
+                if (posB.length !== 2
+                    || posA[0] !== posB[0]
+                    || posA[1] !== posB[1]
+                ) {
+                    continue
+                }
+
+                const keepMask = (1 << (numA - 1)) | (1 << (numB - 1))
+
+                for (const cellIndex of posA) {
+                    const oldPossibilities = possibilitiesMap[cellIndex]!
+                    const newPossibilities = oldPossibilities & keepMask
+
+                    if (newPossibilities !== oldPossibilities) {
+                        possibilitiesMap[cellIndex] = newPossibilities
+                        madeProgress = true
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
 function restoreGivenNumbers(
     cluster: Cell[],
     state: ClusterGenerationState
@@ -1071,7 +1200,17 @@ function restoreGivenNumbers(
 
     switch (state.blockSize) {
         case 9:
-            targetGivens = Math.round((38 / 81) * clusterCellIndices.size)
+            targetGivens = Math.floor((38 / 81) * clusterCellIndices.size)
+
+            break
+
+        case 12:
+            targetGivens = Math.floor((58 / 144) * clusterCellIndices.size)
+
+            break
+
+        case 16:
+            targetGivens = Math.floor((96 / 256) * clusterCellIndices.size)
 
             break
     }
@@ -1109,7 +1248,7 @@ function restoreGivenNumbers(
         let canRestore: boolean = true
         const cellAreas: Area[] = state.cellAreasMap[cellIndex]!
 
-        // Check if restoring this given would make any area fully given
+        // Check if restoring this given would make any area fully solved
         for (const area of cellAreas) {
             const areaCellIndices: CellIndex[] = getCellIndicesInArea(area)
             let givenCount: number = 0

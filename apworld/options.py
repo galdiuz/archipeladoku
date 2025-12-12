@@ -18,7 +18,7 @@ class NumberOfBoards(Range):
     """How many boards to generate in the archipelago."""
     display_name = "Number of Boards"
     range_start = 3
-    range_end = 100
+    range_end = 98
     default = 5
 
 

@@ -75,12 +75,6 @@ function sendProgress(state) {
             percent = 100 - (remainingBoards / totalBoards) * 100
 
             break
-
-        case 'RestoringGivens':
-            label = 'Restoring givens'
-            percent = 100 - (remainingBoards / totalBoards) * 100
-
-            break
     }
 
     let data = {

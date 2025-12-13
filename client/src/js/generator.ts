@@ -34,6 +34,7 @@ type GenerateArgs = GenerateLocalArgs | GenerateServerArgs
 
 interface GenerateLocalArgs {
     blockSize: number
+    difficulty: number
     numberOfBoards: number
     seed: number
 }
@@ -43,6 +44,7 @@ interface GenerateServerArgs {
     blockSize: number
     blockUnlockOrder: Cell[]
     clusters: Cell[][]
+    difficulty: number
     seed: number
 }
 
@@ -59,7 +61,6 @@ interface BlockOrderCluster {
 type BoardGenerationState =
     | PlacingNumbers
     | RemovingGivens
-    | RestoringGivens
     | Completed
     | Failed
 
@@ -72,12 +73,6 @@ interface PlacingNumbers {
 
 interface RemovingGivens {
     type: 'RemovingGivens'
-    state: ClusterGenerationState
-}
-
-
-interface RestoringGivens {
-    type: 'RestoringGivens'
     state: ClusterGenerationState
 }
 
@@ -121,7 +116,7 @@ interface ClusterGenerationState {
     blockUnlockOrder: Cell[]
     cellAreasMap: Area[][]
     cellIndicesToRemoveGivensFrom: Set<CellIndex>
-    cellIndicesToRestoreGivensFrom: Set<CellIndex>
+    difficulty: number
     givens: Int32Array
     puzzleAreas: PuzzleAreas
     peerMap: PeerMap
@@ -202,7 +197,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             blockUnlockOrder: blockUnlockOrder,
             cellAreasMap: cellAreasMap,
             cellIndicesToRemoveGivensFrom: new Set(cellIndices),
-            cellIndicesToRestoreGivensFrom: new Set(cellIndices),
+            difficulty: args.difficulty,
             givens: new Int32Array(totalArraySize),
             puzzleAreas: puzzleAreas,
             peerMap: peerMap,
@@ -578,7 +573,12 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
 
             if (boardState.state.remainingClusters.length == 0) {
                 boardState.state.givens = boardState.state.solution.slice()
-                boardState.state.remainingClusters = boardState.state.allClusters.slice()
+                // Clusters must be sorted by unlock order since there can be dependencies
+                // on previous clusters when removing givens
+                boardState.state.remainingClusters = sortClustersByUnlockOrder(
+                    boardState.state.blockUnlockOrder,
+                    boardState.state.allClusters
+                )
                 boardState.state.solutionHistory = []
 
                 return {
@@ -605,37 +605,10 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
             removeGivenNumbers(cluster, boardState.state)
 
             if (boardState.state.remainingClusters.length == 0) {
-                boardState.state.remainingClusters = boardState.state.allClusters.slice()
-
-                return {
-                    type: 'RestoringGivens',
-                    state: boardState.state,
-                }
-
-            } else {
-                return {
-                    type: 'RemovingGivens',
-                    state: boardState.state,
-                }
-            }
-
-        case 'RestoringGivens':
-            if (boardState.state.remainingClusters.length == 0) {
-                return {
-                    type: 'Failed',
-                    reason: 'No remaining clusters to restore givens to',
-                }
-            }
-
-            cluster = boardState.state.remainingClusters.shift()!
-
-            restoreGivenNumbers(cluster, boardState.state)
-
-            if (boardState.state.remainingClusters.length == 0) {
                 return clusterStateToCompleted(boardState.state)
             } else {
                 return {
-                    type: 'RestoringGivens',
+                    type: 'RemovingGivens',
                     state: boardState.state,
                 }
             }
@@ -664,6 +637,38 @@ function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): 
     if (!result) {
         throw new Error('Failed to place numbers in cluster')
     }
+}
+
+
+function sortClustersByUnlockOrder(unlockOrder: Cell[], clusters: Cell[][]): Cell[][] {
+    const unlockedBlocks = new Set<number>()
+    const sortedClusters: Cell[][] = []
+    let remainingClusters = clusters.slice()
+
+    for (const [row, col] of unlockOrder) {
+        unlockedBlocks.add(getCellIndex(row, col))
+        const nextRemaining: Cell[][] = []
+
+        for (const cluster of remainingClusters) {
+            const clusterUnlocked = cluster.every(
+                ([r, c]) => unlockedBlocks.has(getCellIndex(r, c))
+            )
+
+            if (clusterUnlocked) {
+                sortedClusters.push(cluster)
+            } else {
+                nextRemaining.push(cluster)
+            }
+        }
+
+        remainingClusters = nextRemaining
+
+        if (remainingClusters.length === 0) {
+            break
+        }
+    }
+
+    return sortedClusters
 }
 
 
@@ -841,6 +846,7 @@ function findBestCell(candidateCells: CellIndex[], possibilitiesMap: Possibiliti
 
 function removeGivenNumbers(cluster: Cell[], state: ClusterGenerationState): void {
     const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
+
     const cellsToRemoveFrom: Set<CellIndex> = intersectSets(
         clusterCellIndices,
         state.cellIndicesToRemoveGivensFrom
@@ -859,14 +865,11 @@ function removeGivenNumbers(cluster: Cell[], state: ClusterGenerationState): voi
 
     shuffleArray(indicesToRemove, state.rng)
 
-    if (state.blockSize <= 9) {
-        removeGivenNumbersBacktracking(cluster, state, clusterCellIndices, indicesToRemove)
-    } else {
-        removeGivenNumbersLogical(cluster, state, clusterCellIndices, indicesToRemove)
-    }
+    removeGivenNumbersLogical(cluster, state, clusterCellIndices, indicesToRemove)
 }
 
 
+// Unused
 function removeGivenNumbersBacktracking(
     cluster: Cell[],
     state: ClusterGenerationState,
@@ -913,8 +916,8 @@ function removeGivenNumbersLogical(
     const solutionBuffer: Int32Array = new Int32Array(totalArraySize)
 
     const clusterAreasList: PuzzleAreas[] = []
-    for (const [startRow, startCol] of cluster) {
-        clusterAreasList.push(buildPuzzleAreas(state.blockSize, startRow, startCol))
+    for (const [row, col] of cluster) {
+        clusterAreasList.push(buildPuzzleAreas(state.blockSize, row, col))
     }
     const clusterPuzzleAreas: PuzzleAreas = joinPuzzleAreas(clusterAreasList)
     const clusterAreaIndices: CellIndex[][] = []
@@ -923,10 +926,18 @@ function removeGivenNumbersLogical(
         clusterAreaIndices.push(getCellIndicesInArea(area))
     }
 
+    const indicesToRemoveSet: Set<CellIndex> = new Set(indicesToRemove)
+
     for (const cellIndex of indicesToRemove) {
         const originalValue: number = state.solution[cellIndex]!
         state.givens[cellIndex] = 0
         solutionBuffer.set(state.givens)
+
+        for (const idx of clusterCellIndices) {
+            if (!indicesToRemoveSet.has(idx)) {
+                solutionBuffer[idx] = state.solution[idx]!
+            }
+        }
 
         const possibilitiesMap: PossibilitiesMap = createPossibilitiesMap(
             state.blockSize,
@@ -959,15 +970,22 @@ function solveWithLogic(
 ): boolean {
     let madeProgress: boolean = true
 
+    const functionsToApply = [
+        () => applyNakedSingles(solution, possibilitiesMap, cellIndices, state),
+        () => applyHiddenSingles(solution, possibilitiesMap, cellIndices, areaIndices, state),
+    ]
+
+    if (state.difficulty >= 2) {
+        functionsToApply.push(() => applyNakedPairs(solution, possibilitiesMap, areaIndices))
+    }
+
+    if (state.difficulty >= 3) {
+        functionsToApply.push(() => applyHiddenPairs(solution, possibilitiesMap, areaIndices, state))
+        // TODO: naked triples, hidden triples, pointing pairs, box line reduction
+    }
+
     while (madeProgress) {
         madeProgress = false
-
-        const functionsToApply = [
-            () => applyNakedSingles(solution, possibilitiesMap, cellIndices, state),
-            () => applyHiddenSingles(solution, possibilitiesMap, cellIndices, areaIndices, state),
-            () => applyNakedPairs(solution, possibilitiesMap, areaIndices),
-            () => applyHiddenPairs(solution, possibilitiesMap, areaIndices, state),
-        ]
 
         for (const fun of functionsToApply) {
             if (fun()) {
@@ -1186,92 +1204,6 @@ function applyHiddenPairs(
     }
 
     return madeProgress
-}
-
-
-function restoreGivenNumbers(
-    cluster: Cell[],
-    state: ClusterGenerationState
-): void {
-
-    const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
-
-    let targetGivens: number = 0;
-
-    switch (state.blockSize) {
-        case 9:
-            targetGivens = Math.floor((38 / 81) * clusterCellIndices.size)
-
-            break
-
-        case 12:
-            targetGivens = Math.floor((58 / 144) * clusterCellIndices.size)
-
-            break
-
-        case 16:
-            targetGivens = Math.floor((96 / 256) * clusterCellIndices.size)
-
-            break
-    }
-
-    let currentGivens: number = 0
-    for (const cellIndex of clusterCellIndices) {
-        if (state.givens[cellIndex]! !== 0) {
-            currentGivens += 1
-        }
-    }
-
-    const cellsToRestoreFrom: Set<CellIndex> = intersectSets(
-        clusterCellIndices,
-        state.cellIndicesToRestoreGivensFrom
-    )
-    state.cellIndicesToRestoreGivensFrom = diffSets(
-        state.cellIndicesToRestoreGivensFrom,
-        cellsToRestoreFrom
-    )
-    const indicesToRestore: number[] = []
-
-    for (const cellIndex of cellsToRestoreFrom) {
-        if (state.givens[cellIndex]! === 0) {
-            indicesToRestore.push(cellIndex)
-        }
-    }
-
-    shuffleArray(indicesToRestore, state.rng)
-
-    for (const cellIndex of indicesToRestore) {
-        if (currentGivens >= targetGivens) {
-            break
-        }
-
-        let canRestore: boolean = true
-        const cellAreas: Area[] = state.cellAreasMap[cellIndex]!
-
-        // Check if restoring this given would make any area fully solved
-        for (const area of cellAreas) {
-            const areaCellIndices: CellIndex[] = getCellIndicesInArea(area)
-            let givenCount: number = 0
-
-            for (const areaCellIndex of areaCellIndices) {
-                if (state.givens[areaCellIndex]! !== 0) {
-                    givenCount += 1
-                }
-            }
-
-            if (givenCount + 1 >= areaCellIndices.length) {
-                canRestore = false
-                break
-            }
-        }
-
-        if (!canRestore) {
-            continue
-        }
-
-        state.givens[cellIndex] = state.solution[cellIndex]!
-        currentGivens += 1
-    }
 }
 
 

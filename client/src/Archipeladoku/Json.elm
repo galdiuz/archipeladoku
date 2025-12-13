@@ -113,6 +113,7 @@ encodeGenerateArgs : Engine.GenerateArgs -> Encode.Value
 encodeGenerateArgs args =
     Encode.object
         [ ( "blockSize", Encode.int args.blockSize )
+        , ( "difficulty", Encode.int args.difficulty )
         , ( "numberOfBoards", Encode.int args.numberOfBoards )
         , ( "seed", Encode.int args.seed )
         ]
@@ -120,8 +121,9 @@ encodeGenerateArgs args =
 
 generateArgsDecoder : Decode.Decoder Engine.GenerateArgs
 generateArgsDecoder =
-    Decode.map3 Engine.GenerateArgs
+    Decode.map4 Engine.GenerateArgs
         (Decode.field "blockSize" Decode.int)
+        (Decode.field "difficulty" Decode.int)
         (Decode.field "numberOfBoards" Decode.int)
         (Decode.field "seed" Decode.int)
 

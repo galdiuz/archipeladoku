@@ -47,6 +47,7 @@ type alias Model =
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
     , cellBoards : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
+    , difficulty : Int
     , errors : Dict ( Int, Int ) (Set Int)
     , generationProgress : ( String, Float )
     , gameIsLocal : Bool
@@ -81,6 +82,7 @@ type Msg
     = BlockSizeChanged Int
     | CellSelected ( Int, Int )
     | ConnectPressed
+    | DifficultyChanged Int
     | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
     | GotConnectionStatus Bool
@@ -373,6 +375,7 @@ init flags =
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
       , current = Dict.empty
+      , difficulty = 2
       , errors = Dict.empty
       , generationProgress = ( "", 0 )
       , gameIsLocal = False
@@ -573,6 +576,11 @@ update msg model =
                     , ( "password", Encode.null )
                     ]
                 )
+            )
+
+        DifficultyChanged value ->
+            ( { model | difficulty = value }
+            , Cmd.none
             )
 
         GotBoard value ->
@@ -865,6 +873,7 @@ update msg model =
             , generateBoard
                 (Json.encodeGenerateArgs
                     { blockSize = model.blockSize
+                    , difficulty = model.difficulty
                     , numberOfBoards = model.numberOfBoards
                     , seed = model.seedInput
                     }
@@ -1533,12 +1542,14 @@ view model =
 
         Connecting ->
             Html.div
-                []
+                [ HA.style "padding" "1em"
+                ]
                 [ Html.text "Connecting..." ]
 
         Generating ->
             Html.div
-                []
+                [ HA.style "padding" "1em"
+                ]
                 [ Html.text (Tuple.first model.generationProgress)
                 , Html.text " "
                 , Html.text
@@ -1619,7 +1630,11 @@ viewMenu model =
                     , HA.style "gap" "0.5em"
                     ]
                     [ viewNumberRadioButton 4 model.blockSize "block-size" BlockSizeChanged
+                    , viewNumberRadioButton 6 model.blockSize "block-size" BlockSizeChanged
+                    , viewNumberRadioButton 8 model.blockSize "block-size" BlockSizeChanged
                     , viewNumberRadioButton 9 model.blockSize "block-size" BlockSizeChanged
+                    , viewNumberRadioButton 12 model.blockSize "block-size" BlockSizeChanged
+                    , viewNumberRadioButton 16 model.blockSize "block-size" BlockSizeChanged
                     ]
                 ]
             , Html.div
@@ -1635,6 +1650,23 @@ viewMenu model =
                     , viewNumberRadioButton 13 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
                     , viewNumberRadioButton 18 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
                     , viewNumberRadioButton 25 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 32 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 41 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 50 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 98 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    ]
+                ]
+            , Html.div
+                []
+                [ Html.text "Difficulty:"
+                , Html.div
+                    [ HA.style "display" "flex"
+                    , HA.style "flex-direction" "row"
+                    , HA.style "gap" "0.5em"
+                    ]
+                    [ viewRadioButton 1 model.difficulty "difficulty" DifficultyChanged (\_ -> "Easy")
+                    , viewRadioButton 2 model.difficulty "difficulty" DifficultyChanged (\_ -> "Medium")
+                    , viewRadioButton 3 model.difficulty "difficulty" DifficultyChanged (\_ -> "Hard")
                     ]
                 ]
             , Html.div
@@ -1660,8 +1692,8 @@ viewMenu model =
         ]
 
 
-viewNumberRadioButton : Int -> Int -> String -> (Int -> Msg) -> Html Msg
-viewNumberRadioButton value selected name msg =
+viewRadioButton : a -> a -> String -> (a -> Msg) -> (a -> String) -> Html Msg
+viewRadioButton value selected name msg toLabel =
     Html.label
         [ HA.style "display" "flex"
         , HA.style "align-items" "baseline"
@@ -1674,8 +1706,13 @@ viewNumberRadioButton value selected name msg =
             , HE.onCheck (\_ -> msg value)
             ]
             []
-        , Html.text (String.fromInt value)
+        , Html.text (toLabel value)
         ]
+
+
+viewNumberRadioButton : Int -> Int -> String -> (Int -> Msg) -> Html Msg
+viewNumberRadioButton value selected name msg =
+    viewRadioButton value selected name msg String.fromInt
 
 
 viewBoard : Model -> Html Msg

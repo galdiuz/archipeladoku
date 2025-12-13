@@ -18,8 +18,17 @@ class NumberOfBoards(Range):
     """How many boards to generate in the archipelago."""
     display_name = "Number of Boards"
     range_start = 3
-    range_end = 100
+    range_end = 98
     default = 5
+
+
+class Difficulty(Choice):
+    """The overall difficulty level of the puzzle."""
+    display_name = "Difficulty"
+    option_easy = 1
+    option_medium = 2
+    option_hard = 3
+    default = 2
 
 
 class BlockUnlocks(Choice):
@@ -53,6 +62,7 @@ class SolveRandomCellWeight(Range):
 class ArchipeladokuOptions(PerGameCommonOptions):
     block_size: BlockSize
     number_of_boards: NumberOfBoards
+    difficulty: Difficulty
     block_unlocks: BlockUnlocks
     solve_selected_cell_weight: SolveSelectedCellWeight
     solve_random_cell_weight: SolveRandomCellWeight

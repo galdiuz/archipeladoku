@@ -38,6 +38,7 @@ type alias PuzzleAreas =
 
 type alias GenerateArgs =
     { blockSize : Int
+    , difficulty : Int
     , numberOfBoards : Int
     , seed : Int
     }

@@ -145,7 +145,7 @@ def build_block_unlock_order(
         shuffled_blocks = list(target_blocks_to_add) + random_blocks
         rng.shuffle(shuffled_blocks)
 
-        credits = remaining_credits + len(target.blocks) - len(random_blocks)
+        credits = remaining_credits + target.reward - len(random_blocks)
         order.extend(shuffled_blocks)
         remaining_blocks = remaining_blocks_without_random
 
@@ -166,6 +166,7 @@ def build_block_unlock_order(
 class BlockOrderCluster:
     id: int
     blocks: set[tuple[int, int]]
+    reward: int
     remaining: int
 
 
@@ -184,6 +185,7 @@ def build_block_order_clusters(
         block_order_clusters[cluster.id] = BlockOrderCluster(
             id = cluster.id,
             blocks = blocks,
+            reward = len(blocks) + 1,
             remaining = len(blocks),
         )
 
@@ -257,8 +259,9 @@ location_name_to_id = {
     # 1xxxyyy: Solve Block Locations, row xxx, col yyy, added below
     # 2xxxyyy: Solve Board Locations, row xxx, col yyy, added below
 }
-for row in range(1, 300):
-    for col in range(1, 300):
+max_width = 180 # Supports up to 98 blocks of size 16x16 with overlaps
+for row in range(1, max_width):
+    for col in range(1, max_width):
         item_name_to_id[block_name(row, col)] = block_id(row, col)
         location_name_to_id["Solve " + block_name(row, col)] = board_id(row, col)
         location_name_to_id["Solve " + board_name(row, col)] = board_id(row, col)

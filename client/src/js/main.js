@@ -36,7 +36,7 @@ ui.ports.connect?.subscribe(data => {
         .then(slotData => {
             ui.ports.receiveHintCost.send(client.room.hintCost);
             ui.ports.receiveConnectionStatus.send(true);
-            worker.postMessage({ type: 'generateFromServer', data: slotData });
+            worker.postMessage({ type: 'generateBoard', data: slotData });
         })
         .catch(error => {
             console.error('Connection error:', error);

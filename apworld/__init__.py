@@ -221,6 +221,7 @@ class ArchipeladokuWorld(World):
             "blockUnlockOrder": self.block_unlock_order[self.player],
             "blockUnlocks": self.options.block_unlocks.value,
             "clusters": [cluster.positions for cluster in self.clusters[self.player].values()],
+            "difficulty": self.options.difficulty.value,
             "seed": self.random.getrandbits(32),
             "unlockedBlocks": initial_unlock_count,
         }

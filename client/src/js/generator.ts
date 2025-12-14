@@ -902,13 +902,16 @@ function removeGivenNumbersLogical(
     const clusterPuzzleAreas: PuzzleAreas = joinPuzzleAreas(clusterAreasList)
     const clusterAreaIndices: CellIndex[][] = []
     const clusterBlockIndices: CellIndex[][] = []
+    const clusterLineIndices: CellIndex[][] = []
 
     for (const area of [...clusterPuzzleAreas.blocks, ...clusterPuzzleAreas.rows, ...clusterPuzzleAreas.cols]) {
         clusterAreaIndices.push(getCellIndicesInArea(area))
     }
-
     for (const area of clusterPuzzleAreas.blocks) {
         clusterBlockIndices.push(getCellIndicesInArea(area))
+    }
+    for (const area of [...clusterPuzzleAreas.rows, ...clusterPuzzleAreas.cols]) {
+        clusterLineIndices.push(getCellIndicesInArea(area))
     }
 
     // Restore givens to a solvable state first
@@ -928,6 +931,7 @@ function removeGivenNumbersLogical(
             clusterCellIndices,
             clusterAreaIndices,
             clusterBlockIndices,
+            clusterLineIndices,
             state
         )
 
@@ -965,6 +969,7 @@ function removeGivenNumbersLogical(
             clusterCellIndices,
             clusterAreaIndices,
             clusterBlockIndices,
+            clusterLineIndices,
             state
         )
 
@@ -981,6 +986,7 @@ function solveWithLogic(
     cellIndices: Set<CellIndex>,
     areaIndices: CellIndex[][],
     blockIndices: CellIndex[][],
+    lineIndices: CellIndex[][],
     state: ClusterGenerationState,
 ): boolean {
     let madeProgress: boolean = true
@@ -992,7 +998,7 @@ function solveWithLogic(
 
     if (state.difficulty >= 2) {
         functionsToApply.push(() => applyPointingPairs(solution, possibilitiesMap, blockIndices, state))
-        functionsToApply.push(() => applyBoxLineReduction(solution, possibilitiesMap, state))
+        functionsToApply.push(() => applyBoxLineReduction(solution, possibilitiesMap, lineIndices, state))
     }
 
     if (state.difficulty >= 3) {
@@ -1199,9 +1205,79 @@ function applyPointingPairs(
 function applyBoxLineReduction(
     solution: Int32Array,
     possibilitiesMap: PossibilitiesMap,
+    lines: CellIndex[][],
     state: ClusterGenerationState,
 ): boolean {
     let madeProgress: boolean = false
+
+    const positions: number[][] = Array.from({ length: state.blockSize + 1 }, () => [])
+
+    for (const lineIndices of lines) {
+        for (let n = 1; n <= state.blockSize; n++) {
+            positions[n]!.length = 0
+        }
+
+        for (const cellIndex of lineIndices) {
+            if (solution[cellIndex]! !== 0) {
+                continue
+            }
+
+            const possibilities: number = possibilitiesMap[cellIndex]!
+            for (let n = 1; n <= state.blockSize; n++) {
+                if ((possibilities & (1 << (n - 1))) !== 0) {
+                    positions[n]!.push(cellIndex)
+                }
+            }
+        }
+
+        for (let n = 1; n <= state.blockSize; n++) {
+            const numberCells: CellIndex[] = positions[n]!
+
+            if (numberCells.length < 2) {
+                continue
+            }
+
+            const firstCellIndex = numberCells[0]!
+            let commonBlocks: CellIndex[][] = [...state.cellBlockIndicesMap[firstCellIndex]!]
+
+            for (let i = 1; i < numberCells.length; i++) {
+                const cellIndex = numberCells[i]!
+                const cellBlocks = state.cellBlockIndicesMap[cellIndex]!
+
+                commonBlocks = commonBlocks.filter(block => cellBlocks.includes(block))
+
+                if (commonBlocks.length === 0) {
+                    break
+                }
+            }
+
+            if (commonBlocks.length === 0) {
+                continue
+            }
+
+            const removeMask = ~(1 << (n - 1))
+
+            for (const block of commonBlocks) {
+                for (const cellIndex of block) {
+                    if (numberCells.includes(cellIndex)) {
+                        continue
+                    }
+
+                    if (solution[cellIndex]! !== 0) {
+                        continue
+                    }
+
+                    const oldPossibilities = possibilitiesMap[cellIndex]!
+                    const newPossibilities = oldPossibilities & removeMask
+
+                    if (newPossibilities !== oldPossibilities) {
+                        possibilitiesMap[cellIndex] = newPossibilities
+                        madeProgress = true
+                    }
+                }
+            }
+        }
+    }
 
     return madeProgress
 }

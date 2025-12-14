@@ -112,7 +112,9 @@ interface ClusterGenerationState {
     allClusters: Cell[][]
     blockSize: number
     blockUnlockOrder: Cell[]
-    cellAreasMap: Area[][]
+    cellBlockIndicesMap: CellIndex[][][]
+    cellColIndicesMap: CellIndex[][][]
+    cellRowIndicesMap: CellIndex[][][]
     cellIndicesToRemoveGivensFrom: Set<CellIndex>
     difficulty: number
     givens: Int32Array
@@ -157,7 +159,10 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
     }
     const puzzleAreas: PuzzleAreas = joinPuzzleAreas(boardPuzzleAreas)
     const areas: Area[] = [...puzzleAreas.blocks, ...puzzleAreas.rows, ...puzzleAreas.cols]
-    const cellAreasMap: Area[][] = buildCellAreasMap(areas)
+    const cellAreaIndicesMap: CellIndex[][][] = buildCellAreaIndicesMap(areas)
+    const cellBlockIndicesMap: CellIndex[][][] = buildCellAreaIndicesMap(puzzleAreas.blocks)
+    const cellRowIndicesMap: CellIndex[][][] = buildCellAreaIndicesMap(puzzleAreas.rows)
+    const cellColIndicesMap: CellIndex[][][] = buildCellAreaIndicesMap(puzzleAreas.cols)
     const cells: Set<Cell> = new Set()
     const cellIndices: Set<CellIndex> = new Set()
 
@@ -171,7 +176,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
     }
 
     const rng: () => number = createRandomGenerator(args.seed)
-    const peerMap: PeerMap = buildPeerMap(cells, cellAreasMap)
+    const peerMap: PeerMap = buildPeerMap(cells, cellAreaIndicesMap)
     const clusters: Cell[][] = "clusters" in args
         ? args.clusters
         : buildClusters(positions, rng)
@@ -193,7 +198,9 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             allClusters: clusters,
             blockSize: args.blockSize,
             blockUnlockOrder: blockUnlockOrder,
-            cellAreasMap: cellAreasMap,
+            cellBlockIndicesMap: cellBlockIndicesMap,
+            cellColIndicesMap: cellColIndicesMap,
+            cellRowIndicesMap: cellRowIndicesMap,
             cellIndicesToRemoveGivensFrom: new Set(cellIndices),
             difficulty: args.difficulty,
             givens: new Int32Array(totalArraySize),
@@ -301,38 +308,50 @@ function buildPuzzleAreas(blockSize: number, startRow: number, startCol: number)
 
 
 function joinPuzzleAreas(puzzleAreasList: PuzzleAreas[]): PuzzleAreas {
-    const boards: Area[] = []
-    const blocks: Area[] = []
-    const rows: Area[] = []
-    const cols: Area[] = []
+    const boards: Map<number, Area> = new Map()
+    const blocks: Map<number, Area> = new Map()
+    const rows: Map<number, Area> = new Map()
+    const cols: Map<number, Area> = new Map()
 
     for (const puzzleAreas of puzzleAreasList) {
-        boards.push(...puzzleAreas.boards)
-        blocks.push(...puzzleAreas.blocks)
-        rows.push(...puzzleAreas.rows)
-        cols.push(...puzzleAreas.cols)
+        for (const board of puzzleAreas.boards) {
+            const key = getCellIndex(board.startRow, board.startCol)
+            boards.set(key, board)
+        }
+        for (const block of puzzleAreas.blocks) {
+            const key = getCellIndex(block.startRow, block.startCol)
+            blocks.set(key, block)
+        }
+        for (const row of puzzleAreas.rows) {
+            const key = getCellIndex(row.startRow, row.startCol)
+            rows.set(key, row)
+        }
+        for (const col of puzzleAreas.cols) {
+            const key = getCellIndex(col.startRow, col.startCol)
+            cols.set(key, col)
+        }
     }
 
     return {
-        boards: boards,
-        blocks: blocks,
-        rows: rows,
-        cols: cols,
+        boards: Array.from(boards.values()),
+        blocks: Array.from(blocks.values()),
+        rows: Array.from(rows.values()),
+        cols: Array.from(cols.values()),
     }
 }
 
 
-function buildCellAreasMap(areas: Area[]): Area[][] {
-    const cellAreasMap: Area[][] = Array.from({ length: totalArraySize }, () => [])
+function buildCellAreaIndicesMap(areas: Area[]): CellIndex[][][] {
+    const map: CellIndex[][][] = Array.from({ length: totalArraySize }, () => [])
 
     for (const area of areas) {
         const cellIndices: CellIndex[] = getCellIndicesInArea(area)
         for (const cellIndex of cellIndices) {
-            cellAreasMap[cellIndex]!.push(area)
+            map[cellIndex]!.push(cellIndices)
         }
     }
 
-    return cellAreasMap
+    return map
 }
 
 
@@ -361,16 +380,15 @@ function getCellIndicesInArea(area: Area): CellIndex[] {
 }
 
 
-function buildPeerMap(cells: Set<Cell>, cellAreasMap: Area[][]): PeerMap {
+function buildPeerMap(cells: Set<Cell>, cellAreaIndicesMap: CellIndex[][][]): PeerMap {
     const peerMap: PeerMap = Array.from({ length: totalArraySize }, () => [])
 
     for (const [row, col] of cells) {
         const cellIndex: CellIndex = getCellIndex(row, col)
-        const areas: Area[] = cellAreasMap[cellIndex]!
+        const areas: CellIndex[][] = cellAreaIndicesMap[cellIndex]!
         const peerSet: Set<number> = new Set()
 
-        for (const area of areas) {
-            const areaIndices: CellIndex[] = getCellIndicesInArea(area)
+        for (const areaIndices of areas) {
             for (const areaIndex of areaIndices) {
                 if (areaIndex !== cellIndex) {
                     peerSet.add(areaIndex)
@@ -883,9 +901,14 @@ function removeGivenNumbersLogical(
     }
     const clusterPuzzleAreas: PuzzleAreas = joinPuzzleAreas(clusterAreasList)
     const clusterAreaIndices: CellIndex[][] = []
+    const clusterBlockIndices: CellIndex[][] = []
 
     for (const area of [...clusterPuzzleAreas.blocks, ...clusterPuzzleAreas.rows, ...clusterPuzzleAreas.cols]) {
         clusterAreaIndices.push(getCellIndicesInArea(area))
+    }
+
+    for (const area of clusterPuzzleAreas.blocks) {
+        clusterBlockIndices.push(getCellIndicesInArea(area))
     }
 
     // Restore givens to a solvable state first
@@ -904,6 +927,7 @@ function removeGivenNumbersLogical(
             possibilitiesMap,
             clusterCellIndices,
             clusterAreaIndices,
+            clusterBlockIndices,
             state
         )
 
@@ -940,6 +964,7 @@ function removeGivenNumbersLogical(
             possibilitiesMap,
             clusterCellIndices,
             clusterAreaIndices,
+            clusterBlockIndices,
             state
         )
 
@@ -955,6 +980,7 @@ function solveWithLogic(
     possibilitiesMap: PossibilitiesMap,
     cellIndices: Set<CellIndex>,
     areaIndices: CellIndex[][],
+    blockIndices: CellIndex[][],
     state: ClusterGenerationState,
 ): boolean {
     let madeProgress: boolean = true
@@ -965,12 +991,15 @@ function solveWithLogic(
     ]
 
     if (state.difficulty >= 2) {
-        functionsToApply.push(() => applyNakedPairs(solution, possibilitiesMap, areaIndices))
+        functionsToApply.push(() => applyPointingPairs(solution, possibilitiesMap, blockIndices, state))
+        functionsToApply.push(() => applyBoxLineReduction(solution, possibilitiesMap, state))
     }
 
     if (state.difficulty >= 3) {
+        functionsToApply.push(() => applyNakedPairs(solution, possibilitiesMap, areaIndices))
         functionsToApply.push(() => applyHiddenPairs(solution, possibilitiesMap, areaIndices, state))
-        // TODO: naked triples, hidden triples, pointing pairs, box line reduction
+        // TODO: Split naked and hidden pairs into separate difficulties
+        // TODO: naked triples, hidden triples
     }
 
     while (madeProgress) {
@@ -1065,6 +1094,114 @@ function applyHiddenSingles(
             }
         }
     }
+
+    return madeProgress
+}
+
+
+function applyPointingPairs(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    blocks: CellIndex[][],
+    state: ClusterGenerationState,
+): boolean {
+    let madeProgress: boolean = false
+    const positions: number[][] = Array.from({ length: state.blockSize + 1 }, () => [])
+
+    for (const blockIndices of blocks) {
+        for (let n = 1; n <= state.blockSize; n++) {
+            positions[n]!.length = 0
+        }
+
+        for (const cellIndex of blockIndices) {
+            if (solution[cellIndex]! !== 0) {
+                continue
+            }
+
+            const possibilities: number = possibilitiesMap[cellIndex]!
+            for (let n = 1; n <= state.blockSize; n++) {
+                if ((possibilities & (1 << (n - 1))) !== 0) {
+                    positions[n]!.push(cellIndex)
+                }
+            }
+        }
+
+        for (let n = 1; n <= state.blockSize; n++) {
+            const numberCells: CellIndex[] = positions[n]!
+
+            if (numberCells.length < 2) {
+                continue
+            }
+
+            const firstCellIndex = numberCells[0]!
+            const firstRow = Math.floor(firstCellIndex / maxWidth)
+            const allSameRow = numberCells.every(cellIndex => Math.floor(cellIndex / maxWidth) === firstRow)
+
+            if (allSameRow) {
+                const rows: CellIndex[][] = state.cellRowIndicesMap[firstCellIndex]!
+                const removeMask = ~(1 << (n - 1))
+
+                for (const row of rows) {
+                    for (const cellIndex of row) {
+                        if (numberCells.includes(cellIndex)) {
+                            continue
+                        }
+
+                        if (solution[cellIndex]! !== 0) {
+                            continue
+                        }
+
+                        const oldPossibilities = possibilitiesMap[cellIndex]!
+                        const newPossibilities = oldPossibilities & removeMask
+
+                        if (newPossibilities !== oldPossibilities) {
+                            possibilitiesMap[cellIndex] = newPossibilities
+                            madeProgress = true
+                        }
+                    }
+                }
+            }
+
+            const firstCol = numberCells[0]! % maxWidth
+            const allSameCol = numberCells.every(cellIndex => cellIndex % maxWidth === firstCol)
+
+            if (allSameCol) {
+                const cols: CellIndex[][] = state.cellColIndicesMap[firstCellIndex]!
+                const removeMask = ~(1 << (n - 1))
+
+                for (const col of cols) {
+                    for (const cellIndex of col) {
+                        if (numberCells.includes(cellIndex)) {
+                            continue
+                        }
+
+                        if (solution[cellIndex]! !== 0) {
+                            continue
+                        }
+
+                        const oldPossibilities = possibilitiesMap[cellIndex]!
+                        const newPossibilities = oldPossibilities & removeMask
+
+                        if (newPossibilities !== oldPossibilities) {
+                            possibilitiesMap[cellIndex] = newPossibilities
+                            madeProgress = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
+function applyBoxLineReduction(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    state: ClusterGenerationState,
+): boolean {
+    let madeProgress: boolean = false
 
     return madeProgress
 }

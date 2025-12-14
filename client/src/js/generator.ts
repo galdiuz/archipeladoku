@@ -576,6 +576,7 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
                 // Clusters must be sorted by unlock order since there can be dependencies
                 // on previous clusters when removing givens
                 boardState.state.remainingClusters = sortClustersByUnlockOrder(
+                    boardState.state.blockSize,
                     boardState.state.blockUnlockOrder,
                     boardState.state.allClusters
                 )
@@ -640,30 +641,43 @@ function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): 
 }
 
 
-function sortClustersByUnlockOrder(unlockOrder: Cell[], clusters: Cell[][]): Cell[][] {
+function sortClustersByUnlockOrder(blockSize: number, unlockOrder: Cell[], clusters: Cell[][]): Cell[][] {
     const unlockedBlocks = new Set<number>()
     const sortedClusters: Cell[][] = []
-    let remainingClusters = clusters.slice()
+    const clusterMap = new Map()
+
+    for (let i = 0; i < clusters.length; i++) {
+        const cluster = clusters[i]!
+        const clusterAreasList: PuzzleAreas[] = []
+        for (const [row, col] of cluster) {
+            clusterAreasList.push(buildPuzzleAreas(blockSize, row, col))
+        }
+        const clusterBlocks: Area[] = joinPuzzleAreas(clusterAreasList).blocks
+        const clusterBlockIndices: Set<number> = new Set()
+        for (const block of clusterBlocks) {
+            const blockIndex = getCellIndex(block.startRow, block.startCol)
+            clusterBlockIndices.add(blockIndex)
+        }
+
+        clusterMap.set(i, {
+            cluster: cluster,
+            blockIndices: clusterBlockIndices,
+        })
+    }
 
     for (const [row, col] of unlockOrder) {
         unlockedBlocks.add(getCellIndex(row, col))
-        const nextRemaining: Cell[][] = []
 
-        for (const cluster of remainingClusters) {
-            const clusterUnlocked = cluster.every(
-                ([r, c]) => unlockedBlocks.has(getCellIndex(r, c))
-            )
+        for (const [i, { cluster, blockIndices }] of clusterMap.entries()) {
+            const clusterUnlocked = diffSets(blockIndices, unlockedBlocks).size === 0
 
             if (clusterUnlocked) {
                 sortedClusters.push(cluster)
-            } else {
-                nextRemaining.push(cluster)
+                clusterMap.delete(i)
             }
         }
 
-        remainingClusters = nextRemaining
-
-        if (remainingClusters.length === 0) {
+        if (clusterMap.size === 0) {
             break
         }
     }

@@ -573,13 +573,7 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
 
             if (boardState.state.remainingClusters.length == 0) {
                 boardState.state.givens = boardState.state.solution.slice()
-                // Clusters must be sorted by unlock order since there can be dependencies
-                // on previous clusters when removing givens
-                boardState.state.remainingClusters = sortClustersByUnlockOrder(
-                    boardState.state.blockSize,
-                    boardState.state.blockUnlockOrder,
-                    boardState.state.allClusters
-                )
+                boardState.state.remainingClusters = boardState.state.allClusters.slice()
                 boardState.state.solutionHistory = []
 
                 return {
@@ -638,51 +632,6 @@ function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): 
     if (!result) {
         throw new Error('Failed to place numbers in cluster')
     }
-}
-
-
-function sortClustersByUnlockOrder(blockSize: number, unlockOrder: Cell[], clusters: Cell[][]): Cell[][] {
-    const unlockedBlocks = new Set<number>()
-    const sortedClusters: Cell[][] = []
-    const clusterMap = new Map()
-
-    for (let i = 0; i < clusters.length; i++) {
-        const cluster = clusters[i]!
-        const clusterAreasList: PuzzleAreas[] = []
-        for (const [row, col] of cluster) {
-            clusterAreasList.push(buildPuzzleAreas(blockSize, row, col))
-        }
-        const clusterBlocks: Area[] = joinPuzzleAreas(clusterAreasList).blocks
-        const clusterBlockIndices: Set<number> = new Set()
-        for (const block of clusterBlocks) {
-            const blockIndex = getCellIndex(block.startRow, block.startCol)
-            clusterBlockIndices.add(blockIndex)
-        }
-
-        clusterMap.set(i, {
-            cluster: cluster,
-            blockIndices: clusterBlockIndices,
-        })
-    }
-
-    for (const [row, col] of unlockOrder) {
-        unlockedBlocks.add(getCellIndex(row, col))
-
-        for (const [i, { cluster, blockIndices }] of clusterMap.entries()) {
-            const clusterUnlocked = diffSets(blockIndices, unlockedBlocks).size === 0
-
-            if (clusterUnlocked) {
-                sortedClusters.push(cluster)
-                clusterMap.delete(i)
-            }
-        }
-
-        if (clusterMap.size === 0) {
-            break
-        }
-    }
-
-    return sortedClusters
 }
 
 
@@ -940,18 +889,45 @@ function removeGivenNumbersLogical(
         clusterAreaIndices.push(getCellIndicesInArea(area))
     }
 
-    const indicesToRemoveSet: Set<CellIndex> = new Set(indicesToRemove)
+    // Restore givens to a solvable state first
+    while (true) {
+        solutionBuffer.set(state.givens)
+
+        const possibilitiesMap: PossibilitiesMap = createPossibilitiesMap(
+            state.blockSize,
+            state.peerMap,
+            clusterCellIndices,
+            solutionBuffer
+        )
+
+        const isSolvable: boolean = solveWithLogic(
+            solutionBuffer,
+            possibilitiesMap,
+            clusterCellIndices,
+            clusterAreaIndices,
+            state
+        )
+
+        if (isSolvable) {
+            break
+        }
+
+        const emptyIndices: number[] = []
+        for (const cellIndex of clusterCellIndices) {
+            if (state.givens[cellIndex]! === 0) {
+                emptyIndices.push(cellIndex)
+            }
+        }
+
+        const restoreIndex = findBestCell(emptyIndices, possibilitiesMap)!
+        state.givens[restoreIndex] = state.solution[restoreIndex]!
+        indicesToRemove.push(restoreIndex)
+    }
 
     for (const cellIndex of indicesToRemove) {
         const originalValue: number = state.solution[cellIndex]!
         state.givens[cellIndex] = 0
         solutionBuffer.set(state.givens)
-
-        for (const idx of clusterCellIndices) {
-            if (!indicesToRemoveSet.has(idx)) {
-                solutionBuffer[idx] = state.solution[idx]!
-            }
-        }
 
         const possibilitiesMap: PossibilitiesMap = createPossibilitiesMap(
             state.blockSize,

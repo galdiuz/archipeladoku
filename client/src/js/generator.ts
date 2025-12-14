@@ -1003,9 +1003,12 @@ function solveWithLogic(
 
     if (state.difficulty >= 3) {
         functionsToApply.push(() => applyNakedPairs(solution, possibilitiesMap, areaIndices))
+        functionsToApply.push(() => applyNakedTriples(solution, possibilitiesMap, areaIndices))
+    }
+
+    if (state.difficulty >= 4) {
         functionsToApply.push(() => applyHiddenPairs(solution, possibilitiesMap, areaIndices, state))
-        // TODO: Split naked and hidden pairs into separate difficulties
-        // TODO: naked triples, hidden triples
+        functionsToApply.push(() => applyHiddenTriples(solution, possibilitiesMap, areaIndices, state))
     }
 
     while (madeProgress) {
@@ -1344,6 +1347,79 @@ function applyNakedPairs(
 }
 
 
+function applyNakedTriples(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    areaIndices: CellIndex[][],
+): boolean {
+    let madeProgress = false
+
+    for (const area of areaIndices) {
+        const candidates: { index: number; mask: number }[] = []
+
+        for (const cellIndex of area) {
+            if (solution[cellIndex]! !== 0) continue
+
+            const mask = possibilitiesMap[cellIndex]!
+            const count = countSetBits(mask)
+
+            if (count >= 2 && count <= 3) {
+                candidates.push({ index: cellIndex, mask })
+            }
+        }
+
+        if (candidates.length < 3) {
+            continue
+        }
+
+        for (let i = 0; i < candidates.length - 2; i++) {
+            for (let j = i + 1; j < candidates.length - 1; j++) {
+                for (let k = j + 1; k < candidates.length; k++) {
+
+                    const c1 = candidates[i]!
+                    const c2 = candidates[j]!
+                    const c3 = candidates[k]!
+
+                    const unionMask = c1.mask | c2.mask | c3.mask
+
+                    if (countSetBits(unionMask) !== 3) {
+                        continue
+                    }
+
+                    const tripleIndices = [c1.index, c2.index, c3.index]
+                    const removeMask = ~unionMask
+
+                    for (const targetIndex of area) {
+                        if (tripleIndices.includes(targetIndex)) {
+                            continue
+                        }
+
+                        if (solution[targetIndex]! !== 0) {
+                            continue
+                        }
+
+                        const oldPossibilities = possibilitiesMap[targetIndex]!
+
+                        if ((oldPossibilities & unionMask) === 0) {
+                            continue
+                        }
+
+                        const newPossibilities = oldPossibilities & removeMask
+
+                        if (newPossibilities !== oldPossibilities) {
+                            possibilitiesMap[targetIndex] = newPossibilities
+                            madeProgress = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
 function applyHiddenPairs(
     solution: Int32Array,
     possibilitiesMap: PossibilitiesMap,
@@ -1399,6 +1475,92 @@ function applyHiddenPairs(
                     if (newPossibilities !== oldPossibilities) {
                         possibilitiesMap[cellIndex] = newPossibilities
                         madeProgress = true
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
+function applyHiddenTriples(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    areaIndices: CellIndex[][],
+    state: ClusterGenerationState,
+): boolean {
+    let madeProgress = false
+    const positions: number[][] = Array.from({ length: state.blockSize + 1 }, () => [])
+
+    for (const area of areaIndices) {
+        for (let n = 1; n <= state.blockSize; n++) {
+            positions[n]!.length = 0
+        }
+
+        for (const cellIndex of area) {
+            if (solution[cellIndex]! !== 0) continue
+
+            const possibilities = possibilitiesMap[cellIndex]!
+            for (let n = 1; n <= state.blockSize; n++) {
+                if ((possibilities & (1 << (n - 1))) !== 0) {
+                    positions[n]!.push(cellIndex)
+                }
+            }
+        }
+
+        const candidateNumbers: number[] = []
+        for (let n = 1; n <= state.blockSize; n++) {
+            const count = positions[n]!.length
+            if (count >= 2 && count <= 3) {
+                candidateNumbers.push(n)
+            }
+        }
+
+        if (candidateNumbers.length < 3) {
+            continue
+        }
+
+        for (let i = 0; i < candidateNumbers.length - 2; i++) {
+            for (let j = i + 1; j < candidateNumbers.length - 1; j++) {
+                for (let k = j + 1; k < candidateNumbers.length; k++) {
+
+                    const n1 = candidateNumbers[i]!
+                    const n2 = candidateNumbers[j]!
+                    const n3 = candidateNumbers[k]!
+
+                    const cells1 = positions[n1]!
+                    const cells2 = positions[n2]!
+                    const cells3 = positions[n3]!
+
+                    const unionCells: number[] = [...cells1]
+
+                    for (const idx of cells2) {
+                        if (!unionCells.includes(idx)) {
+                            unionCells.push(idx)
+                        }
+                    }
+                    for (const idx of cells3) {
+                        if (!unionCells.includes(idx)) {
+                            unionCells.push(idx)
+                        }
+                    }
+
+                    if (unionCells.length !== 3) {
+                        continue
+                    }
+
+                    const keepMask = (1 << (n1 - 1)) | (1 << (n2 - 1)) | (1 << (n3 - 1))
+
+                    for (const cellIndex of unionCells) {
+                        const oldPossibilities = possibilitiesMap[cellIndex]!
+                        const newPossibilities = oldPossibilities & keepMask
+
+                        if (newPossibilities !== oldPossibilities) {
+                            possibilitiesMap[cellIndex] = newPossibilities
+                            madeProgress = true
+                        }
                     }
                 }
             }

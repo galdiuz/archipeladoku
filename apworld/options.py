@@ -25,9 +25,10 @@ class NumberOfBoards(Range):
 class Difficulty(Choice):
     """The overall difficulty level of the puzzle."""
     display_name = "Difficulty"
-    option_easy = 1
-    option_medium = 2
-    option_hard = 3
+    option_beginner = 1
+    option_easy = 2
+    option_medium = 3
+    option_hard = 4
     default = 2
 
 

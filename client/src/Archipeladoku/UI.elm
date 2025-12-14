@@ -1783,9 +1783,10 @@ viewMenu model =
                     , HA.style "flex-direction" "row"
                     , HA.style "gap" "0.5em"
                     ]
-                    [ viewRadioButton 1 model.difficulty "difficulty" DifficultyChanged (\_ -> "Easy")
-                    , viewRadioButton 2 model.difficulty "difficulty" DifficultyChanged (\_ -> "Medium")
-                    , viewRadioButton 3 model.difficulty "difficulty" DifficultyChanged (\_ -> "Hard")
+                    [ viewRadioButton 1 model.difficulty "difficulty" DifficultyChanged (\_ -> "Beginner")
+                    , viewRadioButton 2 model.difficulty "difficulty" DifficultyChanged (\_ -> "Easy")
+                    , viewRadioButton 3 model.difficulty "difficulty" DifficultyChanged (\_ -> "Medium")
+                    , viewRadioButton 4 model.difficulty "difficulty" DifficultyChanged (\_ -> "Hard")
                     ]
                 ]
             , Html.div

@@ -42,10 +42,9 @@ class ArchipeladokuWorld(World):
 
             self.clusters[self.player][idx] = cluster
 
-        initial_unlock_count = utils.get_initial_unlock_count(self.options.block_size.value)
-
         self.block_unlock_order[self.player] = utils.build_block_unlock_order(
-            initial_unlock_count,
+            self.options.block_size.value,
+            self.options.number_of_boards.value,
             self.clusters[self.player],
             self.random,
         )
@@ -56,28 +55,24 @@ class ArchipeladokuWorld(World):
         menu = Region("Menu", self.player, self.multiworld)
         self.multiworld.regions.append(menu)
 
-        initial_unlock_count = utils.get_initial_unlock_count(self.options.block_size.value)
-
+        initial_unlock_count = self.options.block_size.value
         initial_blocks = set(self.block_unlock_order[self.player][:initial_unlock_count])
-        block_cluster_map = defaultdict(list)
-
-        for cluster in self.clusters[self.player].values():
-            for block in cluster.blocks:
-                block_cluster_map[block].append(cluster.blocks.difference(initial_blocks))
-
         cluster_unlock_requirements = utils.calculate_cluster_unlock_requirements(
             self.clusters[self.player],
             self.block_unlock_order[self.player],
             initial_unlock_count,
         )
 
-        blocks_added = set()
+        block_region_map = {}
+        block_cluster_map = defaultdict(list)
+        for cluster in self.clusters[self.player].values():
+            for block in cluster.blocks:
+                for position in cluster.positions:
+                    block_cluster_map[block].append(position)
 
         for cluster in self.clusters[self.player].values():
-            # TODO: Name as Board/Cluster based on number of positions
             region = Region(f"Board {cluster.id}", self.player, self.multiworld)
             self.multiworld.regions.append(region)
-
             connection = menu.connect(region)
 
             match self.options.block_unlocks:
@@ -86,66 +81,71 @@ class ArchipeladokuWorld(World):
                         state.has("Progressive Block", self.player, unlock_req) if unlock_req > 0 else True
 
                 case options.BlockUnlocks.option_shuffled:
-                    connection.access_rule = lambda state: True
+                    cluster_blocks = cluster.blocks.difference(initial_blocks)
+                    block_names = [utils.block_item_name(row, col) for (row, col) in cluster_blocks]
+
+                    connection.access_rule = lambda state, block_names=block_names: \
+                        state.has_all(block_names, self.player)
 
                 case _:
                     raise ValueError("Invalid block unlock option")
 
+            # Add board locations
             for (row, col) in cluster.positions:
                 loc = ArchipeladokuLocation(
                     self.player,
-                    "Solve " + utils.board_name(row, col),
+                    utils.board_name(row, col),
                     utils.board_id(row, col),
                     region,
                 )
                 region.locations.append(loc)
 
-                match self.options.block_unlocks:
-                    case options.BlockUnlocks.option_fixed:
-                        loc.access_rule = lambda state: True
+                # Add row and column locations
+                for offset in range(self.options.block_size.value):
+                    loc = ArchipeladokuLocation(
+                        self.player,
+                        utils.row_name(row + offset, col),
+                        utils.row_id(row + offset, col),
+                        region,
+                    )
+                    region.locations.append(loc)
 
-                    case options.BlockUnlocks.option_shuffled:
-                        cluster_blocks = cluster.blocks.difference(initial_blocks)
-                        def board_is_unlocked(state, cluster_blocks=cluster_blocks):
-                            block_names = [utils.block_name(row, col) for (row, col) in cluster_blocks]
-                            return state.has_all(block_names, self.player)
+                    loc = ArchipeladokuLocation(
+                        self.player,
+                        utils.col_name(row, col + offset),
+                        utils.col_id(row, col + offset),
+                        region,
+                    )
+                    region.locations.append(loc)
 
-                        loc.access_rule = board_is_unlocked
-
-                    case _:
-                        raise ValueError("Invalid block unlock option")
-
+            # Add block locations
             for (row, col) in cluster.blocks:
-                if (row, col) in blocks_added:
-                    continue
+                block_clusters = block_cluster_map[(row, col)]
+                if block_region_map.get((row, col)) is None:
+                    if len(block_clusters) > 1:
+                        block_region = Region(
+                            f"Block {row},{col} Overlap",
+                            self.player,
+                            self.multiworld,
+                        )
+                        self.multiworld.regions.append(block_region)
+                        connection = region.connect(block_region)
+                        block_region_map[(row, col)] = block_region
 
-                blocks_added.add((row, col))
+                    else:
+                        block_region = region
 
-                loc = ArchipeladokuLocation(
-                    self.player,
-                    "Solve " + utils.block_name(row, col),
-                    utils.block_id(row, col),
-                    region,
-                )
-                region.locations.append(loc)
+                    loc = ArchipeladokuLocation(
+                        self.player,
+                        utils.block_name(row, col),
+                        utils.block_id(row, col),
+                        block_region,
+                    )
+                    block_region.locations.append(loc)
 
-                match self.options.block_unlocks:
-                    case options.BlockUnlocks.option_fixed:
-                        loc.access_rule = lambda state: True
-
-                    case options.BlockUnlocks.option_shuffled:
-                        def block_is_unlocked(state, cluster_blocks=block_cluster_map[(row, col)]):
-                            for blocks in cluster_blocks:
-                                block_names = [utils.block_name(row, col) for (row, col) in blocks]
-                                if state.has_all(block_names, self.player):
-                                    return True
-
-                            return False
-
-                        loc.access_rule = block_is_unlocked
-
-                    case _:
-                        raise ValueError("Invalid block unlock option")
+                elif len(block_clusters) > 1:
+                    block_region = block_region_map[(row, col)]
+                    connection = region.connect(block_region)
 
         victory_location = ArchipeladokuLocation(
             self.player,
@@ -172,7 +172,7 @@ class ArchipeladokuWorld(World):
             case options.BlockUnlocks.option_shuffled:
                 victory_location.access_rule = lambda state: \
                     state.has_all(
-                        [utils.block_name(row, col) for (row, col) in self.block_unlock_order[self.player][initial_unlock_count:] if row > 0],
+                        [utils.block_item_name(row, col) for (row, col) in self.block_unlock_order[self.player][initial_unlock_count:] if row > 0],
                         self.player,
                     )
 
@@ -185,9 +185,11 @@ class ArchipeladokuWorld(World):
 
     def create_items(self) -> None:
 
-        initial_unlock_count = utils.get_initial_unlock_count(self.options.block_size.value)
-        board_count = self.options.number_of_boards.value
-        fillers = initial_unlock_count + board_count
+        initial_unlock_count = self.options.block_size.value
+        fillers = utils.get_filler_count(
+            self.options.block_size.value,
+            self.options.number_of_boards.value,
+        )
 
         for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
             match self.options.block_unlocks:
@@ -197,7 +199,7 @@ class ArchipeladokuWorld(World):
 
                 case options.BlockUnlocks.option_shuffled:
                     item = ArchipeladokuItem(
-                        utils.block_name(row, col),
+                        utils.block_item_name(row, col),
                         ItemClassification.progression,
                         utils.block_id(row, col),
                         self.player,
@@ -214,8 +216,6 @@ class ArchipeladokuWorld(World):
 
     def fill_slot_data(self) -> Dict[str, Any]:
 
-        initial_unlock_count = utils.get_initial_unlock_count(self.options.block_size.value)
-
         return {
             "blockSize": self.options.block_size.value,
             "blockUnlockOrder": self.block_unlock_order[self.player],
@@ -223,7 +223,6 @@ class ArchipeladokuWorld(World):
             "clusters": [cluster.positions for cluster in self.clusters[self.player].values()],
             "difficulty": self.options.difficulty.value,
             "seed": self.random.getrandbits(32),
-            "unlockedBlocks": initial_unlock_count,
         }
 
 
@@ -268,6 +267,7 @@ class ArchipeladokuWorld(World):
         weights = {
             "Solve Selected Cell": self.options.solve_selected_cell_weight.value,
             "Solve Random Cell": self.options.solve_random_cell_weight.value,
+            "Nothing": self.options.nothing_weight.value,
         }
 
         if all(weight == 0 for weight in weights.values()):

@@ -37,17 +37,14 @@ def block_size_to_overlap(block_size: int) -> (int, int):
         case _: raise ValueError("Unsupported block size")
 
 
-def get_initial_unlock_count(block_size: int) -> int:
-    """Get the initial number of unlocked blocks."""
+def get_filler_count(block_size: int, number_of_boards: int) -> int:
+    """Calculate the number of filler items needed."""
 
-    [ block_rows, block_cols ] = block_size_to_dimensions(block_size)
-    [ overlap_rows, overlap_cols ] = block_size_to_overlap(block_size)
-
-    if overlap_rows % block_rows == 0 and overlap_cols % block_cols == 0:
-        return block_size * 2 - 1
-
-    else:
-        return block_size * 2
+    return sum([
+        block_size, # Initial blocks
+        number_of_boards, # One per board
+        number_of_boards * block_size * 2, # One per row and column
+    ])
 
 
 def position_boards(block_size: int, number_of_boards: int) -> list[tuple[int, int]]:
@@ -111,32 +108,36 @@ def group_positions(block_size: int, positions: list[tuple[int, int]]) -> dict[i
 
 
 def build_block_unlock_order(
-    unlocked: int,
+    block_size: int,
+    number_of_boards: int,
     clusters: dict[int, Cluster],
     rng: random.Random,
 ) -> list[tuple[int, int]]:
     """Determine the order in which blocks are unlocked."""
 
-    fillers = set([(-i, -i) for i in range(1, unlocked + 1)])
+    filler_count = get_filler_count(block_size, number_of_boards)
+    fillers = set([(-i, -i) for i in range(1, filler_count + 1)])
+    assigned_blocks = set()
     remaining_blocks = set([block for cluster in clusters.values() for block in cluster.blocks])
-    block_order_clusters = build_block_order_clusters(clusters)
-    credits = unlocked
+    block_order_clusters = build_block_order_clusters(block_size, clusters)
+    credits = block_size
     order = []
 
     while len(block_order_clusters) > 0:
         weights = []
         for cluster in block_order_clusters.values():
-            if cluster.remaining > credits:
+            remaining = len(cluster.blocks.intersection(remaining_blocks))
+            if remaining > credits:
                 weights.append(0)
 
             elif (1, 1) in cluster.blocks:
                 weights.append(100000000)
 
             else:
-                weights.append(credits - cluster.remaining + 1)
+                weights.append(credits - remaining + 1)
 
         target = rng.choices(list(block_order_clusters.values()), weights=weights)[0]
-        remaining_credits = credits - target.remaining
+        remaining_credits = credits - len(target.blocks)
         remaining_blocks_without_target = remaining_blocks.difference(target.blocks)
         target_blocks_to_add = target.blocks.intersection(remaining_blocks)
         random_budget = rng.randint(0, min(remaining_credits, len(remaining_blocks_without_target)))
@@ -145,17 +146,18 @@ def build_block_unlock_order(
         shuffled_blocks = list(target_blocks_to_add) + random_blocks
         rng.shuffle(shuffled_blocks)
 
-        credits = remaining_credits + target.reward - len(random_blocks)
+        credits = remaining_credits + len(target.blocks) + target.reward - len(random_blocks)
         order.extend(shuffled_blocks)
         remaining_blocks = remaining_blocks_without_random
 
-        if len(order) >= unlocked and len(fillers) > 0:
+        if len(fillers) > 0:
             remaining_blocks.update(fillers)
             fillers = set()
 
+        assigned_blocks.update(target_blocks_to_add)
         del block_order_clusters[target.id]
         for cluster in block_order_clusters.values():
-            cluster.remaining = len(cluster.blocks.intersection(remaining_blocks))
+            cluster.blocks.difference_update(assigned_blocks)
 
     order = [block for block in order if block[0] >= 0]
 
@@ -167,26 +169,21 @@ class BlockOrderCluster:
     id: int
     blocks: set[tuple[int, int]]
     reward: int
-    remaining: int
 
 
 def build_block_order_clusters(
+    block_size: int,
     clusters: dict[int, Cluster],
 ) -> dict[int, BlockOrderCluster]:
     """Build a mapping of clusters for use in block ordering."""
 
-    remaining_blocks = set([block for cluster in clusters.values() for block in cluster.blocks])
     block_order_clusters = {}
 
     for cluster in clusters.values():
-        blocks = cluster.blocks.intersection(remaining_blocks)
-        remaining_blocks.difference_update(blocks)
-
         block_order_clusters[cluster.id] = BlockOrderCluster(
             id = cluster.id,
-            blocks = blocks,
-            reward = len(blocks) + 1,
-            remaining = len(blocks),
+            blocks = cluster.blocks.copy(),
+            reward = len(cluster.positions) + len(cluster.positions) * block_size * 2,
         )
 
     return block_order_clusters
@@ -217,15 +214,35 @@ def block_id(row: int, col: int) -> int:
 
 
 def block_name(row: int, col: int) -> str:
+    return f"Solve Block {row_to_label(row)}{col}"
+
+
+def block_item_name(row: int, col: int) -> str:
     return f"Block {row_to_label(row)}{col}"
 
 
-def board_id(row: int, col: int) -> int:
+def row_id(row: int, col: int) -> int:
     return 2000000 + row * 1000 + col
 
 
+def row_name(row: int, col: int) -> str:
+    return f"Solve Row {row_to_label(row)}{col}"
+
+
+def col_id(row: int, col: int) -> int:
+    return 3000000 + row * 1000 + col
+
+
+def col_name(row: int, col: int) -> str:
+    return f"Solve Column {row_to_label(row)}{col}"
+
+
+def board_id(row: int, col: int) -> int:
+    return 4000000 + row * 1000 + col
+
+
 def board_name(row: int, col: int) -> str:
-    return f"Board {row_to_label(row)}{col}"
+    return f"Solve Board {row_to_label(row)}{col}"
 
 
 def row_to_label(row: int) -> str:
@@ -257,11 +274,15 @@ item_name_to_id = {
 }
 location_name_to_id = {
     # 1xxxyyy: Solve Block Locations, row xxx, col yyy, added below
-    # 2xxxyyy: Solve Board Locations, row xxx, col yyy, added below
+    # 1xxxyyy: Solve Row Locations, row xxx, col yyy, added below
+    # 1xxxyyy: Solve Column Locations, row xxx, col yyy, added below
+    # 4xxxyyy: Solve Board Locations, row xxx, col yyy, added below
 }
 max_width = 180 # Supports up to 98 blocks of size 16x16 with overlaps
 for row in range(1, max_width):
     for col in range(1, max_width):
-        item_name_to_id[block_name(row, col)] = block_id(row, col)
-        location_name_to_id["Solve " + block_name(row, col)] = board_id(row, col)
-        location_name_to_id["Solve " + board_name(row, col)] = board_id(row, col)
+        item_name_to_id[block_item_name(row, col)] = block_id(row, col)
+        location_name_to_id[block_name(row, col)] = block_id(row, col)
+        location_name_to_id[row_name(row, col)] = row_id(row, col)
+        location_name_to_id[col_name(row, col)] = col_id(row, col)
+        location_name_to_id[board_name(row, col)] = board_id(row, col)

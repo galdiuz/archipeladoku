@@ -47,12 +47,20 @@ class SolveSelectedCellWeight(Range):
     display_name = "Filler Weight: Solve Selected Cell"
     range_start = 0
     range_end = 100
-    default = 30
+    default = 10
 
 
 class SolveRandomCellWeight(Range):
     """Weight (chance) that Solve Random Cell is selected for a filler item."""
     display_name = "Filler Weight: Solve Random Cell"
+    range_start = 0
+    range_end = 100
+    default = 20
+
+
+class NothingWeight(Range):
+    """Weight (chance) that Nothing is selected for a filler item."""
+    display_name = "Filler Weight: Nothing"
     range_start = 0
     range_end = 100
     default = 70
@@ -66,3 +74,4 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     block_unlocks: BlockUnlocks
     solve_selected_cell_weight: SolveSelectedCellWeight
     solve_random_cell_weight: SolveRandomCellWeight
+    nothing_weight: NothingWeight

@@ -13,19 +13,17 @@ encodeBoard board =
         , ( "givens", encodeCellsDict Encode.int board.givens )
         , ( "puzzleAreas", encodePuzzleAreas board.puzzleAreas )
         , ( "solution", encodeCellsDict Encode.int board.solution )
-        , ( "unlockCount", Encode.int board.unlockCount )
         , ( "unlockOrder", Encode.list (encodeTuple Encode.int Encode.int) board.unlockOrder )
         ]
 
 
 boardDecoder : Decode.Decoder Engine.Board
 boardDecoder =
-    Decode.map6 Engine.Board
+    Decode.map5 Engine.Board
         (Decode.field "blockSize" Decode.int)
         (Decode.field "givens" (cellsDictDecoder Decode.int))
         (Decode.field "puzzleAreas" puzzleAreasDecoder)
         (Decode.field "solution" (cellsDictDecoder Decode.int))
-        (Decode.field "unlockCount" Decode.int)
         (Decode.field "unlockOrder" (Decode.list (decodeTuple Decode.int Decode.int)))
 
 

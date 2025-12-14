@@ -53,7 +53,6 @@ interface BlockOrderCluster {
     id: number
     blocks: Map<number, Cell>
     reward: number
-    remaining: number
     weight: number
 }
 
@@ -83,7 +82,6 @@ interface Completed {
     givens: EncodedCellValue[]
     solution: EncodedCellValue[]
     puzzleAreas: EncodedPuzzleAreas
-    unlockCount: number
     unlockOrder: Cell[]
 }
 
@@ -181,7 +179,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
         ? args.blockUnlockOrder
         : buildBlockUnlockOrder(
             args.blockSize,
-            getInitialUnlockedCount(args.blockSize),
+            positions.length,
             puzzleAreas.blocks,
             clusters,
             rng
@@ -395,20 +393,21 @@ function buildClusters(positions: Cell[], rng: () => number): Cell[][] {
 
 function buildBlockUnlockOrder(
     blockSize: number,
-    initialUnlocked: number,
+    numberOfBoards: number,
     allBlocks: Area[],
     clusters: Cell[][],
     rng: () => number,
 ): Cell[] {
-    const blocksToAssign: Map<number, Cell> = new Map()
+    const assignedBlocks: Set<number> = new Set()
     const remainingBlocks: Map<number, Cell> = new Map()
     const blockOrderClusters: Map<number, BlockOrderCluster> = new Map()
-    const fillerCount = initialUnlocked
+    const fillerCount = blockSize // Initial blocks
+        + numberOfBoards // One per board
+        + numberOfBoards * blockSize * 2 // One per row and column
     let fillersAdded = false
 
     for (const block of allBlocks) {
         const key = getCellIndex(block.startRow, block.startCol)
-        blocksToAssign.set(key, [block.startRow, block.startCol])
         remainingBlocks.set(key, [block.startRow, block.startCol])
     }
 
@@ -418,40 +417,34 @@ function buildBlockUnlockOrder(
             id: i,
             blocks: new Map<number, Cell>(),
             reward: 0,
-            remaining: 0,
             weight: 0,
         }
         blockOrderClusters.set(i, blockOrderCluster)
 
         for (const [startRow, startCol] of cluster) {
             let boardBlocks = buildPuzzleAreas(blockSize, startRow, startCol).blocks
-            blockOrderCluster.reward += 1
+            blockOrderCluster.reward += 1 // Reward for solving the board
+            blockOrderCluster.reward += blockSize * 2 // Reward for solving rows and columns
 
             for (const block of boardBlocks) {
                 const blockKey = getCellIndex(block.startRow, block.startCol)
-                if (!blocksToAssign.has(blockKey)) {
-                    continue
-                }
-
                 blockOrderCluster.blocks.set(blockKey, [block.startRow, block.startCol])
-                blockOrderCluster.reward += 1
-                blockOrderCluster.remaining += 1
-                blocksToAssign.delete(blockKey)
             }
         }
     }
 
-    let credits: number = initialUnlocked
+    let credits: number = blockSize
     const unlockOrder: Cell[] = []
 
     while (blockOrderClusters.size > 0) {
         for (const cluster of blockOrderClusters.values()) {
-            if (cluster.remaining > credits) {
+            const remaining = intersectMaps(cluster.blocks, remainingBlocks).size
+            if (remaining > credits) {
                 cluster.weight = 0
             } else if (cluster.id === 0) {
                 cluster.weight = 1000000000
             } else {
-                cluster.weight = credits - cluster.remaining + 1
+                cluster.weight = credits - remaining + 1
             }
         }
 
@@ -459,7 +452,7 @@ function buildBlockUnlockOrder(
         const targetCluster = pickCluster(blockOrderClustersArray, rng)
         const targetBlocks = intersectMaps(targetCluster.blocks, remainingBlocks)
         const remainingBlocksExcludingTarget = diffMaps(remainingBlocks, targetCluster.blocks)
-        const remainingCredits = credits - targetCluster.remaining
+        const remainingCredits = credits - targetBlocks.size
         const randomBudgetMax = Math.min(remainingCredits, remainingBlocksExcludingTarget.size)
         const randomBudget = Math.floor(rng() * randomBudgetMax)
         const randomBlocks = randomSample(remainingBlocksExcludingTarget, randomBudget, rng)
@@ -474,14 +467,20 @@ function buildBlockUnlockOrder(
             remainingBlocks.delete(blockKey)
         }
 
+        appendToSet(assignedBlocks, targetCluster.blocks.keys())
         blockOrderClusters.delete(targetCluster.id)
-        credits = remainingCredits + targetCluster.reward - randomBlocks.size
+        credits = remainingCredits
+            + targetCluster.blocks.size
+            + targetCluster.reward
+            - randomBlocks.size
 
         for (const cluster of blockOrderClusters.values()) {
-            cluster.remaining = intersectMaps(cluster.blocks, remainingBlocks).size
+            for (const assignedBlockKey of assignedBlocks) {
+                cluster.blocks.delete(assignedBlockKey)
+            }
         }
 
-        if (!fillersAdded && unlockOrder.length >= initialUnlocked) {
+        if (!fillersAdded) {
             fillersAdded = true
             for (let i = -1; i > -fillerCount - 1; i--) {
                 remainingBlocks.set(i, [i, i])
@@ -1225,7 +1224,6 @@ function clusterStateToCompleted(state: ClusterGenerationState): Completed {
         givens: givens,
         puzzleAreas: encodedPuzzleAreas,
         solution: solution,
-        unlockCount: getInitialUnlockedCount(state.blockSize),
         unlockOrder: state.blockUnlockOrder,
     }
 }
@@ -1323,14 +1321,9 @@ function blockSizeToOverlap(blockSize: number): [number, number] {
 }
 
 
-function getInitialUnlockedCount(blockSize: number): number {
-    const [ blockRows, blockCols ] = blockSizeToDimensions(blockSize)
-    const [ overlapRows, overlapCols ] = blockSizeToOverlap(blockSize)
-
-    if (overlapRows % blockRows == 0 && overlapCols % blockCols == 0) {
-        return blockSize * 2 - 1
-    } else {
-        return blockSize * 2
+function appendToSet<T>(setA: Set<T>, setB: Iterable<T>): void {
+    for (const item of setB) {
+        setA.add(item)
     }
 }
 

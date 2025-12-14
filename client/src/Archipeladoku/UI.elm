@@ -46,6 +46,8 @@ type alias Model =
     , candidateMode : Bool
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
     , cellBoards : Dict ( Int, Int ) (List Engine.Area)
+    , cellCols : Dict ( Int, Int ) (List Engine.Area)
+    , cellRows : Dict ( Int, Int ) (List Engine.Area)
     , current : Dict ( Int, Int ) CellValue
     , difficulty : Int
     , errors : Dict ( Int, Int ) (Set Int)
@@ -65,6 +67,8 @@ type alias Model =
     , pendingItems : List Item
     , pendingScoutLocations : Set Int
     , pendingSolvedBlocks : Set ( Int, Int )
+    , pendingSolvedCols : Set ( Int, Int )
+    , pendingSolvedRows : Set ( Int, Int )
     , player : String
     , puzzleAreas : Engine.PuzzleAreas
     , scoutedItems : Dict Int Hint
@@ -374,6 +378,8 @@ init flags =
       , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
+      , cellCols = Dict.empty
+      , cellRows = Dict.empty
       , current = Dict.empty
       , difficulty = 2
       , errors = Dict.empty
@@ -393,6 +399,8 @@ init flags =
       , pendingItems = []
       , pendingScoutLocations = Set.empty
       , pendingSolvedBlocks = Set.empty
+      , pendingSolvedCols = Set.empty
+      , pendingSolvedRows = Set.empty
       , player = "Player1"
       , puzzleAreas =
             { blocks = []
@@ -593,6 +601,8 @@ update msg model =
                         ( { model
                             | cellBlocks = Engine.buildCellAreasMap board.puzzleAreas.blocks
                             , cellBoards = Engine.buildCellAreasMap board.puzzleAreas.boards
+                            , cellCols = Engine.buildCellAreasMap board.puzzleAreas.cols
+                            , cellRows = Engine.buildCellAreasMap board.puzzleAreas.rows
                             , blockSize = board.blockSize
                             , current = Dict.map (\_ v -> Given v) board.givens
                             , errors = Dict.empty
@@ -605,7 +615,7 @@ update msg model =
                           }
                         , Cmd.none
                         )
-                        (List.range 1 board.unlockCount)
+                        (List.range 1 board.blockSize)
                         |> updateState
 
                 Err err ->
@@ -619,7 +629,35 @@ update msg model =
                         (locationIds
                             |> List.filterMap
                                 (\id ->
-                                    if id >= 1000000 then
+                                    if id >= 1000000 && id < 2000000 then
+                                        Just (cellFromId id)
+
+                                    else
+                                        Nothing
+                                )
+                            |> Set.fromList
+                        )
+                , pendingSolvedCols =
+                    Set.union
+                        model.pendingSolvedCols
+                        (locationIds
+                            |> List.filterMap
+                                (\id ->
+                                    if id >= 3000000 && id < 4000000 then
+                                        Just (cellFromId id)
+
+                                    else
+                                        Nothing
+                                )
+                            |> Set.fromList
+                        )
+                , pendingSolvedRows =
+                    Set.union
+                        model.pendingSolvedRows
+                        (locationIds
+                            |> List.filterMap
+                                (\id ->
+                                    if id >= 2000000 && id < 3000000 then
                                         Just (cellFromId id)
 
                                     else
@@ -786,8 +824,8 @@ update msg model =
 
                 NumberKey number ->
                     case model.selectedCell of
-                        Just ( row, col ) ->
-                            if cellIsVisible model ( row, col ) then
+                        Just cell ->
+                            if cellIsVisible model cell && not (cellIsGiven model cell) then
                                 let
                                     newCurrent : Dict ( Int, Int ) CellValue
                                     newCurrent =
@@ -797,19 +835,19 @@ update msg model =
                                         else
                                             if model.candidateMode then
                                                 Dict.update
-                                                    ( row, col )
+                                                    cell
                                                     (toggleNumber number)
                                                     model.current
 
                                             else
                                                 Dict.insert
-                                                    ( row, col )
+                                                    cell
                                                     (Single number)
                                                     model.current
                                 in
                                 ( { model
                                     | current = newCurrent
-                                    , pendingCellChanges = Set.insert ( row, col ) model.pendingCellChanges
+                                    , pendingCellChanges = Set.insert cell model.pendingCellChanges
                                   }
                                 , Cmd.none
                                 )
@@ -983,7 +1021,7 @@ update msg model =
                                             [ "Solve Selected Cell item at Cell "
                                             , rowToLabel (Tuple.first cell)
                                             , String.fromInt (Tuple.second cell)
-                                            , " could not be used because the cell is already given."
+                                            , " could not be used because the cell is already solved."
                                             ]
                                         )
                                         model.messages
@@ -1074,12 +1112,22 @@ updateStateItems model =
 
 updateStateSolvedBlocks : Model -> ( Model, Cmd Msg )
 updateStateSolvedBlocks model =
-    Set.foldl
-        (andThen << updateStateSolvedBlock)
-        ( { model | pendingSolvedBlocks = Set.empty }
-        , Cmd.none
-        )
-        model.pendingSolvedBlocks
+    ( { model
+        | pendingSolvedBlocks = Set.empty
+        , pendingSolvedCols = Set.empty
+        , pendingSolvedRows = Set.empty
+      }
+    , Cmd.none
+    )
+        |> setFoldlChain
+            (andThen << (updateStateSolvedArea model.cellBlocks))
+            model.pendingSolvedBlocks
+        |> setFoldlChain
+            (andThen << (updateStateSolvedArea model.cellRows))
+            model.pendingSolvedRows
+        |> setFoldlChain
+            (andThen << (updateStateSolvedArea model.cellCols))
+            model.pendingSolvedCols
 
 
 updateStateErrors : Model -> ( Model, Cmd Msg )
@@ -1102,13 +1150,18 @@ updateStateScoutLocations model =
         )
 
 
+listFoldlChain : (a -> b -> b) -> List a -> b -> b
+listFoldlChain fun list initial =
+    List.foldl fun initial list
+
+
+setFoldlChain : (a -> b -> b) -> Set a -> b -> b
+setFoldlChain fun set initial =
+    Set.foldl fun initial set
+
+
 updateStateCellChange : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
 updateStateCellChange updatedCell initialModel =
-    let
-        listFoldlChain : (a -> b -> b) -> List a -> b -> b
-        listFoldlChain fun list initial =
-            List.foldl fun initial list
-    in
     ( initialModel
     , Cmd.none
     )
@@ -1116,36 +1169,20 @@ updateStateCellChange updatedCell initialModel =
             (\block ->
                 andThen
                     (\model ->
-                        let
-                            blockCells : List ( Int, Int )
-                            blockCells =
-                                Engine.getAreaCells block
-                        in
-                        if List.all (cellIsSolved model) blockCells then
-                            let
-                                newModel : Model
-                                newModel =
-                                    { model
-                                        | current =
-                                            List.foldl
-                                                (\cell acc ->
-                                                    Dict.insert
-                                                        cell
-                                                        (Given (Dict.get cell model.solution |> Maybe.withDefault 0))
-                                                        acc
-                                                )
-                                                model.current
-                                                blockCells
-                                    }
-                            in
+                        if List.all (cellIsSolved model) (Engine.getAreaCells block) then
                             if model.gameIsLocal then
-                                ( newModel
+                                ( { model
+                                    | pendingSolvedBlocks =
+                                        Set.insert
+                                            ( block.startRow, block.startCol )
+                                            model.pendingSolvedBlocks
+                                  }
                                 , Cmd.none
                                 )
                                     |> andThen unlockNextBlock
 
                             else
-                                ( newModel
+                                ( model
                                 , checkLocation (cellToBlockId ( block.startRow, block.startCol ))
                                 )
 
@@ -1156,6 +1193,66 @@ updateStateCellChange updatedCell initialModel =
                     )
             )
             (Dict.get updatedCell initialModel.cellBlocks
+                |> Maybe.withDefault []
+            )
+        |> listFoldlChain
+            (\row ->
+                andThen
+                    (\model ->
+                        if List.all (cellIsSolved model) (Engine.getAreaCells row) then
+                            if model.gameIsLocal then
+                                ( { model
+                                    | pendingSolvedRows =
+                                        Set.insert
+                                            ( row.startRow, row.startCol )
+                                            model.pendingSolvedBlocks
+                                  }
+                                , Cmd.none
+                                )
+                                    |> andThen unlockNextBlock
+
+                            else
+                                ( model
+                                , checkLocation (cellToRowId ( row.startRow, row.startCol ))
+                                )
+
+                        else
+                            ( model
+                            , Cmd.none
+                            )
+                    )
+            )
+            (Dict.get updatedCell initialModel.cellRows
+                |> Maybe.withDefault []
+            )
+        |> listFoldlChain
+            (\col ->
+                andThen
+                    (\model ->
+                        if List.all (cellIsSolved model) (Engine.getAreaCells col) then
+                            if model.gameIsLocal then
+                                ( { model
+                                    | pendingSolvedCols =
+                                        Set.insert
+                                            ( col.startRow, col.startCol )
+                                            model.pendingSolvedBlocks
+                                  }
+                                , Cmd.none
+                                )
+                                    |> andThen unlockNextBlock
+
+                            else
+                                ( model
+                                , checkLocation (cellToColId ( col.startRow, col.startCol ))
+                                )
+
+                        else
+                            ( model
+                            , Cmd.none
+                            )
+                    )
+            )
+            (Dict.get updatedCell initialModel.cellCols
                 |> Maybe.withDefault []
             )
         |> listFoldlChain
@@ -1213,15 +1310,31 @@ unlockNextBlock model =
                             | lockedBlocks = remainingBlocks
                             , unlockedBlocks = Set.insert block model.unlockedBlocks
                         }
+
+                    boardsAtCell : Set ( Int, Int )
+                    boardsAtCell =
+                        unlockedBoardsAtCell unlockedModel block
                 in
                 ( { unlockedModel
                     | pendingScoutLocations =
                         unlockedModel.pendingScoutLocations
                             |> Set.insert (cellToBlockId block)
                             |> Set.union
-                                (unlockedBoardsAtCell unlockedModel block
-                                    |> Set.map cellToBoardId
+                                (boardsAtCell
+                                    |> Set.toList
+                                    |> List.concatMap
+                                        (\( row, col ) ->
+                                            List.range 0 (model.blockSize - 1)
+                                                |> List.concatMap
+                                                    (\offset ->
+                                                        [ cellToRowId ( row + offset, col )
+                                                        , cellToColId ( row, col + offset )
+                                                        ]
+                                                    )
+                                        )
+                                    |> Set.fromList
                                 )
+                            |> Set.union (Set.map cellToBoardId boardsAtCell)
                     , messages =
                         if model.gameIsLocal then
                             addLocalMessage
@@ -1244,24 +1357,27 @@ unlockNextBlock model =
                     ( rand, newSeed ) =
                         Random.step (Random.int 0 99) model.seed
 
-                    item : Item
+                    item : Maybe Item
                     item =
-                        if rand < 70 then
-                            SolveRandomCell
+                        if rand < 10 then
+                            Just SolveSelectedCell
+
+                        else if rand < 30 then
+                            Just SolveRandomCell
 
                         else
-                            SolveSelectedCell
+                            Nothing
                 in
                 ( { model
                     | lockedBlocks = remainingBlocks
                     , solveRandomCellUses =
-                        if item == SolveRandomCell then
+                        if item == Just SolveRandomCell then
                             model.solveRandomCellUses + 1
 
                         else
                             model.solveRandomCellUses
                     , solveSelectedCellUses =
-                        if item == SolveSelectedCell then
+                        if item == Just SolveSelectedCell then
                             model.solveSelectedCellUses + 1
 
                         else
@@ -1270,11 +1386,14 @@ unlockNextBlock model =
                     , messages =
                         if model.gameIsLocal then
                             addLocalMessage
-                                (if item == SolveRandomCell then
+                                (if item == Just SolveRandomCell then
                                     "Unlocked a Solve Random Cell."
 
-                                 else
+                                 else if item == Just SolveSelectedCell then
                                     "Unlocked a Solve Selected Cell."
+
+                                 else
+                                     "Unlocked Nothing"
                                 )
                                 model.messages
 
@@ -1419,12 +1538,12 @@ updateStateItem item model =
             )
 
 
-updateStateSolvedBlock : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
-updateStateSolvedBlock ( row, col ) model =
+updateStateSolvedArea : Dict ( Int, Int ) (List Engine.Area) -> ( Int, Int ) -> Model -> ( Model, Cmd Msg )
+updateStateSolvedArea cellAreas ( row, col ) model =
     let
         cells : List ( Int, Int )
         cells =
-            Dict.get ( row, col ) model.cellBlocks
+            Dict.get ( row, col ) cellAreas
                 |> Maybe.withDefault []
                 |> List.Extra.find (\area -> area.startRow == row && area.startCol == col)
                 |> Maybe.map Engine.getAreaCells
@@ -1932,6 +2051,20 @@ viewInfoPanel model =
                             )
 
                         , List.map
+                            (viewRowInfo model)
+                            (Dict.get ( row, col ) model.cellRows
+                                |> Maybe.withDefault []
+                                |> List.sortBy .startCol
+                            )
+
+                        , List.map
+                            (viewColInfo model)
+                            (Dict.get ( row, col ) model.cellCols
+                                |> Maybe.withDefault []
+                                |> List.sortBy .startRow
+                            )
+
+                        , List.map
                             (viewBoardInfo model)
                             (Dict.get ( row, col ) model.cellBoards
                                 |> Maybe.withDefault []
@@ -1996,18 +2129,7 @@ viewCellInfo : Model -> ( Int, Int ) -> Html Msg
 viewCellInfo model ( row, col ) =
     Html.div
         []
-        [ Html.text
-            (String.concat
-                [ "Cell "
-                , rowToLabel row
-                , String.fromInt col
-                , " (r"
-                , String.fromInt row
-                , "c"
-                , String.fromInt col
-                , ")"
-                ]
-            )
+        [ viewCellLabel "Cell" row col
         ]
 
 
@@ -2017,18 +2139,7 @@ viewBlockInfo model block =
         [ HA.style "display" "flex"
         , HA.style "flex-direction" "column"
         ]
-        [ Html.text
-            (String.concat
-                [ "Block "
-                , rowToLabel block.startRow
-                , String.fromInt block.startCol
-                , " (r"
-                , String.fromInt block.startRow
-                , "c"
-                , String.fromInt block.startCol
-                , ")"
-                ]
-            )
+        [ viewCellLabel "Block" block.startRow block.startCol
 
         , if model.gameIsLocal then
             Html.text ""
@@ -2036,22 +2147,7 @@ viewBlockInfo model block =
           else
             case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.scoutedItems of
                 Just item ->
-                    Html.div
-                        []
-                        [ Html.text
-                            (String.concat
-                                [ "Reward: "
-                                , item.itemName
-                                , " ("
-                                , itemClassToString item.itemClass
-                                , ", "
-                                , item.playerName
-                                , ", "
-                                , item.gameName
-                                , ")"
-                                ]
-                            )
-                        ]
+                    viewRewardLabel item
 
                 Nothing ->
                     Html.div
@@ -2105,24 +2201,59 @@ viewBlockInfo model block =
         ]
 
 
+viewRowInfo : Model -> Engine.Area -> Html Msg
+viewRowInfo model row =
+    Html.div
+        [ HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        ]
+        [ viewCellLabel "Row" row.startRow row.startCol
+
+        , if model.gameIsLocal then
+            Html.text ""
+
+          else
+            case Dict.get (cellToRowId ( row.startRow, row.startCol )) model.scoutedItems of
+                Just item ->
+                    viewRewardLabel item
+
+                Nothing ->
+                    Html.div
+                        []
+                        [ Html.text "Reward: ???" ]
+        ]
+
+
+viewColInfo : Model -> Engine.Area -> Html Msg
+viewColInfo model col =
+    Html.div
+        [ HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        ]
+        [ viewCellLabel "Column" col.startRow col.startCol
+
+        , if model.gameIsLocal then
+            Html.text ""
+
+          else
+            case Dict.get (cellToColId ( col.startRow, col.startCol )) model.scoutedItems of
+                Just item ->
+                    viewRewardLabel item
+
+                Nothing ->
+                    Html.div
+                        []
+                        [ Html.text "Reward: ???" ]
+        ]
+
+
 viewBoardInfo : Model -> Engine.Area -> Html Msg
 viewBoardInfo model board =
     Html.div
         [ HA.style "display" "flex"
         , HA.style "flex-direction" "column"
         ]
-        [ Html.text
-            (String.concat
-                [ "Board "
-                , rowToLabel board.startRow
-                , String.fromInt board.startCol
-                , " (r"
-                , String.fromInt board.startRow
-                , "c"
-                , String.fromInt board.startCol
-                , ")"
-                ]
-            )
+        [ viewCellLabel "Board" board.startRow board.startCol
 
         , if model.gameIsLocal then
             Html.text ""
@@ -2130,29 +2261,62 @@ viewBoardInfo model board =
           else
             case Dict.get (cellToBoardId ( board.startRow, board.startCol )) model.scoutedItems of
                 Just item ->
-                    Html.div
-                        []
-                        [ Html.text
-                            (String.concat
-                                [ "Reward: "
-                                , item.itemName
-                                , " ("
-                                , itemClassToString item.itemClass
-                                , ", "
-                                , item.playerName
-                                , ", "
-                                , item.gameName
-                                , ")"
-                                ]
-                            )
-                        ]
+                    viewRewardLabel item
 
                 Nothing ->
                     Html.div
                         []
                         [ Html.text "Reward: ???" ]
+        ]
 
-        -- TODO: List unlock conditions
+
+viewCellLabel : String -> Int -> Int -> Html Msg
+viewCellLabel label row col =
+    Html.div
+        []
+        [ Html.text
+            (String.concat
+                [ label
+                , " "
+                , rowToLabel row
+                , String.fromInt col
+                , " "
+                ]
+            )
+        , Html.span
+            [ HA.style "color" "gray"
+            ]
+            [ Html.text
+                (String.concat
+                    [ "(r"
+                    , String.fromInt row
+                    , "c"
+                    , String.fromInt col
+                    , ")"
+                    ]
+                )
+            ]
+        ]
+
+
+viewRewardLabel : Hint -> Html Msg
+viewRewardLabel hint =
+    -- TODO: Strikethrough if obtained
+    Html.div
+        []
+        [ Html.text
+            (String.concat
+                [ "Reward: "
+                , hint.itemName
+                , " ("
+                , itemClassToString hint.itemClass
+                , ", "
+                , hint.playerName
+                , ", "
+                , hint.gameName
+                , ")"
+                ]
+            )
         ]
 
 
@@ -2355,9 +2519,19 @@ cellToBlockId ( row, col ) =
     1000000 + row * 1000 + col
 
 
+cellToRowId : ( Int, Int ) -> Int
+cellToRowId ( row, col ) =
+    2000000 + row * 1000 + col
+
+
+cellToColId : ( Int, Int ) -> Int
+cellToColId ( row, col ) =
+    3000000 + row * 1000 + col
+
+
 cellToBoardId : ( Int, Int ) -> Int
 cellToBoardId ( row, col ) =
-    2000000 + row * 1000 + col
+    4000000 + row * 1000 + col
 
 
 cellFromId : Int -> ( Int, Int )

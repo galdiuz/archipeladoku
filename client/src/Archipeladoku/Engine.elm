@@ -15,7 +15,6 @@ type alias Board =
     , givens : Dict ( Int, Int ) Int
     , puzzleAreas : PuzzleAreas
     , solution : Dict ( Int, Int ) Int
-    , unlockCount : Int
     , unlockOrder : List ( Int, Int )
     }
 
@@ -758,7 +757,6 @@ continueGeneration state =
                         , puzzleAreas = clusterState.puzzleAreas
                         , solution = clusterState.solution
                         , unlockOrder = clusterState.blockUnlockOrder
-                        , unlockCount = clusterState.unlockCount
                         }
 
                 cluster :: remainingClusters ->
@@ -776,7 +774,6 @@ continueGeneration state =
                             , puzzleAreas = newClusterState.puzzleAreas
                             , solution = newClusterState.solution
                             , unlockOrder = newClusterState.blockUnlockOrder
-                            , unlockCount = newClusterState.unlockCount
                             }
 
                     else

@@ -91,6 +91,7 @@ body {
     border-bottom: none;
     border-left: 1px solid #888888;
     border-right: none;
+    font-style: italic;
 }
 
 .cell.selected {
@@ -102,6 +103,7 @@ body {
 .cell.given {
     font-weight: 700;
     font-family: arial;
+    font-style: normal;
 }
 
 .cell.multi {

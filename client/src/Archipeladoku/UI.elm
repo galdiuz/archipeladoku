@@ -78,6 +78,7 @@ type alias Model =
     , solution : Dict ( Int, Int ) Int
     , solveRandomCellUses : Int
     , solveSelectedCellUses : Int -- TODO: Need to persist these counts
+    , solvedLocations : Set Int
     , unlockedBlocks : Set ( Int, Int )
     }
 
@@ -415,6 +416,7 @@ init flags =
       , solution = Dict.empty
       , solveRandomCellUses = 0
       , solveSelectedCellUses = 0
+      , solvedLocations = Set.empty
       , unlockedBlocks = Set.empty
       }
     , Cmd.none
@@ -1083,6 +1085,7 @@ updateState ( model, cmd ) =
                 |> andThen updateStateCellChanges
                 |> andThen updateStateItems
                 |> andThen updateStateSolvedBlocks
+                |> andThen updateStateCellChanges
                 |> andThen updateStateErrors
                 |> andThen updateStateScoutLocations
 
@@ -1120,13 +1123,13 @@ updateStateSolvedBlocks model =
     , Cmd.none
     )
         |> setFoldlChain
-            (andThen << (updateStateSolvedArea model.cellBlocks))
+            (andThen << (updateStateSolvedArea model.cellBlocks cellToBlockId))
             model.pendingSolvedBlocks
         |> setFoldlChain
-            (andThen << (updateStateSolvedArea model.cellRows))
+            (andThen << (updateStateSolvedArea model.cellRows cellToRowId))
             model.pendingSolvedRows
         |> setFoldlChain
-            (andThen << (updateStateSolvedArea model.cellCols))
+            (andThen << (updateStateSolvedArea model.cellCols cellToColId))
             model.pendingSolvedCols
 
 
@@ -1169,13 +1172,22 @@ updateStateCellChange updatedCell initialModel =
             (\block ->
                 andThen
                     (\model ->
-                        if List.all (cellIsSolved model) (Engine.getAreaCells block) then
+                        let
+                            blockId : Int
+                            blockId =
+                                cellToBlockId ( block.startRow, block.startCol )
+                        in
+                        if (not <|Set.member blockId model.solvedLocations)
+                            && List.all (cellIsSolved model) (Engine.getAreaCells block)
+                        then
                             if model.gameIsLocal then
                                 ( { model
                                     | pendingSolvedBlocks =
                                         Set.insert
                                             ( block.startRow, block.startCol )
                                             model.pendingSolvedBlocks
+                                    , solvedLocations =
+                                        Set.insert blockId model.solvedLocations
                                   }
                                 , Cmd.none
                                 )
@@ -1199,13 +1211,22 @@ updateStateCellChange updatedCell initialModel =
             (\row ->
                 andThen
                     (\model ->
-                        if List.all (cellIsSolved model) (Engine.getAreaCells row) then
+                        let
+                            rowId : Int
+                            rowId =
+                                cellToRowId ( row.startRow, row.startCol )
+                        in
+                        if (not <| Set.member rowId model.solvedLocations)
+                            && List.all (cellIsSolved model) (Engine.getAreaCells row)
+                        then
                             if model.gameIsLocal then
                                 ( { model
                                     | pendingSolvedRows =
                                         Set.insert
                                             ( row.startRow, row.startCol )
                                             model.pendingSolvedBlocks
+                                    , solvedLocations =
+                                        Set.insert rowId model.solvedLocations
                                   }
                                 , Cmd.none
                                 )
@@ -1229,13 +1250,22 @@ updateStateCellChange updatedCell initialModel =
             (\col ->
                 andThen
                     (\model ->
-                        if List.all (cellIsSolved model) (Engine.getAreaCells col) then
+                        let
+                            colId : Int
+                            colId =
+                                cellToColId ( col.startRow, col.startCol )
+                        in
+                        if (not <| Set.member colId model.solvedLocations)
+                            && List.all (cellIsSolved model) (Engine.getAreaCells col)
+                        then
                             if model.gameIsLocal then
                                 ( { model
                                     | pendingSolvedCols =
                                         Set.insert
                                             ( col.startRow, col.startCol )
                                             model.pendingSolvedBlocks
+                                    , solvedLocations =
+                                        Set.insert colId model.solvedLocations
                                   }
                                 , Cmd.none
                                 )
@@ -1259,9 +1289,19 @@ updateStateCellChange updatedCell initialModel =
             (\boardArea ->
                 andThen
                     (\model ->
-                        if List.all (cellIsSolved model) (Engine.getAreaCells boardArea) then
+                        let
+                            boardId : Int
+                            boardId =
+                                cellToBoardId ( boardArea.startRow, boardArea.startCol )
+                        in
+                        if (not <| Set.member boardId model.solvedLocations)
+                            && List.all (cellIsSolved model) (Engine.getAreaCells boardArea)
+                        then
                             if model.gameIsLocal then
-                                ( model
+                                ( { model
+                                    | solvedLocations =
+                                        Set.insert boardId model.solvedLocations
+                                  }
                                 , Cmd.none
                                 )
                                     |> andThen unlockNextBlock
@@ -1538,8 +1578,13 @@ updateStateItem item model =
             )
 
 
-updateStateSolvedArea : Dict ( Int, Int ) (List Engine.Area) -> ( Int, Int ) -> Model -> ( Model, Cmd Msg )
-updateStateSolvedArea cellAreas ( row, col ) model =
+updateStateSolvedArea :
+    Dict ( Int, Int ) (List Engine.Area)
+    -> (( Int, Int ) -> Int)
+    -> ( Int, Int )
+    -> Model
+    -> ( Model, Cmd Msg )
+updateStateSolvedArea cellAreas toId ( row, col ) model =
     let
         cells : List ( Int, Int )
         cells =
@@ -1560,6 +1605,10 @@ updateStateSolvedArea cellAreas ( row, col ) model =
                 )
                 model.current
                 cells
+        , pendingCellChanges =
+            Set.union (Set.fromList cells) model.pendingCellChanges
+        , solvedLocations =
+            Set.insert (toId ( row, col )) model.solvedLocations
       }
     , Cmd.none
     )

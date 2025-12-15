@@ -1,6 +1,8 @@
 :root {
     color-scheme: dark;
 
+    --color-bg: light-dark(#eeeeee, #222222);
+
     --h4-1: 0;
     --h4-2: 60;
     --h4-3: 120;
@@ -64,7 +66,7 @@
 }
 
 body {
-    background-color: light-dark(#eeeeee, #222222);
+    background-color: var(--color-bg);
     color: light-dark(#000000, #eeeeee);
     padding: 0;
     margin: 0;
@@ -72,10 +74,43 @@ body {
 
 .board {
     display: grid;
-    grid-auto-rows: 1.5em;
-    grid-auto-columns: 1.5em;
     font-size: 32px;
-    overflow: auto;
+    overflow: hidden;
+    flex-grow: 1;
+}
+
+.board-corner {
+    background-color: var(--color-bg);
+    transform-origin: 0 0;
+    z-index: 4;
+}
+
+.board-columns-header, .board-rows-header {
+    display: grid;
+    font-size: 0.75em;
+    transform-origin: 0 0;
+    background-color: var(--color-bg);
+}
+
+.board-columns-header {
+    grid-template-columns: subgrid;
+    grid-column: 2 / -1;
+    z-index: 3;
+}
+
+.board-rows-header {
+    grid-template-rows: subgrid;
+    grid-row: 2 / -1;
+    z-index: 2;
+}
+
+.board-cells {
+    display: grid;
+    transform-origin: 0 0;
+    grid-template-rows: subgrid;
+    grid-template-columns: subgrid;
+    grid-row: 2 / -1;
+    grid-column: 2 / -1;
 }
 
 .cell {
@@ -157,7 +192,9 @@ body {
     font-size: 0.3em;
 }
 
-.center {
+.center,
+.board-columns-header div,
+.board-rows-header div {
     display: flex;
     justify-content: center;
     align-items: center;

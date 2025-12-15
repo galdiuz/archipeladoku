@@ -374,7 +374,7 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { blockSize = 4
+    ( { blockSize = 9
       , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
@@ -1764,7 +1764,9 @@ viewMenu model =
                     , HA.style "flex-direction" "row"
                     , HA.style "gap" "0.5em"
                     ]
-                    [ viewNumberRadioButton 5 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    [ viewNumberRadioButton 1 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 3 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
+                    , viewNumberRadioButton 5 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
                     , viewNumberRadioButton 8 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
                     , viewNumberRadioButton 13 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
                     , viewNumberRadioButton 18 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
@@ -1852,44 +1854,55 @@ viewBoard model =
                 |> List.maximum
                 |> Maybe.withDefault 0
     in
-    Html.div
+    Html.node "panzoom-board-wrapper"
         [ HA.class "board"
         , HA.class <| "block-" ++ String.fromInt model.blockSize
+        , HA.style "grid-template-rows" ("repeat(" ++ String.fromInt (rows + 2) ++ ", 1.5em)")
+        , HA.style "grid-template-columns" ("repeat(" ++ String.fromInt (cols + 2) ++ ", 1.5em)")
         ]
-        (List.map
-            (\( row, col ) ->
-                if row == 0 && col == 0 then
-                    Html.text ""
-
-                else if row == 0 && col <= cols then
+        [ Html.div
+            [ HA.class "board-corner" ]
+            []
+        , Html.div
+            [ HA.class "board-columns-header" ]
+            (List.map
+                (\col ->
                     Html.div
                         [ HA.style "grid-row" "1"
-                        , HA.style "grid-column" (String.fromInt (col + 1))
-                        , HA.style "font-size" "0.75em"
-                        , HA.class "center"
+                        , HA.style "grid-column" (String.fromInt col)
                         ]
                         [ Html.text (String.fromInt col) ]
-
-                else if col == 0 && row <= rows then
+                )
+                (List.range 1 cols)
+            )
+        , Html.div
+            [ HA.class "board-rows-header" ]
+            (List.map
+                (\row ->
                     Html.div
-                        [ HA.style "grid-row" (String.fromInt (row + 1))
-                        , HA.style "grid-column" "1"
-                        , HA.style "font-size" "0.75em"
-                        , HA.class "center"
+                        [ HA.style "grid-column" "1"
+                        , HA.style "grid-row" (String.fromInt row)
                         ]
                         [ Html.text (rowToLabel row) ]
-
-                 else
+                )
+                (List.range 1 rows)
+            )
+        , Html.div
+            [ HA.class "board-cells" ]
+            (List.map
+                (\( row, col ) ->
                     viewCell model ( row, col )
+                )
+                (List.range 0 (rows + 1)
+                    |> List.concatMap
+                        (\row ->
+                            List.range 0 (cols + 1)
+                                |> List.map (Tuple.pair row)
+                        )
+                )
             )
-            (List.range 0 (rows + 1)
-                |> List.concatMap
-                    (\row ->
-                        List.range 0 (cols + 1)
-                            |> List.map (Tuple.pair row)
-                    )
-            )
-        )
+        ]
+
 
 
 viewCell : Model -> ( Int, Int ) -> Html Msg
@@ -1932,8 +1945,8 @@ viewCell model ( row, col ) =
     if cellIsAt ( row, col ) then
         Html.button
             [ HA.class "cell"
-            , HA.style "grid-row" (String.fromInt (row + 1))
-            , HA.style "grid-column" (String.fromInt (col + 1))
+            , HA.style "grid-row" (String.fromInt row)
+            , HA.style "grid-column" (String.fromInt col)
             , HAE.attributeMaybe
                 (\v ->
                     if isVisible then
@@ -1986,8 +1999,8 @@ viewCell model ( row, col ) =
 
     else
         Html.div
-            [ HA.style "grid-row" (String.fromInt (row + 1))
-            , HA.style "grid-column" (String.fromInt (col + 1))
+            [ HA.style "grid-row" (String.fromInt row)
+            , HA.style "grid-column" (String.fromInt col)
             , HA.classList
                 [ ( "block-border-top", cellIsAt ( row - 1, col ) )
                 , ( "block-border-left", cellIsAt ( row, col - 1 ) )

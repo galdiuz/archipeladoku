@@ -23,6 +23,8 @@ class PanzoomBoardWrapper extends HTMLElement {
             bounds: true,
             boundsPadding: 0.2,
             zoomDoubleClickSpeed: 1,
+            filterKey: () => true,
+            onTouch: () => false,
         })
 
         this.addEventListener('wheel', this.panzoomInstance.zoomWithWheel)
@@ -38,9 +40,8 @@ class PanzoomBoardWrapper extends HTMLElement {
 
     disconnectedCallback() {
         if (this.panzoomInstance) {
-            this.panzoomInstance.destroy()
-            this.panzoomInstance = null
             this.removeEventListener('wheel', this.panzoomInstance.zoomWithWheel)
+            this.panzoomInstance = null
         }
     }
 }

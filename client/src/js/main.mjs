@@ -61,6 +61,46 @@ ui.ports.goal?.subscribe(() => {
     client.goal()
 })
 
+ui.ports.moveCellIntoView.subscribe(cellId => {
+    const cellElement = document.getElementById(cellId)
+    const viewport = document.querySelector('panzoom-board-wrapper')
+
+    if (!cellElement || !viewport) {
+        return
+    }
+
+    const panzoom = viewport.panzoomInstance
+    const currentTransform = panzoom.getTransform()
+    const cellRect = cellElement.getBoundingClientRect()
+    const viewportRect = viewport.getBoundingClientRect()
+
+    const padding = 48 * currentTransform.scale
+    const headerOffset = 48 * currentTransform.scale
+
+    let deltaX = 0
+    let deltaY = 0
+
+    if (cellRect.left < viewportRect.left + padding + headerOffset) {
+        deltaX = viewportRect.left + padding + headerOffset - cellRect.left
+    } else if (cellRect.right > viewportRect.right - padding) {
+        deltaX = viewportRect.right - padding - cellRect.right
+    }
+
+    if (cellRect.top < viewportRect.top + padding + headerOffset) {
+        deltaY = viewportRect.top + padding + headerOffset - cellRect.top
+    } else if (cellRect.bottom > viewportRect.bottom - padding) {
+        deltaY = viewportRect.bottom - padding - cellRect.bottom
+    }
+
+    if (Math.abs(deltaX) > 0 || Math.abs(deltaY) > 0) {
+
+        const newX = currentTransform.x + deltaX
+        const newY = currentTransform.y + deltaY
+
+        panzoom.smoothMoveTo(newX, newY)
+    }
+})
+
 ui.ports.scoutLocations?.subscribe(ids => {
     try {
         client.scout(ids, 2)

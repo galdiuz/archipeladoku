@@ -14,6 +14,7 @@ import Html.Attributes.Extra as HAE
 import Html.Events as HE
 import Json.Decode as Decode
 import Json.Encode as Encode
+import Maybe.Extra
 import List.Extra
 import Random
 import Set exposing (Set)
@@ -26,6 +27,7 @@ port generateBoard : Encode.Value -> Cmd msg
 port goal : () -> Cmd msg
 port hintForItem : String -> Cmd msg
 port log : String -> Cmd msg
+port moveCellIntoView : String -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
 
@@ -139,7 +141,11 @@ type Item
 
 
 type Key
-    = BackspaceKey
+    = ArrowUpKey
+    | ArrowDownKey
+    | ArrowLeftKey
+    | ArrowRightKey
+    | BackspaceKey
     | NumberKey Int
     | ShiftKey
 
@@ -448,18 +454,26 @@ keyDownDecoder model =
         |> Decode.andThen
             (\code ->
                 let
-                    keyMap : Dict String ( String, Key )
+                    keyMap : Dict String ( String, Key, Bool )
                     keyMap =
-                        [ ( "Backspace", ( "Backspace", BackspaceKey ) )
-                        , ( "Delete", ( "Backspace", BackspaceKey ) )
-                        , ( "ShiftLeft", ( "Shift", ShiftKey ) )
-                        , ( "ShiftRight", ( "Shift", ShiftKey ) )
+                        [ ( "ArrowUp", ( "ArrowUp", ArrowUpKey, False ) )
+                        , ( "ArrowDown", ( "ArrowDown", ArrowDownKey, False ) )
+                        , ( "ArrowLeft", ( "ArrowLeft", ArrowLeftKey, False ) )
+                        , ( "ArrowRight", ( "ArrowRight", ArrowRightKey, False ) )
+                        , ( "KeyH", ( "ArrowLeft", ArrowLeftKey, False ) )
+                        , ( "KeyJ", ( "ArrowDown", ArrowDownKey, False ) )
+                        , ( "KeyK", ( "ArrowUp", ArrowUpKey, False ) )
+                        , ( "KeyL", ( "ArrowRight", ArrowRightKey, False ) )
+                        , ( "Backspace", ( "Backspace", BackspaceKey, True ) )
+                        , ( "Delete", ( "Backspace", BackspaceKey, True ) )
+                        , ( "ShiftLeft", ( "Shift", ShiftKey, True ) )
+                        , ( "ShiftRight", ( "Shift", ShiftKey, True ) )
                         ]
                         |> Dict.fromList
                 in
                 case Dict.get code keyMap of
-                    Just ( setKey, key ) ->
-                        if Set.member setKey model.heldKeys then
+                    Just ( setKey, key, lock ) ->
+                        if Set.member setKey model.heldKeys && lock then
                             Decode.fail code
 
                         else
@@ -798,6 +812,30 @@ update msg model =
 
         KeyPressed key ->
             case key of
+                ArrowUpKey ->
+                    ( model
+                    , Cmd.none
+                    )
+                        |> andThen (moveSelection ( -1, 0 ))
+
+                ArrowDownKey ->
+                    ( model
+                    , Cmd.none
+                    )
+                        |> andThen (moveSelection ( 1, 0 ))
+
+                ArrowLeftKey ->
+                    ( model
+                    , Cmd.none
+                    )
+                        |> andThen (moveSelection ( 0, -1 ))
+
+                ArrowRightKey ->
+                    ( model
+                    , Cmd.none
+                    )
+                        |> andThen (moveSelection ( 0, 1 ))
+
                 BackspaceKey ->
                     case model.selectedCell of
                         Just cell ->
@@ -875,6 +913,26 @@ update msg model =
 
         KeyReleased key ->
             case key of
+                ArrowUpKey ->
+                    ( model
+                    , Cmd.none
+                    )
+
+                ArrowDownKey ->
+                    ( model
+                    , Cmd.none
+                    )
+
+                ArrowLeftKey ->
+                    ( model
+                    , Cmd.none
+                    )
+
+                ArrowRightKey ->
+                    ( model
+                    , Cmd.none
+                    )
+
                 BackspaceKey ->
                     ( { model
                         | heldKeys = Set.remove "Backspace" model.heldKeys
@@ -1064,6 +1122,31 @@ update msg model =
 
         ToggleCandidateModePressed ->
             ( { model | candidateMode = not model.candidateMode }
+            , Cmd.none
+            )
+
+
+moveSelection : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
+moveSelection ( rowOffset, colOffset ) model =
+    case model.selectedCell of
+        Just ( row, col ) ->
+            let
+                selectedCell : ( Int, Int )
+                selectedCell =
+                    List.range 1 5
+                        |> List.map (\mult -> ( row + rowOffset * mult, col + colOffset * mult ))
+                        |> List.filter (\cell -> Dict.member cell model.solution)
+                        |> List.head
+                        |> Maybe.withDefault ( row, col )
+            in
+            ( { model
+                | selectedCell = Just selectedCell
+              }
+            , moveCellIntoView (cellHtmlId selectedCell)
+            )
+
+        Nothing ->
+            ( model
             , Cmd.none
             )
 
@@ -1993,7 +2076,8 @@ viewCell model ( row, col ) =
     in
     if cellIsAt ( row, col ) then
         Html.button
-            [ HA.class "cell"
+            [ HA.id (cellHtmlId ( row, col ))
+            , HA.class "cell"
             , HA.style "grid-row" (String.fromInt row)
             , HA.style "grid-column" (String.fromInt col)
             , HAE.attributeMaybe
@@ -2009,7 +2093,7 @@ viewCell model ( row, col ) =
                 )
             , HA.classList
                 [ ( "selected", model.selectedCell == Just ( row, col ) )
-                , ( "given", cellIsGiven model ( row, col ) )
+                , ( "given", cellIsGiven model ( row, col ) && isVisible )
                 , ( "block-border-top"
                   , not (cellIsAt ( row - 1, col ))
                     || List.any (.startRow >> (==) row) blocks
@@ -2575,6 +2659,11 @@ rowToLabelHelper row label =
                     |> Maybe.withDefault ""
         in
         rowToLabelHelper next (char ++ label)
+
+
+cellHtmlId : ( Int, Int ) -> String
+cellHtmlId ( row, col ) =
+    "cell-" ++ String.fromInt row ++ "-" ++ String.fromInt col
 
 
 cellToBlockId : ( Int, Int ) -> Int

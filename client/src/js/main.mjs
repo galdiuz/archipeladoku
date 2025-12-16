@@ -61,7 +61,7 @@ ui.ports.goal?.subscribe(() => {
     client.goal()
 })
 
-ui.ports.moveCellIntoView.subscribe(cellId => {
+ui.ports.moveCellIntoView?.subscribe(cellId => {
     const cellElement = document.getElementById(cellId)
     const viewport = document.querySelector('panzoom-board-wrapper')
 
@@ -134,6 +134,49 @@ ui.ports.hintForItem?.subscribe(itemName => {
 
 ui.ports.log?.subscribe(text => {
     console.log('[UI]', text)
+})
+
+ui.ports.triggerAnimation?.subscribe(data => {
+    const { ids, type } = data
+
+    ids.forEach((id, i) => {
+        const element = document.getElementById(id)
+        if (!element) {
+            return
+        }
+
+        if (type === 'shine') {
+            element.style.backgroundImage =
+                `linear-gradient(
+                    135deg,
+                    transparent 40%,
+                    rgba(255, 255, 255, 0.6) 50%,
+                    transparent 60%
+                )`
+            element.style.backgroundSize = '200% 100%'
+            element.style.backgroundRepeat = 'no-repeat'
+            element.style.backgroundPosition = '200% 0'
+
+            const keyframes = [
+                { backgroundPosition: '200% 0' },
+                { backgroundPosition: '-100% 0' }
+            ]
+            const options = {
+                duration: 500,
+                delay: i * 60,
+                easing: 'ease-in-out',
+            }
+
+            const animation = element.animate(keyframes, options)
+
+            animation.onfinish = () => {
+                element.style.backgroundImage = ''
+                element.style.backgroundSize = ''
+                element.style.backgroundRepeat = ''
+                element.style.backgroundPosition = ''
+            }
+        }
+    })
 })
 
 client.socket.on('disconnected', () => {

@@ -30,6 +30,7 @@ port log : String -> Cmd msg
 port moveCellIntoView : String -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
+port triggerAnimation : Encode.Value -> Cmd msg
 
 port receiveBoard : (Decode.Value -> msg) -> Sub msg
 port receiveCheckedLocations : (List Int -> msg) -> Sub msg
@@ -1693,7 +1694,12 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
         , solvedLocations =
             Set.insert (toId ( row, col )) model.solvedLocations
       }
-    , Cmd.none
+    , triggerAnimation
+        (Encode.object
+            [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
+            , ( "type", Encode.string "shine" )
+            ]
+        )
     )
 
 

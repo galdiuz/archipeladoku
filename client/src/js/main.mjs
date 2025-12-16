@@ -136,7 +136,7 @@ ui.ports.log?.subscribe(text => {
     console.log('[UI]', text)
 })
 
-ui.ports.triggerAnimation?.subscribe(data => {
+function triggerAnimation(data) {
     const { ids, type } = data
 
     ids.forEach((id, i) => {
@@ -175,9 +175,79 @@ ui.ports.triggerAnimation?.subscribe(data => {
                 element.style.backgroundRepeat = ''
                 element.style.backgroundPosition = ''
             }
+        } else if (type === 'shatter') {
+            const panzoom = document.querySelector('panzoom-board-wrapper').panzoomInstance
+            const scale = panzoom.getTransform().scale
+            const rect = element.getBoundingClientRect()
+            const width = rect.width
+            const height = rect.height
+
+            const rows = 3
+            const cols = 3
+            const shardWidth = Math.ceil(width / cols)
+            const shardHeight = Math.ceil(height / rows)
+
+            const container = document.body
+
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const shard = document.createElement('div')
+                    shard.classList.add('shard')
+                    shard.style.width = `${shardWidth}px`
+                    shard.style.height = `${shardHeight}px`
+
+                    const initialX = rect.left + window.scrollX + col * shardWidth
+                    const initialY = rect.top + window.scrollY + row * shardHeight
+
+                    shard.style.left = `${initialX}px`
+                    shard.style.top = `${initialY}px`
+
+                    container.appendChild(shard)
+
+                    const centerX = rect.left + width / 2
+                    const centerY = rect.top + height / 2
+                    const shardCenterX = initialX + shardWidth / 2
+                    const shardCenterY = initialY + shardHeight / 2
+
+
+                    let dirX = shardCenterX - centerX
+                    let dirY = shardCenterY - centerY
+
+                    const distance = Math.sqrt(dirX * dirX + dirY * dirY) || 1
+                    dirX = dirX / distance + (Math.random() - 0.5) * 0.5
+                    dirY = dirY / distance + (Math.random() - 0.5) * 0.5
+
+                    const travelDist = (50 + Math.random() * 50) * scale
+                    const rotation = -360 + Math.random() * 720
+
+                    const keyframes = [
+                        {
+                            transform: `translate(0px, 0px) rotate(0deg) scale(1)`,
+                            opacity: 1
+                        },
+                        {
+                            transform: `translate(${dirX * travelDist}px, ${dirY * travelDist}px) rotate(${rotation}deg) scale(0.5)`,
+                            opacity: 0
+                        }
+                    ]
+                    const options = {
+                        duration: 1500 + Math.random() * 500,
+                        easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+                        fill: 'forwards',
+                    }
+
+                    const animation = shard.animate(keyframes, options)
+
+                    animation.onfinish = () => {
+                        shard.remove()
+                    }
+                }
+            }
         }
     })
-})
+}
+
+ui.ports.triggerAnimation?.subscribe(triggerAnimation)
 
 client.socket.on('disconnected', () => {
     ui.ports.receiveConnectionStatus.send(false)

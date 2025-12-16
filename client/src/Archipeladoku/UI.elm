@@ -1438,6 +1438,18 @@ unlockNextBlock model =
                     boardsAtCell : Set ( Int, Int )
                     boardsAtCell =
                         unlockedBoardsAtCell unlockedModel block
+
+                    cells : List ( Int, Int )
+                    cells =
+                        Dict.get block model.cellBlocks
+                            |> Maybe.withDefault []
+                            |> List.Extra.find
+                                (\area ->
+                                    area.startRow == Tuple.first block
+                                        && area.startCol == Tuple.second block
+                                )
+                            |> Maybe.map Engine.getAreaCells
+                            |> Maybe.withDefault []
                 in
                 ( { unlockedModel
                     | pendingScoutLocations =
@@ -1473,7 +1485,12 @@ unlockNextBlock model =
                         else
                             model.messages
                   }
-                , Cmd.none
+                , triggerAnimation
+                    (Encode.object
+                        [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
+                        , ( "type", Encode.string "shatter" )
+                        ]
+                    )
                 )
 
             else

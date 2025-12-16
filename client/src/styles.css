@@ -200,6 +200,14 @@ body {
     align-items: center;
 }
 
+.shard {
+    position: absolute;
+    background-color: light-dark(#888888, #888888);
+    pointer-events: none;
+    z-index: 99;
+    will-change: transform, opacity;
+}
+
 .block-border-top {
     border-top: 2px solid #aaaaaa;
 }

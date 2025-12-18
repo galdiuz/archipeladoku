@@ -83,6 +83,7 @@ type alias Model =
     , solveSelectedCellUses : Int -- TODO: Need to persist these counts
     , solvedLocations : Set Int
     , unlockedBlocks : Set ( Int, Int )
+    , visibleCells : Set ( Int, Int )
     }
 
 
@@ -370,6 +371,14 @@ decodeGenerationProgress =
         (Decode.field "percent" Decode.float)
 
 
+encodeTriggerAnimation : String -> List ( Int, Int ) -> Encode.Value
+encodeTriggerAnimation animationType cells =
+    Encode.object
+        [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
+        , ( "type", Encode.string animationType )
+        ]
+
+
 main : Program Flags Model Msg
 main =
     Browser.element
@@ -425,6 +434,7 @@ init flags =
       , solveSelectedCellUses = 0
       , solvedLocations = Set.empty
       , unlockedBlocks = Set.empty
+      , visibleCells = Set.empty
       }
     , Cmd.none
     )
@@ -840,7 +850,7 @@ update msg model =
                 BackspaceKey ->
                     case model.selectedCell of
                         Just cell ->
-                            if cellIsVisible model cell && not (cellIsGiven model cell) then
+                            if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
                                 ( { model
                                     | current =
                                         Dict.remove cell model.current
@@ -866,7 +876,7 @@ update msg model =
                 NumberKey number ->
                     case model.selectedCell of
                         Just cell ->
-                            if cellIsVisible model cell && not (cellIsGiven model cell) then
+                            if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
                                 let
                                     newCurrent : Dict ( Int, Int ) CellValue
                                     newCurrent =
@@ -1015,7 +1025,7 @@ update msg model =
                                     Nothing
 
                                 _ ->
-                                    if cellIsVisible model cell then
+                                    if Set.member cell model.visibleCells then
                                         Just cell
 
                                     else
@@ -1226,15 +1236,13 @@ updateStateErrors model =
 
 updateStateScoutLocations : Model -> ( Model, Cmd Msg )
 updateStateScoutLocations model =
-    if Set.isEmpty model.pendingScoutLocations || model.gameIsLocal then
-        ( model
-        , Cmd.none
-        )
+    ( { model | pendingScoutLocations = Set.empty }
+    , if model.gameIsLocal then
+        Cmd.none
 
-    else
-        ( { model | pendingScoutLocations = Set.empty }
-        , scoutLocations (Set.toList model.pendingScoutLocations)
-        )
+      else
+        scoutLocations (Set.toList model.pendingScoutLocations)
+    )
 
 
 listFoldlChain : (a -> b -> b) -> List a -> b -> b
@@ -1427,71 +1435,7 @@ unlockNextBlock model =
     case model.lockedBlocks of
         block :: remainingBlocks ->
             if Tuple.first block > 0 then
-                let
-                    unlockedModel : Model
-                    unlockedModel =
-                        { model
-                            | lockedBlocks = remainingBlocks
-                            , unlockedBlocks = Set.insert block model.unlockedBlocks
-                        }
-
-                    boardsAtCell : Set ( Int, Int )
-                    boardsAtCell =
-                        unlockedBoardsAtCell unlockedModel block
-
-                    cells : List ( Int, Int )
-                    cells =
-                        Dict.get block model.cellBlocks
-                            |> Maybe.withDefault []
-                            |> List.Extra.find
-                                (\area ->
-                                    area.startRow == Tuple.first block
-                                        && area.startCol == Tuple.second block
-                                )
-                            |> Maybe.map Engine.getAreaCells
-                            |> Maybe.withDefault []
-                in
-                ( { unlockedModel
-                    | pendingScoutLocations =
-                        unlockedModel.pendingScoutLocations
-                            |> Set.insert (cellToBlockId block)
-                            |> Set.union
-                                (boardsAtCell
-                                    |> Set.toList
-                                    |> List.concatMap
-                                        (\( row, col ) ->
-                                            List.range 0 (model.blockSize - 1)
-                                                |> List.concatMap
-                                                    (\offset ->
-                                                        [ cellToRowId ( row + offset, col )
-                                                        , cellToColId ( row, col + offset )
-                                                        ]
-                                                    )
-                                        )
-                                    |> Set.fromList
-                                )
-                            |> Set.union (Set.map cellToBoardId boardsAtCell)
-                    , messages =
-                        if model.gameIsLocal then
-                            addLocalMessage
-                                (String.concat
-                                    [ "Unlocked Block at "
-                                    , rowToLabel (Tuple.first block)
-                                    , String.fromInt (Tuple.second block)
-                                    ]
-                                )
-                                model.messages
-
-                        else
-                            model.messages
-                  }
-                , triggerAnimation
-                    (Encode.object
-                        [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
-                        , ( "type", Encode.string "shatter" )
-                        ]
-                    )
-                )
+                unlockBlock block model
 
             else
                 let
@@ -1550,6 +1494,97 @@ unlockNextBlock model =
             )
 
 
+unlockBlock : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
+unlockBlock block model =
+    let
+        blockCells : Set ( Int, Int )
+        blockCells =
+            Dict.get block model.cellBlocks
+                |> Maybe.withDefault []
+                |> List.Extra.find
+                    (\area ->
+                        area.startRow == Tuple.first block
+                            && area.startCol == Tuple.second block
+                    )
+                |> Maybe.map Engine.getAreaCells
+                |> Maybe.withDefault []
+                |> Set.fromList
+
+        newVisibleCells : Set ( Int, Int )
+        newVisibleCells =
+            Set.union blockCells model.visibleCells
+
+        unlockedAreas :
+            Dict ( Int, Int ) (List Engine.Area)
+            -> (( Int, Int ) -> Int)
+            -> Set Int
+        unlockedAreas areaDict toId =
+            blockCells
+                |> Set.toList
+                |> List.filterMap
+                    (\cell ->
+                        Dict.get cell areaDict
+                    )
+                |> List.concat
+                |> List.filterMap
+                    (\area ->
+                        if
+                            Engine.getAreaCells area
+                                |> Set.fromList
+                                |> Set.Extra.isSubsetOf newVisibleCells
+                        then
+                            Just (toId ( area.startRow, area.startCol ))
+
+                        else
+                            Nothing
+                    )
+                |> Set.fromList
+
+        unlockedBoards : Set Int
+        unlockedBoards =
+            unlockedAreas model.cellBoards cellToBoardId
+
+        unlockedRows : Set Int
+        unlockedRows =
+            unlockedAreas model.cellRows cellToRowId
+
+        unlockedCols : Set Int
+        unlockedCols =
+            unlockedAreas model.cellCols cellToColId
+    in
+    ( { model
+        | lockedBlocks =
+            List.filter ((/=) block) model.lockedBlocks
+        , messages =
+            if model.gameIsLocal then
+                addLocalMessage
+                    (String.concat
+                        [ "Unlocked Block at "
+                        , rowToLabel (Tuple.first block)
+                        , String.fromInt (Tuple.second block)
+                        ]
+                    )
+                    model.messages
+
+            else
+                model.messages
+        , pendingScoutLocations =
+            model.pendingScoutLocations
+                |> Set.insert (cellToBlockId block)
+                |> Set.union (unlockedRows)
+                |> Set.union (unlockedCols)
+                |> Set.union (unlockedBoards)
+        , unlockedBlocks = Set.insert block model.unlockedBlocks
+        , visibleCells = newVisibleCells
+      }
+    , triggerAnimation
+        (Set.diff blockCells model.visibleCells
+            |> Set.toList
+            |> encodeTriggerAnimation "shatter"
+        )
+    )
+
+
 getBoardErrors : Model -> Dict ( Int, Int ) (Set Int)
 getBoardErrors model =
     List.foldl
@@ -1568,7 +1603,7 @@ getBoardErrors model =
                                 numbersInArea =
                                     areaCells
                                         |> List.filter ((/=) cell)
-                                        |> List.filter (cellIsVisible model)
+                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
                                         |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
                                         |> List.map cellValueToInts
                                         |> List.foldl Set.union Set.empty
@@ -1585,7 +1620,7 @@ getBoardErrors model =
                                 numbersInArea =
                                     areaCells
                                         |> List.filter ((/=) cell)
-                                        |> List.filter (cellIsVisible model)
+                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
                                         |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
                                         |> List.map cellValueToInts
                                         |> List.foldl Set.union Set.empty
@@ -1602,7 +1637,7 @@ getBoardErrors model =
                                 numbersInArea =
                                     areaCells
                                         |> List.filter ((/=) cell)
-                                        |> List.filter (cellIsVisible model)
+                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
                                         |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
                                         |> List.filterMap cellValueToInt
                                         |> Set.fromList
@@ -1641,28 +1676,8 @@ updateStateItem item model =
         ProgressiveBlock ->
             unlockNextBlock model
 
-        Block cell ->
-            let
-                unlockedModel : Model
-                unlockedModel =
-                    { model
-                        | lockedBlocks =
-                            List.filter ((/=) cell) model.lockedBlocks
-                            , unlockedBlocks =
-                                Set.insert cell model.unlockedBlocks
-                    }
-            in
-            ( { unlockedModel
-                | pendingScoutLocations =
-                    unlockedModel.pendingScoutLocations
-                        |> Set.insert (cellToBlockId cell)
-                        |> Set.union
-                            (unlockedBoardsAtCell unlockedModel cell
-                                |> Set.map cellToBoardId
-                            )
-              }
-            , Cmd.none
-            )
+        Block block ->
+            unlockBlock block model
 
         SolveSelectedCell ->
             ( { model
@@ -1711,12 +1726,7 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
         , solvedLocations =
             Set.insert (toId ( row, col )) model.solvedLocations
       }
-    , triggerAnimation
-        (Encode.object
-            [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
-            , ( "type", Encode.string "shine" )
-            ]
-        )
+    , triggerAnimation (encodeTriggerAnimation "shine" cells)
     )
 
 
@@ -1772,40 +1782,11 @@ cellIsSolved model cell =
             False
 
 
-cellIsVisible : Model -> ( Int, Int ) -> Bool
-cellIsVisible model cell =
-    Set.intersect
-        (Dict.get cell model.cellBlocks
-            |> Maybe.withDefault []
-            |> List.map (\blockArea -> ( blockArea.startRow, blockArea.startCol ))
-            |> Set.fromList
-        )
-        model.unlockedBlocks
-        |> Set.isEmpty
-        |> not
-
-
 cellIsGiven : Model -> ( Int, Int ) -> Bool
 cellIsGiven model cell =
     Dict.get cell model.current
         |> Maybe.map isGiven
         |> Maybe.withDefault False
-
-
-unlockedBoardsAtCell : Model -> ( Int, Int ) -> Set ( Int, Int )
-unlockedBoardsAtCell model cell =
-    Dict.get cell model.cellBoards
-        |> Maybe.withDefault []
-        |> List.map (\area -> ( area.startRow, area.startCol ))
-        |> List.filter
-            (\( boardRow, boardCol ) ->
-                Engine.buildPuzzleAreas model.blockSize boardRow boardCol
-                    |> .blocks
-                    |> List.map (\blockArea -> ( blockArea.startRow, blockArea.startCol ))
-                    |> Set.fromList
-                    |> Set.Extra.isSubsetOf model.unlockedBlocks
-            )
-        |> Set.fromList
 
 
 view : Model -> Html Msg
@@ -2074,7 +2055,7 @@ viewCell model ( row, col ) =
 
         isVisible : Bool
         isVisible =
-            cellIsVisible model ( row, col )
+            Set.member ( row, col ) model.visibleCells
 
         blockAbove : List Engine.Area
         blockAbove =

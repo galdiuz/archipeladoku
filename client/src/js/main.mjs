@@ -234,6 +234,7 @@ function triggerAnimation(data) {
                         duration: 1500 + Math.random() * 500,
                         easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
                         fill: 'forwards',
+                        delay: i * 100,
                     }
 
                     const animation = shard.animate(keyframes, options)

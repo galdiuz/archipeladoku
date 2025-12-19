@@ -455,15 +455,21 @@ subscriptions model =
         , receiveScoutedItems GotScoutedItems
         , Browser.Events.onKeyDown (keyDownDecoder model)
         , Browser.Events.onKeyUp keyUpDecoder
-        , Browser.Events.onKeyPress <| Decode.oneOf [ keyPressCodeDecoder, keyPressKeyDecoder ]
         ]
 
 
 keyDownDecoder : Model -> Decode.Decoder Msg
 keyDownDecoder model =
-    Decode.field "code" Decode.string
+    Decode.map2
+        (\code target ->
+            { code = code
+            , target = target
+            }
+        )
+        (Decode.field "code" Decode.string)
+        (Decode.at [ "target", "tagName" ] Decode.string)
         |> Decode.andThen
-            (\code ->
+            (\{ code, target } ->
                 let
                     keyMap : Dict String ( String, Key, Bool )
                     keyMap =
@@ -471,12 +477,38 @@ keyDownDecoder model =
                         , ( "ArrowDown", ( "ArrowDown", ArrowDownKey, False ) )
                         , ( "ArrowLeft", ( "ArrowLeft", ArrowLeftKey, False ) )
                         , ( "ArrowRight", ( "ArrowRight", ArrowRightKey, False ) )
+                        , ( "Backspace", ( "Backspace", BackspaceKey, False ) )
+                        , ( "Delete", ( "Backspace", BackspaceKey, False ) )
+                        , ( "Digit1", ( "1", NumberKey 1, False ) )
+                        , ( "Digit2", ( "2", NumberKey 2, False ) )
+                        , ( "Digit3", ( "3", NumberKey 3, False ) )
+                        , ( "Digit4", ( "4", NumberKey 4, False ) )
+                        , ( "Digit5", ( "5", NumberKey 5, False ) )
+                        , ( "Digit6", ( "6", NumberKey 6, False ) )
+                        , ( "Digit7", ( "7", NumberKey 7, False ) )
+                        , ( "Digit8", ( "8", NumberKey 8, False ) )
+                        , ( "Digit9", ( "9", NumberKey 9, False ) )
+                        , ( "Digit0", ( "0", NumberKey 10, False ) )
+                        , ( "KeyA", ( "A", NumberKey 11, False ) )
+                        , ( "KeyB", ( "B", NumberKey 12, False ) )
+                        , ( "KeyC", ( "C", NumberKey 13, False ) )
+                        , ( "KeyD", ( "D", NumberKey 14, False ) )
+                        , ( "KeyE", ( "E", NumberKey 15, False ) )
+                        , ( "KeyF", ( "F", NumberKey 16, False ) )
                         , ( "KeyH", ( "ArrowLeft", ArrowLeftKey, False ) )
                         , ( "KeyJ", ( "ArrowDown", ArrowDownKey, False ) )
                         , ( "KeyK", ( "ArrowUp", ArrowUpKey, False ) )
                         , ( "KeyL", ( "ArrowRight", ArrowRightKey, False ) )
-                        , ( "Backspace", ( "Backspace", BackspaceKey, True ) )
-                        , ( "Delete", ( "Backspace", BackspaceKey, True ) )
+                        , ( "Numpad1", ( "1", NumberKey 1, False ) )
+                        , ( "Numpad2", ( "2", NumberKey 2, False ) )
+                        , ( "Numpad3", ( "3", NumberKey 3, False ) )
+                        , ( "Numpad4", ( "4", NumberKey 4, False ) )
+                        , ( "Numpad5", ( "5", NumberKey 5, False ) )
+                        , ( "Numpad6", ( "6", NumberKey 6, False ) )
+                        , ( "Numpad7", ( "7", NumberKey 7, False ) )
+                        , ( "Numpad8", ( "8", NumberKey 8, False ) )
+                        , ( "Numpad9", ( "9", NumberKey 9, False ) )
+                        , ( "Numpad0", ( "0", NumberKey 10, False ) )
                         , ( "ShiftLeft", ( "Shift", ShiftKey, True ) )
                         , ( "ShiftRight", ( "Shift", ShiftKey, True ) )
                         ]
@@ -484,7 +516,7 @@ keyDownDecoder model =
                 in
                 case Dict.get code keyMap of
                     Just ( setKey, key, lock ) ->
-                        if Set.member setKey model.heldKeys && lock then
+                        if (Set.member setKey model.heldKeys && lock) || target == "INPUT" then
                             Decode.fail code
 
                         else
@@ -501,12 +533,6 @@ keyUpDecoder =
         |> Decode.andThen
             (\code ->
                 case code of
-                    "Backspace" ->
-                        Decode.succeed (KeyReleased BackspaceKey)
-
-                    "Delete" ->
-                        Decode.succeed (KeyReleased BackspaceKey)
-
                     "ShiftLeft" ->
                         Decode.succeed (KeyReleased ShiftKey)
 
@@ -516,77 +542,6 @@ keyUpDecoder =
                     _ ->
                         Decode.fail code
             )
-
-
-keyPressKeyDecoder : Decode.Decoder Msg
-keyPressKeyDecoder =
-    Decode.field "key" Decode.string
-        |> Decode.andThen
-            (\key ->
-                case Maybe.map Tuple.first (String.uncons key) of
-                    Just char ->
-                        if Char.isHexDigit char then
-                            if char == '0' then
-                                NumberKey 10
-                                    |> KeyPressed
-                                    |> Decode.succeed
-
-                            else if Char.isDigit char then
-                                Char.toCode char - Char.toCode '0'
-                                    |> NumberKey
-                                    |> KeyPressed
-                                    |> Decode.succeed
-
-                            else
-                                Char.toCode (Char.toUpper char) - Char.toCode 'A' + 11
-                                    |> NumberKey
-                                    |> KeyPressed
-                                    |> Decode.succeed
-
-                        else
-                            Decode.fail key
-
-                    Nothing ->
-                        Decode.fail key
-            )
-
-
-keyPressCodeDecoder : Decode.Decoder Msg
-keyPressCodeDecoder =
-    Decode.field "code" Decode.string
-        |> Decode.andThen
-            (\code ->
-                case code of
-                    "Digit1" -> Decode.succeed 1
-                    "Digit2" -> Decode.succeed 2
-                    "Digit3" -> Decode.succeed 3
-                    "Digit4" -> Decode.succeed 4
-                    "Digit5" -> Decode.succeed 5
-                    "Digit6" -> Decode.succeed 6
-                    "Digit7" -> Decode.succeed 7
-                    "Digit8" -> Decode.succeed 8
-                    "Digit9" -> Decode.succeed 9
-                    "Digit0" -> Decode.succeed 10
-                    "Numpad1" -> Decode.succeed 1
-                    "Numpad2" -> Decode.succeed 2
-                    "Numpad3" -> Decode.succeed 3
-                    "Numpad4" -> Decode.succeed 4
-                    "Numpad5" -> Decode.succeed 5
-                    "Numpad6" -> Decode.succeed 6
-                    "Numpad7" -> Decode.succeed 7
-                    "Numpad8" -> Decode.succeed 8
-                    "Numpad9" -> Decode.succeed 9
-                    "Numpad0" -> Decode.succeed 10
-                    "KeyA" -> Decode.succeed 11
-                    "KeyB" -> Decode.succeed 12
-                    "KeyC" -> Decode.succeed 13
-                    "KeyD" -> Decode.succeed 14
-                    "KeyE" -> Decode.succeed 15
-                    "KeyF" -> Decode.succeed 16
-                    _ -> Decode.fail code
-            )
-        |> Decode.map NumberKey
-        |> Decode.map KeyPressed
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -856,8 +811,6 @@ update msg model =
                                         Dict.remove cell model.current
                                     , pendingCellChanges =
                                         Set.insert cell model.pendingCellChanges
-                                    , heldKeys =
-                                        Set.insert "Backspace" model.heldKeys
                                   }
                                 , Cmd.none
                                 )
@@ -924,43 +877,16 @@ update msg model =
 
         KeyReleased key ->
             case key of
-                ArrowUpKey ->
-                    ( model
-                    , Cmd.none
-                    )
-
-                ArrowDownKey ->
-                    ( model
-                    , Cmd.none
-                    )
-
-                ArrowLeftKey ->
-                    ( model
-                    , Cmd.none
-                    )
-
-                ArrowRightKey ->
-                    ( model
-                    , Cmd.none
-                    )
-
-                BackspaceKey ->
-                    ( { model
-                        | heldKeys = Set.remove "Backspace" model.heldKeys
-                      }
-                    , Cmd.none
-                    )
-
-                NumberKey _ ->
-                    ( model
-                    , Cmd.none
-                    )
-
                 ShiftKey ->
                     ( { model
                         | candidateMode = not model.candidateMode
                         , heldKeys = Set.remove "Shift" model.heldKeys
                       }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model
                     , Cmd.none
                     )
 

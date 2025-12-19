@@ -2,7 +2,7 @@
 
 ## Where is the options page?
 
-TBD
+https://galdiuz.github.io/archipeladoku/Archipeladoku.yaml
 
 
 ## What does randomization do to this game?

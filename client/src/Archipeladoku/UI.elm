@@ -49,7 +49,8 @@ port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
-    { blockSize : Int
+    { autoRemoveInvalidCandidates : Bool
+    , blockSize : Int
     , candidateMode : Bool
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
     , cellBoards : Dict ( Int, Int ) (List Engine.Area)
@@ -71,6 +72,7 @@ type alias Model =
     , messages : List Message
     , numberOfBoards : Int
     , pendingCellChanges : Set ( Int, Int )
+    , pendingCheckLocations : Set Int
     , pendingItems : List Item
     , pendingScoutLocations : Set Int
     , pendingSolvedBlocks : Set ( Int, Int )
@@ -93,7 +95,8 @@ type alias Model =
 
 
 type Msg
-    = BlockSizeChanged Int
+    = AutoRemoveInvalidCandidatesChanged Bool
+    | BlockSizeChanged Int
     | CellSelected ( Int, Int )
     | ConnectPressed
     | DeletePressed
@@ -116,6 +119,7 @@ type Msg
     | NumberPressed Int
     | PlayLocalPressed
     | PlayerInputChanged String
+    | RemoveInvalidCandidatesPressed
     | SeedInputChanged String
     | SendMessagePressed
     | ShiftDebouncePassed Int
@@ -393,7 +397,8 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { blockSize = 9
+    ( { autoRemoveInvalidCandidates = False
+      , blockSize = 9
       , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
@@ -415,6 +420,7 @@ init flags =
       , messages = []
       , numberOfBoards = 5
       , pendingCellChanges = Set.empty
+      , pendingCheckLocations = Set.empty
       , pendingItems = []
       , pendingScoutLocations = Set.empty
       , pendingSolvedBlocks = Set.empty
@@ -512,6 +518,8 @@ keyDownDecoder model =
                         , ( "Numpad8", NumberPressed 8 )
                         , ( "Numpad9", NumberPressed 9 )
                         , ( "Numpad0", NumberPressed 10 )
+                        , ( "NumpadAdd", ZoomInPressed )
+                        , ( "NumpadSubtract", ZoomOutPressed )
                         , ( "ShiftLeft", ShiftHeld )
                         , ( "ShiftRight", ShiftHeld )
                         , ( "Space", ToggleCandidateModePressed )
@@ -551,6 +559,11 @@ keyUpDecoder =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        AutoRemoveInvalidCandidatesChanged enabled ->
+            ( { model | autoRemoveInvalidCandidates = enabled }
+            , Cmd.none
+            )
+
         BlockSizeChanged size ->
             ( { model | blockSize = size }
             , Cmd.none
@@ -584,7 +597,7 @@ update msg model =
                           }
                         , Cmd.none
                         )
-                            |> updateState
+                            |> andThen updateState
 
                     else
                         ( model
@@ -626,7 +639,7 @@ update msg model =
                         , Cmd.none
                         )
                         (List.range 1 board.blockSize)
-                        |> updateState
+                        |> andThen updateState
 
                 Err err ->
                     ( model, Cmd.none )
@@ -678,7 +691,7 @@ update msg model =
               }
             , Cmd.none
             )
-                |> updateState
+                |> andThen updateState
 
         GotConnectionStatus status ->
             ( { model
@@ -755,7 +768,7 @@ update msg model =
               }
             , Cmd.none
             )
-                |> updateState
+                |> andThen updateState
 
         GotMessage value ->
             case Decode.decodeValue messageDecoder value of
@@ -849,7 +862,7 @@ update msg model =
                           }
                         , Cmd.none
                         )
-                            |> updateState
+                            |> andThen updateState
 
                     else
                         ( model
@@ -880,6 +893,12 @@ update msg model =
             ( { model | player = value }
             , Cmd.none
             )
+
+        RemoveInvalidCandidatesPressed ->
+            ( removeInvalidCandidates model
+            , Cmd.none
+            )
+                |> andThen updateState
 
         SeedInputChanged value ->
             ( { model
@@ -988,7 +1007,7 @@ update msg model =
                   }
                 , Cmd.none
                 )
-                    |> updateState
+                    |> andThen updateState
 
         SolveSelectedCellPressed ->
             case model.selectedCell of
@@ -1034,7 +1053,7 @@ update msg model =
                               }
                             , Cmd.none
                             )
-                                |> updateState
+                                |> andThen updateState
 
                 Nothing ->
                     ( model
@@ -1106,6 +1125,29 @@ getCandidateMode model =
         model.candidateMode
 
 
+removeInvalidCandidates : Model -> Model
+removeInvalidCandidates model =
+    { model
+        | current =
+            Dict.foldl
+                (\cell cellErrors current ->
+                    case Dict.get cell current of
+                        Just (Multiple values) ->
+                            Dict.insert
+                                cell
+                                (Set.diff values cellErrors
+                                    |> Multiple
+                                )
+                                current
+
+                        _ ->
+                            current
+                )
+                model.current
+                model.errors
+    }
+
+
 andThen : (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
 andThen fun ( model, cmd ) =
     let
@@ -1115,30 +1157,30 @@ andThen fun ( model, cmd ) =
     ( newModel, Cmd.batch [ cmd, newCmd ] )
 
 
-updateState : ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
-updateState ( model, cmd ) =
+andThenIf : Bool -> (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+andThenIf condition fun ( model, cmd ) =
+    if condition then
+        andThen fun ( model, cmd )
+
+    else
+        ( model, cmd )
+
+
+updateState : Model -> ( Model, Cmd Msg )
+updateState model =
     case model.gameState of
         Playing ->
-            ( model, cmd )
-                |> andThen updateStateCellChanges
+            ( model, Cmd.none )
                 |> andThen updateStateItems
-                |> andThen updateStateSolvedBlocks
-                |> andThen updateStateCellChanges
+                |> andThen updateStateCellChangesLoop
                 |> andThen updateStateErrors
+                |> andThenIf model.autoRemoveInvalidCandidates updateStateRemoveInvalidCandidates
+                |> andThenIf model.autoRemoveInvalidCandidates updateStateErrors
+                |> andThen updateStateCheckLocations
                 |> andThen updateStateScoutLocations
 
         _ ->
-            ( model, cmd )
-
-
-updateStateCellChanges : Model -> ( Model, Cmd Msg )
-updateStateCellChanges model =
-    Set.foldl
-        (andThen << updateStateCellChange)
-        ( { model | pendingCellChanges = Set.empty }
-        , Cmd.none
-        )
-        model.pendingCellChanges
+            ( model, Cmd.none )
 
 
 updateStateItems : Model -> ( Model, Cmd Msg )
@@ -1149,6 +1191,31 @@ updateStateItems model =
         , Cmd.none
         )
         model.pendingItems
+
+
+updateStateCellChangesLoop : Model -> ( Model, Cmd Msg )
+updateStateCellChangesLoop initialModel =
+    ( initialModel, Cmd.none )
+        |> andThen updateStateCellChanges
+        |> andThen updateStateSolvedBlocks
+        |> andThen
+            (\updatedModel ->
+                if Set.isEmpty updatedModel.pendingCellChanges then
+                    ( updatedModel, Cmd.none )
+
+                else
+                    updateStateCellChangesLoop updatedModel
+            )
+
+
+updateStateCellChanges : Model -> ( Model, Cmd Msg )
+updateStateCellChanges model =
+    Set.foldl
+        (andThen << updateStateCellChange)
+        ( { model | pendingCellChanges = Set.empty }
+        , Cmd.none
+        )
+        model.pendingCellChanges
 
 
 updateStateSolvedBlocks : Model -> ( Model, Cmd Msg )
@@ -1175,6 +1242,28 @@ updateStateErrors : Model -> ( Model, Cmd Msg )
 updateStateErrors model =
     ( { model | errors = getBoardErrors model }
     , Cmd.none
+    )
+
+
+updateStateRemoveInvalidCandidates : Model -> ( Model, Cmd Msg )
+updateStateRemoveInvalidCandidates model =
+    ( removeInvalidCandidates model
+    , Cmd.none
+    )
+
+
+updateStateCheckLocations : Model -> ( Model, Cmd Msg )
+updateStateCheckLocations model =
+    ( { model | pendingCheckLocations = Set.empty }
+    , if model.gameIsLocal then
+        Cmd.none
+
+      else
+        Cmd.batch
+            (List.map
+                checkLocation
+                (Set.toList model.pendingCheckLocations)
+            )
     )
 
 
@@ -1213,26 +1302,23 @@ updateStateCellChange updatedCell initialModel =
                             blockId =
                                 cellToBlockId ( block.startRow, block.startCol )
                         in
-                        if (not <|Set.member blockId model.solvedLocations)
+                        if (not <| Set.member blockId model.solvedLocations)
                             && List.all (cellIsSolved model) (Engine.getAreaCells block)
+                            && List.all (cellIsVisible model) (Engine.getAreaCells block)
                         then
-                            if model.gameIsLocal then
-                                ( { model
-                                    | pendingSolvedBlocks =
-                                        Set.insert
-                                            ( block.startRow, block.startCol )
-                                            model.pendingSolvedBlocks
-                                    , solvedLocations =
-                                        Set.insert blockId model.solvedLocations
-                                  }
-                                , Cmd.none
-                                )
-                                    |> andThen unlockNextBlock
-
-                            else
-                                ( model
-                                , checkLocation (cellToBlockId ( block.startRow, block.startCol ))
-                                )
+                            ( { model
+                                | pendingCheckLocations =
+                                    Set.insert blockId model.pendingCheckLocations
+                                , pendingSolvedBlocks =
+                                    Set.insert
+                                        ( block.startRow, block.startCol )
+                                        model.pendingSolvedBlocks
+                                , solvedLocations =
+                                    Set.insert blockId model.solvedLocations
+                              }
+                            , Cmd.none
+                            )
+                                |> andThenIf model.gameIsLocal unlockNextBlock
 
                         else
                             ( model
@@ -1254,24 +1340,21 @@ updateStateCellChange updatedCell initialModel =
                         in
                         if (not <| Set.member rowId model.solvedLocations)
                             && List.all (cellIsSolved model) (Engine.getAreaCells row)
+                            && List.all (cellIsVisible model) (Engine.getAreaCells row)
                         then
-                            if model.gameIsLocal then
-                                ( { model
-                                    | pendingSolvedRows =
-                                        Set.insert
-                                            ( row.startRow, row.startCol )
-                                            model.pendingSolvedBlocks
-                                    , solvedLocations =
-                                        Set.insert rowId model.solvedLocations
-                                  }
-                                , Cmd.none
-                                )
-                                    |> andThen unlockNextBlock
-
-                            else
-                                ( model
-                                , checkLocation (cellToRowId ( row.startRow, row.startCol ))
-                                )
+                            ( { model
+                                | pendingCheckLocations =
+                                    Set.insert rowId model.pendingCheckLocations
+                                , pendingSolvedRows =
+                                    Set.insert
+                                        ( row.startRow, row.startCol )
+                                        model.pendingSolvedBlocks
+                                , solvedLocations =
+                                    Set.insert rowId model.solvedLocations
+                              }
+                            , Cmd.none
+                            )
+                                |> andThenIf model.gameIsLocal unlockNextBlock
 
                         else
                             ( model
@@ -1293,24 +1376,21 @@ updateStateCellChange updatedCell initialModel =
                         in
                         if (not <| Set.member colId model.solvedLocations)
                             && List.all (cellIsSolved model) (Engine.getAreaCells col)
+                            && List.all (cellIsVisible model) (Engine.getAreaCells col)
                         then
-                            if model.gameIsLocal then
-                                ( { model
-                                    | pendingSolvedCols =
-                                        Set.insert
-                                            ( col.startRow, col.startCol )
-                                            model.pendingSolvedBlocks
-                                    , solvedLocations =
-                                        Set.insert colId model.solvedLocations
-                                  }
-                                , Cmd.none
-                                )
-                                    |> andThen unlockNextBlock
-
-                            else
-                                ( model
-                                , checkLocation (cellToColId ( col.startRow, col.startCol ))
-                                )
+                            ( { model
+                                | pendingCheckLocations =
+                                    Set.insert colId model.pendingCheckLocations
+                                , pendingSolvedCols =
+                                    Set.insert
+                                        ( col.startRow, col.startCol )
+                                        model.pendingSolvedBlocks
+                                , solvedLocations =
+                                    Set.insert colId model.solvedLocations
+                              }
+                            , Cmd.none
+                            )
+                                |> andThenIf model.gameIsLocal unlockNextBlock
 
                         else
                             ( model
@@ -1322,30 +1402,28 @@ updateStateCellChange updatedCell initialModel =
                 |> Maybe.withDefault []
             )
         |> listFoldlChain
-            (\boardArea ->
+            (\board ->
                 andThen
                     (\model ->
                         let
                             boardId : Int
                             boardId =
-                                cellToBoardId ( boardArea.startRow, boardArea.startCol )
+                                cellToBoardId ( board.startRow, board.startCol )
                         in
                         if (not <| Set.member boardId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Engine.getAreaCells boardArea)
+                            && List.all (cellIsSolved model) (Engine.getAreaCells board)
+                            && List.all (cellIsVisible model) (Engine.getAreaCells board)
                         then
-                            if model.gameIsLocal then
-                                ( { model
-                                    | solvedLocations =
-                                        Set.insert boardId model.solvedLocations
-                                  }
-                                , Cmd.none
-                                )
-                                    |> andThen unlockNextBlock
+                            ( { model
+                                | pendingCheckLocations =
+                                    Set.insert boardId model.pendingCheckLocations
+                                , solvedLocations =
+                                    Set.insert boardId model.solvedLocations
+                              }
+                            , Cmd.none
+                            )
+                                |> andThenIf model.gameIsLocal unlockNextBlock
 
-                            else
-                                ( model
-                                , checkLocation (cellToBoardId ( boardArea.startRow, boardArea.startCol ))
-                                )
 
                         else
                             ( model
@@ -1512,6 +1590,7 @@ unlockBlock block model =
 
             else
                 model.messages
+        , pendingCellChanges = Set.union blockCells model.pendingCellChanges
         , pendingScoutLocations =
             model.pendingScoutLocations
                 |> Set.insert (cellToBlockId block)
@@ -1724,6 +1803,11 @@ cellIsSolved model cell =
 
         _ ->
             False
+
+
+cellIsVisible : Model -> ( Int, Int ) -> Bool
+cellIsVisible model cell =
+    Set.member cell model.visibleCells
 
 
 cellIsGiven : Model -> ( Int, Int ) -> Bool
@@ -2218,6 +2302,30 @@ viewInfoPanel model =
 
                   else
                     Html.text "Set"
+                ]
+            ]
+        , Html.div
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "row"
+            , HA.style "gap" "0.5em"
+            ]
+            [ Html.button
+                [ HE.onClick RemoveInvalidCandidatesPressed
+                , HA.style "align-self" "start"
+                ]
+                [ Html.text "Remove invalid candidates" ]
+            , Html.label
+                [ HA.style "display" "flex"
+                , HA.style "align-items" "center"
+                , HA.style "gap" "0.25em"
+                ]
+                [ Html.input
+                    [ HA.type_ "checkbox"
+                    , HA.checked model.autoRemoveInvalidCandidates
+                    , HE.onCheck AutoRemoveInvalidCandidatesChanged
+                    ]
+                    []
+                , Html.text "Auto"
                 ]
             ]
         , Html.div

@@ -16,9 +16,11 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import Maybe.Extra
 import List.Extra
+import Process
 import Random
 import Set exposing (Set)
 import Set.Extra
+import Task
 
 
 port checkLocation : Int -> Cmd msg
@@ -78,6 +80,7 @@ type alias Model =
     , seed : Random.Seed
     , seedInput : Int
     , selectedCell : Maybe ( Int, Int )
+    , shiftDebounce : Int
     , solution : Dict ( Int, Int ) Int
     , solveRandomCellUses : Int
     , solveSelectedCellUses : Int -- TODO: Need to persist these counts
@@ -104,14 +107,15 @@ type Msg
     | GotScoutedItems Decode.Value
     | HintItemPressed String
     | HostInputChanged String
-    | KeyPressed Key
-    | KeyReleased Key
+    | KeyPressed Input
+    | KeyReleased Input
     | MessageInputChanged String
     | NumberOfBoardsChanged Int
     | PlayLocalPressed
     | PlayerInputChanged String
     | SeedInputChanged String
     | SendMessagePressed
+    | ShiftDebouncePassed Int
     | SolveRandomCellPressed
     | SolveSelectedCellPressed
     | ToggleCandidateModePressed
@@ -142,14 +146,12 @@ type Item
     | SolveRandomCell
 
 
-type Key
-    = ArrowUpKey
-    | ArrowDownKey
-    | ArrowLeftKey
-    | ArrowRightKey
-    | BackspaceKey
-    | NumberKey Int
-    | ShiftKey
+type Input
+    = DeleteInput
+    | HoldShiftInput
+    | MoveInput ( Int, Int )
+    | NumberInput Int
+    | ToggleCandidateInput
 
 
 itemFromId : Int -> Maybe Item
@@ -429,6 +431,7 @@ init flags =
       , seed = Random.initialSeed (flags.seed + 1)
       , seedInput = flags.seed
       , selectedCell = Nothing
+      , shiftDebounce = 0
       , solution = Dict.empty
       , solveRandomCellUses = 0
       , solveSelectedCellUses = 0
@@ -471,52 +474,53 @@ keyDownDecoder model =
         |> Decode.andThen
             (\{ code, target } ->
                 let
-                    keyMap : Dict String ( String, Key, Bool )
+                    keyMap : Dict String Input
                     keyMap =
-                        [ ( "ArrowUp", ( "ArrowUp", ArrowUpKey, False ) )
-                        , ( "ArrowDown", ( "ArrowDown", ArrowDownKey, False ) )
-                        , ( "ArrowLeft", ( "ArrowLeft", ArrowLeftKey, False ) )
-                        , ( "ArrowRight", ( "ArrowRight", ArrowRightKey, False ) )
-                        , ( "Backspace", ( "Backspace", BackspaceKey, False ) )
-                        , ( "Delete", ( "Backspace", BackspaceKey, False ) )
-                        , ( "Digit1", ( "1", NumberKey 1, False ) )
-                        , ( "Digit2", ( "2", NumberKey 2, False ) )
-                        , ( "Digit3", ( "3", NumberKey 3, False ) )
-                        , ( "Digit4", ( "4", NumberKey 4, False ) )
-                        , ( "Digit5", ( "5", NumberKey 5, False ) )
-                        , ( "Digit6", ( "6", NumberKey 6, False ) )
-                        , ( "Digit7", ( "7", NumberKey 7, False ) )
-                        , ( "Digit8", ( "8", NumberKey 8, False ) )
-                        , ( "Digit9", ( "9", NumberKey 9, False ) )
-                        , ( "Digit0", ( "0", NumberKey 10, False ) )
-                        , ( "KeyA", ( "A", NumberKey 11, False ) )
-                        , ( "KeyB", ( "B", NumberKey 12, False ) )
-                        , ( "KeyC", ( "C", NumberKey 13, False ) )
-                        , ( "KeyD", ( "D", NumberKey 14, False ) )
-                        , ( "KeyE", ( "E", NumberKey 15, False ) )
-                        , ( "KeyF", ( "F", NumberKey 16, False ) )
-                        , ( "KeyH", ( "ArrowLeft", ArrowLeftKey, False ) )
-                        , ( "KeyJ", ( "ArrowDown", ArrowDownKey, False ) )
-                        , ( "KeyK", ( "ArrowUp", ArrowUpKey, False ) )
-                        , ( "KeyL", ( "ArrowRight", ArrowRightKey, False ) )
-                        , ( "Numpad1", ( "1", NumberKey 1, False ) )
-                        , ( "Numpad2", ( "2", NumberKey 2, False ) )
-                        , ( "Numpad3", ( "3", NumberKey 3, False ) )
-                        , ( "Numpad4", ( "4", NumberKey 4, False ) )
-                        , ( "Numpad5", ( "5", NumberKey 5, False ) )
-                        , ( "Numpad6", ( "6", NumberKey 6, False ) )
-                        , ( "Numpad7", ( "7", NumberKey 7, False ) )
-                        , ( "Numpad8", ( "8", NumberKey 8, False ) )
-                        , ( "Numpad9", ( "9", NumberKey 9, False ) )
-                        , ( "Numpad0", ( "0", NumberKey 10, False ) )
-                        , ( "ShiftLeft", ( "Shift", ShiftKey, True ) )
-                        , ( "ShiftRight", ( "Shift", ShiftKey, True ) )
+                        [ ( "ArrowUp", MoveInput ( -1, 0 ) )
+                        , ( "ArrowDown", MoveInput ( 1, 0 ) )
+                        , ( "ArrowLeft", MoveInput ( 0, -1 ) )
+                        , ( "ArrowRight", MoveInput ( 0, 1 ) )
+                        , ( "Backspace", DeleteInput )
+                        , ( "Delete", DeleteInput )
+                        , ( "Digit1", NumberInput 1 )
+                        , ( "Digit2", NumberInput 2 )
+                        , ( "Digit3", NumberInput 3 )
+                        , ( "Digit4", NumberInput 4 )
+                        , ( "Digit5", NumberInput 5 )
+                        , ( "Digit6", NumberInput 6 )
+                        , ( "Digit7", NumberInput 7 )
+                        , ( "Digit8", NumberInput 8 )
+                        , ( "Digit9", NumberInput 9 )
+                        , ( "Digit0", NumberInput 10 )
+                        , ( "KeyA", NumberInput 11 )
+                        , ( "KeyB", NumberInput 12 )
+                        , ( "KeyC", NumberInput 13 )
+                        , ( "KeyD", NumberInput 14 )
+                        , ( "KeyE", NumberInput 15 )
+                        , ( "KeyF", NumberInput 16 )
+                        , ( "KeyH", MoveInput ( 0, -1 ) )
+                        , ( "KeyJ", MoveInput ( 1, 0 ) )
+                        , ( "KeyK", MoveInput ( -1, 0 ) )
+                        , ( "KeyL", MoveInput ( 0, 1 ) )
+                        , ( "Numpad1", NumberInput 1 )
+                        , ( "Numpad2", NumberInput 2 )
+                        , ( "Numpad3", NumberInput 3 )
+                        , ( "Numpad4", NumberInput 4 )
+                        , ( "Numpad5", NumberInput 5 )
+                        , ( "Numpad6", NumberInput 6 )
+                        , ( "Numpad7", NumberInput 7 )
+                        , ( "Numpad8", NumberInput 8 )
+                        , ( "Numpad9", NumberInput 9 )
+                        , ( "Numpad0", NumberInput 10 )
+                        , ( "ShiftLeft", HoldShiftInput )
+                        , ( "ShiftRight", HoldShiftInput )
+                        , ( "Space", ToggleCandidateInput )
                         ]
                         |> Dict.fromList
                 in
                 case Dict.get code keyMap of
-                    Just ( setKey, key, lock ) ->
-                        if (Set.member setKey model.heldKeys && lock) || target == "INPUT" then
+                    Just key ->
+                        if target == "INPUT" then
                             Decode.fail code
 
                         else
@@ -534,10 +538,10 @@ keyUpDecoder =
             (\code ->
                 case code of
                     "ShiftLeft" ->
-                        Decode.succeed (KeyReleased ShiftKey)
+                        Decode.succeed (KeyReleased HoldShiftInput)
 
                     "ShiftRight" ->
-                        Decode.succeed (KeyReleased ShiftKey)
+                        Decode.succeed (KeyReleased HoldShiftInput)
 
                     _ ->
                         Decode.fail code
@@ -778,31 +782,7 @@ update msg model =
 
         KeyPressed key ->
             case key of
-                ArrowUpKey ->
-                    ( model
-                    , Cmd.none
-                    )
-                        |> andThen (moveSelection ( -1, 0 ))
-
-                ArrowDownKey ->
-                    ( model
-                    , Cmd.none
-                    )
-                        |> andThen (moveSelection ( 1, 0 ))
-
-                ArrowLeftKey ->
-                    ( model
-                    , Cmd.none
-                    )
-                        |> andThen (moveSelection ( 0, -1 ))
-
-                ArrowRightKey ->
-                    ( model
-                    , Cmd.none
-                    )
-                        |> andThen (moveSelection ( 0, 1 ))
-
-                BackspaceKey ->
+                DeleteInput ->
                     case model.selectedCell of
                         Just cell ->
                             if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
@@ -826,7 +806,21 @@ update msg model =
                             , Cmd.none
                             )
 
-                NumberKey number ->
+                HoldShiftInput ->
+                    ( { model
+                        | heldKeys = Set.insert "Shift" model.heldKeys
+                        , shiftDebounce = model.shiftDebounce + 1
+                      }
+                    , Cmd.none
+                    )
+
+                MoveInput move ->
+                    ( model
+                    , Cmd.none
+                    )
+                        |> andThen (moveSelection move)
+
+                NumberInput number ->
                     case model.selectedCell of
                         Just cell ->
                             if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
@@ -837,7 +831,7 @@ update msg model =
                                             model.current
 
                                         else
-                                            if model.candidateMode then
+                                            if getCandidateMode model then
                                                 Dict.update
                                                     cell
                                                     (toggleNumber number)
@@ -867,22 +861,17 @@ update msg model =
                             , Cmd.none
                             )
 
-                ShiftKey ->
-                    ( { model
-                        | candidateMode = not model.candidateMode
-                        , heldKeys = Set.insert "Shift" model.heldKeys
-                      }
+                ToggleCandidateInput ->
+                    ( { model | candidateMode = not model.candidateMode }
                     , Cmd.none
                     )
 
         KeyReleased key ->
             case key of
-                ShiftKey ->
-                    ( { model
-                        | candidateMode = not model.candidateMode
-                        , heldKeys = Set.remove "Shift" model.heldKeys
-                      }
-                    , Cmd.none
+                HoldShiftInput ->
+                    ( model
+                    , Process.sleep 100
+                        |> Task.perform (\_ -> ShiftDebouncePassed model.shiftDebounce)
                     )
 
                 _ ->
@@ -939,6 +928,15 @@ update msg model =
               else
                 sendMessage model.messageInput
             )
+
+        ShiftDebouncePassed debounceId ->
+            if model.shiftDebounce == debounceId then
+                ( { model | heldKeys = Set.remove "Shift" model.heldKeys }
+                , Cmd.none
+                )
+
+            else
+                ( model, Cmd.none )
 
         SolveRandomCellPressed ->
             let
@@ -1086,6 +1084,15 @@ moveSelection ( rowOffset, colOffset ) model =
             ( model
             , Cmd.none
             )
+
+
+getCandidateMode : Model -> Bool
+getCandidateMode model =
+    if Set.member "Shift" model.heldKeys then
+        not model.candidateMode
+
+    else
+        model.candidateMode
 
 
 andThen : (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
@@ -2154,14 +2161,19 @@ viewInfoPanel model =
                 Html.text ""
         , viewInfoHints model
         , Html.div
-            []
-            [ Html.button
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "row"
+            , HA.style "gap" "0.25em"
+            , HA.style "align-items" "baseline"
+            ]
+            [ Html.text "Insert mode (Toggle: Space, Hold: Shift)"
+            , Html.button
                 [ HE.onClick ToggleCandidateModePressed ]
-                [ if model.candidateMode then
-                    Html.text "Insert mode: Candidates (Shift)"
+                [ if getCandidateMode model then
+                    Html.text "Candidates"
 
                   else
-                    Html.text "Insert mode: Set (Shift)"
+                    Html.text "Set"
                 ]
             ]
         , Html.div

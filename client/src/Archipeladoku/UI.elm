@@ -96,6 +96,7 @@ type Msg
     = BlockSizeChanged Int
     | CellSelected ( Int, Int )
     | ConnectPressed
+    | DeletePressed
     | DifficultyChanged Int
     | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
@@ -109,15 +110,17 @@ type Msg
     | GotScoutedItems Decode.Value
     | HintItemPressed String
     | HostInputChanged String
-    | KeyPressed Input
-    | KeyReleased Input
     | MessageInputChanged String
+    | MoveSelectionPressed ( Int, Int )
     | NumberOfBoardsChanged Int
+    | NumberPressed Int
     | PlayLocalPressed
     | PlayerInputChanged String
     | SeedInputChanged String
     | SendMessagePressed
     | ShiftDebouncePassed Int
+    | ShiftHeld
+    | ShiftReleased
     | SolveRandomCellPressed
     | SolveSelectedCellPressed
     | ToggleCandidateModePressed
@@ -149,14 +152,6 @@ type Item
     | Block ( Int, Int )
     | SolveSelectedCell
     | SolveRandomCell
-
-
-type Input
-    = DeleteInput
-    | HoldShiftInput
-    | MoveInput ( Int, Int )
-    | NumberInput Int
-    | ToggleCandidateInput
 
 
 itemFromId : Int -> Maybe Item
@@ -479,57 +474,57 @@ keyDownDecoder model =
         |> Decode.andThen
             (\{ code, target } ->
                 let
-                    keyMap : Dict String Input
+                    keyMap : Dict String Msg
                     keyMap =
-                        [ ( "ArrowUp", MoveInput ( -1, 0 ) )
-                        , ( "ArrowDown", MoveInput ( 1, 0 ) )
-                        , ( "ArrowLeft", MoveInput ( 0, -1 ) )
-                        , ( "ArrowRight", MoveInput ( 0, 1 ) )
-                        , ( "Backspace", DeleteInput )
-                        , ( "Delete", DeleteInput )
-                        , ( "Digit1", NumberInput 1 )
-                        , ( "Digit2", NumberInput 2 )
-                        , ( "Digit3", NumberInput 3 )
-                        , ( "Digit4", NumberInput 4 )
-                        , ( "Digit5", NumberInput 5 )
-                        , ( "Digit6", NumberInput 6 )
-                        , ( "Digit7", NumberInput 7 )
-                        , ( "Digit8", NumberInput 8 )
-                        , ( "Digit9", NumberInput 9 )
-                        , ( "Digit0", NumberInput 10 )
-                        , ( "KeyA", NumberInput 11 )
-                        , ( "KeyB", NumberInput 12 )
-                        , ( "KeyC", NumberInput 13 )
-                        , ( "KeyD", NumberInput 14 )
-                        , ( "KeyE", NumberInput 15 )
-                        , ( "KeyF", NumberInput 16 )
-                        , ( "KeyH", MoveInput ( 0, -1 ) )
-                        , ( "KeyJ", MoveInput ( 1, 0 ) )
-                        , ( "KeyK", MoveInput ( -1, 0 ) )
-                        , ( "KeyL", MoveInput ( 0, 1 ) )
-                        , ( "Numpad1", NumberInput 1 )
-                        , ( "Numpad2", NumberInput 2 )
-                        , ( "Numpad3", NumberInput 3 )
-                        , ( "Numpad4", NumberInput 4 )
-                        , ( "Numpad5", NumberInput 5 )
-                        , ( "Numpad6", NumberInput 6 )
-                        , ( "Numpad7", NumberInput 7 )
-                        , ( "Numpad8", NumberInput 8 )
-                        , ( "Numpad9", NumberInput 9 )
-                        , ( "Numpad0", NumberInput 10 )
-                        , ( "ShiftLeft", HoldShiftInput )
-                        , ( "ShiftRight", HoldShiftInput )
-                        , ( "Space", ToggleCandidateInput )
+                        [ ( "ArrowUp", MoveSelectionPressed ( -1, 0 ) )
+                        , ( "ArrowDown", MoveSelectionPressed ( 1, 0 ) )
+                        , ( "ArrowLeft", MoveSelectionPressed ( 0, -1 ) )
+                        , ( "ArrowRight", MoveSelectionPressed ( 0, 1 ) )
+                        , ( "Backspace", DeletePressed )
+                        , ( "Delete", DeletePressed )
+                        , ( "Digit1", NumberPressed 1 )
+                        , ( "Digit2", NumberPressed 2 )
+                        , ( "Digit3", NumberPressed 3 )
+                        , ( "Digit4", NumberPressed 4 )
+                        , ( "Digit5", NumberPressed 5 )
+                        , ( "Digit6", NumberPressed 6 )
+                        , ( "Digit7", NumberPressed 7 )
+                        , ( "Digit8", NumberPressed 8 )
+                        , ( "Digit9", NumberPressed 9 )
+                        , ( "Digit0", NumberPressed 10 )
+                        , ( "KeyA", NumberPressed 11 )
+                        , ( "KeyB", NumberPressed 12 )
+                        , ( "KeyC", NumberPressed 13 )
+                        , ( "KeyD", NumberPressed 14 )
+                        , ( "KeyE", NumberPressed 15 )
+                        , ( "KeyF", NumberPressed 16 )
+                        , ( "KeyH", MoveSelectionPressed ( 0, -1 ) )
+                        , ( "KeyJ", MoveSelectionPressed ( 1, 0 ) )
+                        , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
+                        , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
+                        , ( "Numpad1", NumberPressed 1 )
+                        , ( "Numpad2", NumberPressed 2 )
+                        , ( "Numpad3", NumberPressed 3 )
+                        , ( "Numpad4", NumberPressed 4 )
+                        , ( "Numpad5", NumberPressed 5 )
+                        , ( "Numpad6", NumberPressed 6 )
+                        , ( "Numpad7", NumberPressed 7 )
+                        , ( "Numpad8", NumberPressed 8 )
+                        , ( "Numpad9", NumberPressed 9 )
+                        , ( "Numpad0", NumberPressed 10 )
+                        , ( "ShiftLeft", ShiftHeld )
+                        , ( "ShiftRight", ShiftHeld )
+                        , ( "Space", ToggleCandidateModePressed )
                         ]
                         |> Dict.fromList
                 in
                 case Dict.get code keyMap of
-                    Just key ->
+                    Just msg ->
                         if target == "INPUT" then
                             Decode.fail code
 
                         else
-                            Decode.succeed (KeyPressed key)
+                            Decode.succeed msg
 
                     Nothing ->
                         Decode.fail code
@@ -543,10 +538,10 @@ keyUpDecoder =
             (\code ->
                 case code of
                     "ShiftLeft" ->
-                        Decode.succeed (KeyReleased HoldShiftInput)
+                        Decode.succeed ShiftReleased
 
                     "ShiftRight" ->
-                        Decode.succeed (KeyReleased HoldShiftInput)
+                        Decode.succeed ShiftReleased
 
                     _ ->
                         Decode.fail code
@@ -576,6 +571,30 @@ update msg model =
                     ]
                 )
             )
+
+        DeletePressed ->
+            case model.selectedCell of
+                Just cell ->
+                    if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
+                        ( { model
+                            | current =
+                                Dict.remove cell model.current
+                            , pendingCellChanges =
+                                Set.insert cell model.pendingCellChanges
+                          }
+                        , Cmd.none
+                        )
+                            |> updateState
+
+                    else
+                        ( model
+                        , Cmd.none
+                        )
+
+                Nothing ->
+                    ( model
+                    , Cmd.none
+                    )
 
         DifficultyChanged value ->
             ( { model | difficulty = value }
@@ -785,114 +804,62 @@ update msg model =
             , Cmd.none
             )
 
-        KeyPressed key ->
-            case key of
-                DeleteInput ->
-                    case model.selectedCell of
-                        Just cell ->
-                            if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
-                                ( { model
-                                    | current =
-                                        Dict.remove cell model.current
-                                    , pendingCellChanges =
-                                        Set.insert cell model.pendingCellChanges
-                                  }
-                                , Cmd.none
-                                )
-                                    |> updateState
-
-                            else
-                                ( model
-                                , Cmd.none
-                                )
-
-                        Nothing ->
-                            ( model
-                            , Cmd.none
-                            )
-
-                HoldShiftInput ->
-                    ( { model
-                        | heldKeys = Set.insert "Shift" model.heldKeys
-                        , shiftDebounce = model.shiftDebounce + 1
-                      }
-                    , Cmd.none
-                    )
-
-                MoveInput move ->
-                    ( model
-                    , Cmd.none
-                    )
-                        |> andThen (moveSelection move)
-
-                NumberInput number ->
-                    case model.selectedCell of
-                        Just cell ->
-                            if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
-                                let
-                                    newCurrent : Dict ( Int, Int ) CellValue
-                                    newCurrent =
-                                        if number < 1 || number > model.blockSize then
-                                            model.current
-
-                                        else
-                                            if getCandidateMode model then
-                                                Dict.update
-                                                    cell
-                                                    (toggleNumber number)
-                                                    model.current
-
-                                            else
-                                                Dict.insert
-                                                    cell
-                                                    (Single number)
-                                                    model.current
-                                in
-                                ( { model
-                                    | current = newCurrent
-                                    , pendingCellChanges = Set.insert cell model.pendingCellChanges
-                                  }
-                                , Cmd.none
-                                )
-                                    |> updateState
-
-                            else
-                                ( model
-                                , Cmd.none
-                                )
-
-                        Nothing ->
-                            ( model
-                            , Cmd.none
-                            )
-
-                ToggleCandidateInput ->
-                    ( { model | candidateMode = not model.candidateMode }
-                    , Cmd.none
-                    )
-
-        KeyReleased key ->
-            case key of
-                HoldShiftInput ->
-                    ( model
-                    , Process.sleep 100
-                        |> Task.perform (\_ -> ShiftDebouncePassed model.shiftDebounce)
-                    )
-
-                _ ->
-                    ( model
-                    , Cmd.none
-                    )
-
         MessageInputChanged value ->
             ( { model | messageInput = value }
             , Cmd.none
             )
 
+        MoveSelectionPressed move ->
+            ( model
+            , Cmd.none
+            )
+                |> andThen (moveSelection move)
+
         NumberOfBoardsChanged value ->
             ( { model | numberOfBoards = value }
             , Cmd.none
             )
+
+        NumberPressed number ->
+            case model.selectedCell of
+                Just cell ->
+                    if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
+                        let
+                            newCurrent : Dict ( Int, Int ) CellValue
+                            newCurrent =
+                                if number < 1 || number > model.blockSize then
+                                    model.current
+
+                                else
+                                    if getCandidateMode model then
+                                        Dict.update
+                                            cell
+                                            (toggleNumber number)
+                                            model.current
+
+                                    else
+                                        Dict.insert
+                                            cell
+                                            (Single number)
+                                            model.current
+                        in
+                        ( { model
+                            | current = newCurrent
+                            , pendingCellChanges = Set.insert cell model.pendingCellChanges
+                          }
+                        , Cmd.none
+                        )
+                            |> updateState
+
+                    else
+                        ( model
+                        , Cmd.none
+                        )
+
+                Nothing ->
+                    ( model
+                    , Cmd.none
+                    )
 
         PlayLocalPressed ->
             ( { model
@@ -942,6 +909,20 @@ update msg model =
 
             else
                 ( model, Cmd.none )
+
+        ShiftHeld ->
+            ( { model
+                | heldKeys = Set.insert "Shift" model.heldKeys
+                , shiftDebounce = model.shiftDebounce + 1
+              }
+            , Cmd.none
+            )
+
+        ShiftReleased ->
+            ( model
+            , Process.sleep 100
+                |> Task.perform (\_ -> ShiftDebouncePassed model.shiftDebounce)
+            )
 
         SolveRandomCellPressed ->
             let

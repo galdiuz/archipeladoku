@@ -33,6 +33,8 @@ port moveCellIntoView : String -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
 port triggerAnimation : Encode.Value -> Cmd msg
+port zoom : Encode.Value -> Cmd msg
+port zoomReset : () -> Cmd msg
 
 port receiveBoard : (Decode.Value -> msg) -> Sub msg
 port receiveCheckedLocations : (List Int -> msg) -> Sub msg
@@ -119,6 +121,9 @@ type Msg
     | SolveRandomCellPressed
     | SolveSelectedCellPressed
     | ToggleCandidateModePressed
+    | ZoomInPressed
+    | ZoomOutPressed
+    | ZoomResetPressed
 
 
 type alias Flags =
@@ -1060,6 +1065,31 @@ update msg model =
             , Cmd.none
             )
 
+        ZoomInPressed ->
+            ( model
+            , zoom
+                (Encode.object
+                    [ ( "id", Encode.string <| cellHtmlId <| Maybe.withDefault (1, 1) model.selectedCell )
+                    , ( "scaleMult", Encode.float 1.5 )
+                    ]
+                )
+            )
+
+        ZoomOutPressed ->
+            ( model
+            , zoom
+                (Encode.object
+                    [ ( "id", Encode.string <| cellHtmlId <| Maybe.withDefault (1, 1) model.selectedCell )
+                    , ( "scaleMult", Encode.float 0.66 )
+                    ]
+                )
+            )
+
+        ZoomResetPressed ->
+            ( model
+            , zoomReset ()
+            )
+
 
 moveSelection : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
 moveSelection ( rowOffset, colOffset ) model =
@@ -1970,6 +2000,7 @@ viewBoard model =
                         )
                 )
             )
+        , viewZoomControls
         ]
 
 
@@ -2110,6 +2141,38 @@ viewMultipleNumbers blockSize errorsAtCell numbers =
         (Set.toList numbers)
 
 
+viewZoomControls : Html Msg
+viewZoomControls =
+    Html.div
+        [ HA.style "position" "absolute"
+        , HA.style "top" "0.5em"
+        , HA.style "right" "0.5em"
+        , HA.style "display" "flex"
+        , HA.style "flex-direction" "column"
+        , HA.style "gap" "0.5em"
+        , HA.style "z-index" "10"
+        ]
+        [ Html.button
+            [ HE.onClick ZoomInPressed
+            , HA.style "width" "1.5rem"
+            , HA.style "height" "1.5rem"
+            ]
+            [ Html.text "+" ]
+        , Html.button
+            [ HE.onClick ZoomOutPressed
+            , HA.style "width" "1.5rem"
+            , HA.style "height" "1.5rem"
+            ]
+            [ Html.text "−" ]
+        , Html.button
+            [ HE.onClick ZoomResetPressed
+            , HA.style "width" "1.5rem"
+            , HA.style "height" "1.5rem"
+            ]
+            [ Html.text "=" ]
+        ]
+
+
 viewInfoPanel : Model -> Html Msg
 viewInfoPanel model =
     Html.div
@@ -2166,7 +2229,7 @@ viewInfoPanel model =
             , HA.style "gap" "0.25em"
             , HA.style "align-items" "baseline"
             ]
-            [ Html.text "Insert mode (Toggle: Space, Hold: Shift)"
+            [ Html.text "Input mode (Toggle: Space, Hold: Shift)"
             , Html.button
                 [ HE.onClick ToggleCandidateModePressed ]
                 [ if getCandidateMode model then

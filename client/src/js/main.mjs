@@ -250,6 +250,38 @@ function triggerAnimation(data) {
 
 ui.ports.triggerAnimation?.subscribe(triggerAnimation)
 
+ui.ports.zoom?.subscribe(data => {
+    const { id, scaleMult } = data
+    const cellElement = document.getElementById(id)
+    const viewport = document.querySelector('panzoom-board-wrapper')
+    const panzoom = viewport?.panzoomInstance
+
+    if (!panzoom || !cellElement) {
+        return
+    }
+
+    const containerRect = viewport.getBoundingClientRect()
+    const { x, y, scale } = panzoom.getTransform()
+    const localX = cellElement.offsetLeft + (cellElement.offsetWidth / 2)
+    const localY = cellElement.offsetTop + (cellElement.offsetHeight / 2)
+
+    const targetX = (localX * scale) + x + containerRect.left
+    const targetY = (localY * scale) + y + containerRect.top
+
+    panzoom.smoothZoom(targetX, targetY, scaleMult)
+})
+
+ui.ports.zoomReset?.subscribe(() => {
+    const panzoom = document.querySelector('panzoom-board-wrapper')?.panzoomInstance
+
+    if (!viewport) {
+        return
+    }
+
+    panzoom.moveTo(0, 0)
+    panzoom.zoomAbs(0, 0, 1.0)
+})
+
 client.socket.on('disconnected', () => {
     ui.ports.receiveConnectionStatus.send(false)
 })

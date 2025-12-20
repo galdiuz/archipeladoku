@@ -83,7 +83,7 @@ type alias Model =
     , scoutedItems : Dict Int Hint
     , seed : Random.Seed
     , seedInput : Int
-    , selectedCell : Maybe ( Int, Int )
+    , selectedCell : ( Int, Int )
     , shiftDebounce : Int
     , solution : Dict ( Int, Int ) Int
     , solveRandomCellUses : Int
@@ -101,6 +101,8 @@ type Msg
     | ConnectPressed
     | DeletePressed
     | DifficultyChanged Int
+    | FillAllCandidatesPressed
+    | FillCellCandidatesPressed
     | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
     | GotConnectionStatus Bool
@@ -436,7 +438,7 @@ init flags =
       , scoutedItems = Dict.empty
       , seed = Random.initialSeed (flags.seed + 1)
       , seedInput = flags.seed
-      , selectedCell = Nothing
+      , selectedCell = ( 1, 1 )
       , shiftDebounce = 0
       , solution = Dict.empty
       , solveRandomCellUses = 0
@@ -508,6 +510,7 @@ keyDownDecoder model =
                         , ( "KeyJ", MoveSelectionPressed ( 1, 0 ) )
                         , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
                         , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
+                        , ( "KeyQ", FillCellCandidatesPressed )
                         , ( "Numpad1", NumberPressed 1 )
                         , ( "Numpad2", NumberPressed 2 )
                         , ( "Numpad3", NumberPressed 3 )
@@ -570,7 +573,7 @@ update msg model =
             )
 
         CellSelected ( row, col ) ->
-            ( { model | selectedCell = Just ( row, col ) }
+            ( { model | selectedCell = ( row, col ) }
             , Cmd.none
             )
 
@@ -586,33 +589,79 @@ update msg model =
             )
 
         DeletePressed ->
-            case model.selectedCell of
-                Just cell ->
-                    if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
-                        ( { model
-                            | current =
-                                Dict.remove cell model.current
-                            , pendingCellChanges =
-                                Set.insert cell model.pendingCellChanges
-                          }
-                        , Cmd.none
-                        )
-                            |> andThen updateState
+            if Set.member model.selectedCell model.visibleCells && not (cellIsGiven model model.selectedCell) then
+                ( { model
+                    | current =
+                        Dict.remove model.selectedCell model.current
+                    , pendingCellChanges =
+                        Set.insert model.selectedCell model.pendingCellChanges
+                  }
+                , Cmd.none
+                )
+                    |> andThen updateState
 
-                    else
-                        ( model
-                        , Cmd.none
-                        )
-
-                Nothing ->
-                    ( model
-                    , Cmd.none
-                    )
+            else
+                ( model
+                , Cmd.none
+                )
 
         DifficultyChanged value ->
             ( { model | difficulty = value }
             , Cmd.none
             )
+
+        FillAllCandidatesPressed ->
+            let
+                cellIsValidTarget : ( Int, Int ) -> Bool
+                cellIsValidTarget cell =
+                    case Dict.get cell model.current of
+                        Just (Given _) ->
+                            False
+
+                        Just (Single _) ->
+                            False
+
+                        Just (Multiple _) ->
+                            Set.member cell model.visibleCells
+
+                        Nothing ->
+                            Set.member cell model.visibleCells
+            in
+            ( { model
+                | current =
+                    Set.foldl
+                        (\cell current ->
+                            if cellIsValidTarget cell then
+                                Dict.insert
+                                    cell
+                                    (Multiple (getValidCellCandidates model cell))
+                                    current
+
+                            else
+                                current
+                        )
+                        model.current
+                        model.visibleCells
+              }
+            , Cmd.none
+            )
+
+        FillCellCandidatesPressed ->
+            if Set.member model.selectedCell model.visibleCells && not (cellIsGiven model model.selectedCell) then
+                ( { model
+                    | current =
+                        Dict.insert
+                            model.selectedCell
+                            (Multiple (getValidCellCandidates model model.selectedCell))
+                            model.current
+                  }
+                , Cmd.none
+                )
+
+            else
+                ( model
+                , Cmd.none
+                )
 
         GotBoard value ->
             case Decode.decodeValue Json.boardDecoder value of
@@ -834,45 +883,38 @@ update msg model =
             )
 
         NumberPressed number ->
-            case model.selectedCell of
-                Just cell ->
-                    if Set.member cell model.visibleCells && not (cellIsGiven model cell) then
-                        let
-                            newCurrent : Dict ( Int, Int ) CellValue
-                            newCurrent =
-                                if number < 1 || number > model.blockSize then
+            if cellIsVisible model model.selectedCell && not (cellIsGiven model model.selectedCell) then
+                let
+                    newCurrent : Dict ( Int, Int ) CellValue
+                    newCurrent =
+                        if number < 1 || number > model.blockSize then
+                            model.current
+
+                        else
+                            if getCandidateMode model then
+                                Dict.update
+                                    model.selectedCell
+                                    (toggleNumber number)
                                     model.current
 
-                                else
-                                    if getCandidateMode model then
-                                        Dict.update
-                                            cell
-                                            (toggleNumber number)
-                                            model.current
+                            else
+                                Dict.insert
+                                    model.selectedCell
+                                    (Single number)
+                                    model.current
+                in
+                ( { model
+                    | current = newCurrent
+                    , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
+                  }
+                , Cmd.none
+                )
+                    |> andThen updateState
 
-                                    else
-                                        Dict.insert
-                                            cell
-                                            (Single number)
-                                            model.current
-                        in
-                        ( { model
-                            | current = newCurrent
-                            , pendingCellChanges = Set.insert cell model.pendingCellChanges
-                          }
-                        , Cmd.none
-                        )
-                            |> andThen updateState
-
-                    else
-                        ( model
-                        , Cmd.none
-                        )
-
-                Nothing ->
-                    ( model
-                    , Cmd.none
-                    )
+            else
+                ( model
+                , Cmd.none
+                )
 
         PlayLocalPressed ->
             ( { model
@@ -1010,55 +1052,48 @@ update msg model =
                     |> andThen updateState
 
         SolveSelectedCellPressed ->
-            case model.selectedCell of
-                Just cell ->
-                    case Dict.get cell model.current of
-                        Just (Given _) ->
-                            ( { model
-                                | messages =
-                                    addLocalMessage
-                                        (String.concat
-                                            [ "Solve Selected Cell item at Cell "
-                                            , rowToLabel (Tuple.first cell)
-                                            , String.fromInt (Tuple.second cell)
-                                            , " could not be used because the cell is already solved."
-                                            ]
-                                        )
-                                        model.messages
-                              }
-                            , Cmd.none
-                            )
-
-                        _ ->
-                            ( { model
-                                | current =
-                                    Dict.insert
-                                        cell
-                                        (Dict.get cell model.solution
-                                            |> Maybe.withDefault 0
-                                            |> Given
-                                        )
-                                        model.current
-                                , pendingCellChanges = Set.insert cell model.pendingCellChanges
-                                , solveSelectedCellUses = model.solveSelectedCellUses - 1
-                                , messages =
-                                    addLocalMessage
-                                        (String.concat
-                                            [ "Used Solve Selected Cell item at Cell "
-                                            , rowToLabel (Tuple.first cell)
-                                            , String.fromInt (Tuple.second cell)
-                                            ]
-                                        )
-                                        model.messages
-                              }
-                            , Cmd.none
-                            )
-                                |> andThen updateState
-
-                Nothing ->
-                    ( model
+            case Dict.get model.selectedCell model.current of
+                Just (Given _) ->
+                    ( { model
+                        | messages =
+                            addLocalMessage
+                                (String.concat
+                                    [ "Solve Selected Cell item at Cell "
+                                    , rowToLabel (Tuple.first model.selectedCell)
+                                    , String.fromInt (Tuple.second model.selectedCell)
+                                    , " could not be used because the cell is already solved."
+                                    ]
+                                )
+                                model.messages
+                      }
                     , Cmd.none
                     )
+
+                _ ->
+                    ( { model
+                        | current =
+                            Dict.insert
+                                model.selectedCell
+                                (Dict.get model.selectedCell model.solution
+                                    |> Maybe.withDefault 0
+                                    |> Given
+                                )
+                                model.current
+                        , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
+                        , solveSelectedCellUses = model.solveSelectedCellUses - 1
+                        , messages =
+                            addLocalMessage
+                                (String.concat
+                                    [ "Used Solve Selected Cell item at Cell "
+                                    , rowToLabel (Tuple.first model.selectedCell)
+                                    , String.fromInt (Tuple.second model.selectedCell)
+                                    ]
+                                )
+                                model.messages
+                      }
+                    , Cmd.none
+                    )
+                        |> andThen updateState
 
         ToggleCandidateModePressed ->
             ( { model | candidateMode = not model.candidateMode }
@@ -1069,7 +1104,7 @@ update msg model =
             ( model
             , zoom
                 (Encode.object
-                    [ ( "id", Encode.string <| cellHtmlId <| Maybe.withDefault (1, 1) model.selectedCell )
+                    [ ( "id", Encode.string <| cellHtmlId model.selectedCell )
                     , ( "scaleMult", Encode.float 1.5 )
                     ]
                 )
@@ -1079,7 +1114,7 @@ update msg model =
             ( model
             , zoom
                 (Encode.object
-                    [ ( "id", Encode.string <| cellHtmlId <| Maybe.withDefault (1, 1) model.selectedCell )
+                    [ ( "id", Encode.string <| cellHtmlId model.selectedCell )
                     , ( "scaleMult", Encode.float 0.66 )
                     ]
                 )
@@ -1093,27 +1128,23 @@ update msg model =
 
 moveSelection : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
 moveSelection ( rowOffset, colOffset ) model =
-    case model.selectedCell of
-        Just ( row, col ) ->
-            let
-                selectedCell : ( Int, Int )
-                selectedCell =
-                    List.range 1 5
-                        |> List.map (\mult -> ( row + rowOffset * mult, col + colOffset * mult ))
-                        |> List.filter (\cell -> Dict.member cell model.solution)
-                        |> List.head
-                        |> Maybe.withDefault ( row, col )
-            in
-            ( { model
-                | selectedCell = Just selectedCell
-              }
-            , moveCellIntoView (cellHtmlId selectedCell)
-            )
+    let
+        ( row, col ) =
+            model.selectedCell
 
-        Nothing ->
-            ( model
-            , Cmd.none
-            )
+        newCell : ( Int, Int )
+        newCell =
+            List.range 1 5
+                |> List.map (\mult -> ( row + rowOffset * mult, col + colOffset * mult ))
+                |> List.filter (\cell -> Dict.member cell model.solution)
+                |> List.head
+                |> Maybe.withDefault ( row, col )
+    in
+    ( { model
+        | selectedCell = newCell
+      }
+    , moveCellIntoView (cellHtmlId newCell)
+    )
 
 
 getCandidateMode : Model -> Bool
@@ -1817,6 +1848,36 @@ cellIsGiven model cell =
         |> Maybe.withDefault False
 
 
+getValidCellCandidates : Model -> ( Int, Int ) -> Set Int
+getValidCellCandidates model cell =
+    List.foldl
+        (\area numbers ->
+            let
+                numbersInArea : Set Int
+                numbersInArea =
+                    Engine.getAreaCells area
+                        |> List.filter ((/=) cell)
+                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
+                        |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
+                        |> List.filterMap cellValueToInt
+                        |> Set.fromList
+            in
+            Set.diff numbers numbersInArea
+        )
+        (List.range 1 model.blockSize
+            |> Set.fromList
+        )
+        (List.concat
+            [ Dict.get cell model.cellBlocks
+                |> Maybe.withDefault []
+            , Dict.get cell model.cellRows
+                |> Maybe.withDefault []
+            , Dict.get cell model.cellCols
+                |> Maybe.withDefault []
+            ]
+        )
+
+
 view : Model -> Html Msg
 view model =
     case model.gameState of
@@ -2125,7 +2186,7 @@ viewCell model ( row, col ) =
                     |> Maybe.andThen cellValueToInt
                 )
             , HA.classList
-                [ ( "selected", model.selectedCell == Just ( row, col ) )
+                [ ( "selected", model.selectedCell == ( row, col ) )
                 , ( "given", cellIsGiven model ( row, col ) && isVisible )
                 , ( "block-border-top"
                   , not (cellIsAt ( row - 1, col ))
@@ -2246,47 +2307,42 @@ viewInfoPanel model =
         , HA.style "gap" "1em"
         , HA.style "padding" "1em"
         ]
-        [ case model.selectedCell of
-            Just ( row, col ) ->
-                Html.div
-                    [ HA.style "display" "flex"
-                    , HA.style "flex-direction" "column"
-                    , HA.style "gap" "0.5em"
-                    ]
-                    (List.concat
-                        [ [ viewCellInfo model ( row, col ) ]
-                        , List.map
-                            (viewBlockInfo model)
-                            (Dict.get ( row, col ) model.cellBlocks
-                                |> Maybe.withDefault []
-                                |> List.sortBy .startRow
-                            )
-
-                        , List.map
-                            (viewRowInfo model)
-                            (Dict.get ( row, col ) model.cellRows
-                                |> Maybe.withDefault []
-                                |> List.sortBy .startCol
-                            )
-
-                        , List.map
-                            (viewColInfo model)
-                            (Dict.get ( row, col ) model.cellCols
-                                |> Maybe.withDefault []
-                                |> List.sortBy .startRow
-                            )
-
-                        , List.map
-                            (viewBoardInfo model)
-                            (Dict.get ( row, col ) model.cellBoards
-                                |> Maybe.withDefault []
-                                |> List.sortBy .startRow
-                            )
-                        ]
+        [ Html.div
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "column"
+            , HA.style "gap" "0.5em"
+            ]
+            (List.concat
+                [ [ viewCellInfo model model.selectedCell ]
+                , List.map
+                    (viewBlockInfo model)
+                    (Dict.get model.selectedCell model.cellBlocks
+                        |> Maybe.withDefault []
+                        |> List.sortBy .startRow
                     )
 
-            Nothing ->
-                Html.text ""
+                , List.map
+                    (viewRowInfo model)
+                    (Dict.get model.selectedCell model.cellRows
+                        |> Maybe.withDefault []
+                        |> List.sortBy .startCol
+                    )
+
+                , List.map
+                    (viewColInfo model)
+                    (Dict.get model.selectedCell model.cellCols
+                        |> Maybe.withDefault []
+                        |> List.sortBy .startRow
+                    )
+
+                , List.map
+                    (viewBoardInfo model)
+                    (Dict.get model.selectedCell model.cellBoards
+                        |> Maybe.withDefault []
+                        |> List.sortBy .startRow
+                    )
+                ]
+            )
         , viewInfoHints model
         , Html.div
             [ HA.style "display" "flex"
@@ -2310,10 +2366,29 @@ viewInfoPanel model =
             , HA.style "gap" "0.5em"
             ]
             [ Html.button
+                [ HE.onClick FillAllCandidatesPressed ]
+                [ Html.text "Fill all cells with valid candidates" ]
+            ]
+        , Html.div
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "row"
+            , HA.style "gap" "0.5em"
+            ]
+            [ Html.button
+                [ HE.onClick FillCellCandidatesPressed ]
+                [ Html.text "Fill cell with valid candidates" ]
+            , Html.text "(Hotkey: Q)"
+            ]
+        , Html.div
+            [ HA.style "display" "flex"
+            , HA.style "flex-direction" "row"
+            , HA.style "gap" "0.5em"
+            ]
+            [ Html.button
                 [ HE.onClick RemoveInvalidCandidatesPressed
                 , HA.style "align-self" "start"
                 ]
-                [ Html.text "Remove invalid candidates" ]
+                [ Html.text "Remove all invalid candidates" ]
             , Html.label
                 [ HA.style "display" "flex"
                 , HA.style "align-items" "center"

@@ -81,6 +81,7 @@ type alias Model =
     , pendingSolvedRows : Set ( Int, Int )
     , player : String
     , puzzleAreas : Engine.PuzzleAreas
+    , removeRandomCandidateUses : Int
     , scoutedItems : Dict Int Hint
     , seed : Random.Seed
     , seedInput : Int
@@ -125,6 +126,7 @@ type Msg
     | PlayLocalPressed
     | PlayerInputChanged String
     | RemoveInvalidCandidatesPressed
+    | RemoveRandomCandidatePressed
     | SeedInputChanged String
     | SendMessagePressed
     | ShiftDebouncePassed Int
@@ -162,6 +164,7 @@ type Item
     | Block ( Int, Int )
     | SolveSelectedCell
     | SolveRandomCell
+    | RemoveRandomCandidate
 
 
 itemFromId : Int -> Maybe Item
@@ -171,6 +174,9 @@ itemFromId id =
 
     else if id == 1 then
         Just SolveRandomCell
+
+    else if id == 2 then
+        Just RemoveRandomCandidate
 
     else if id == 101 then
         Just ProgressiveBlock
@@ -440,6 +446,7 @@ init flags =
             , rows = []
             , cols = []
             }
+      , removeRandomCandidateUses = 0
       , scoutedItems = Dict.empty
       , seed = Random.initialSeed (flags.seed + 1)
       , seedInput = flags.seed
@@ -578,6 +585,7 @@ update msg model =
             ( { model | autoRemoveInvalidCandidates = value }
             , Cmd.none
             )
+                |> andThen updateState
 
         BlockSizeChanged size ->
             ( { model | blockSize = size }
@@ -970,6 +978,85 @@ update msg model =
             )
                 |> andThen updateState
 
+        RemoveRandomCandidatePressed ->
+            let
+                boardCells : Set ( Int, Int )
+                boardCells =
+                    Dict.get model.selectedCell model.cellBoards
+                        |> Maybe.withDefault []
+                        |> List.concatMap Engine.getAreaCells
+                        |> Set.fromList
+
+                targets : List ( ( Int, Int ), Int )
+                targets =
+                    Dict.foldl
+                        (\cell cellValue acc ->
+                            case cellValue of
+                                Multiple candidates ->
+                                    Set.foldl
+                                        (\candidate ->
+                                            if (Dict.get cell model.solution /= Just candidate)
+                                                && Set.member cell boardCells
+                                                && cellIsVisible model cell
+                                            then
+                                                (::) ( cell, candidate )
+
+                                            else
+                                                identity
+                                        )
+                                        acc
+                                        candidates
+
+                                _ ->
+                                    acc
+                        )
+                        []
+                        model.current
+
+                ( maybeTarget, newSeed ) =
+                    case targets of
+                        [] ->
+                            ( Nothing, model.seed )
+
+                        firstTarget :: restTargets ->
+                            Random.step
+                                (Random.uniform firstTarget restTargets)
+                                model.seed
+                                |> Tuple.mapFirst Just
+            in
+            case maybeTarget of
+                Just ( cell, number ) ->
+                    ( { model
+                        | current = Dict.update cell (toggleNumber number) model.current
+                        , pendingCellChanges = Set.insert cell model.pendingCellChanges
+                        , removeRandomCandidateUses = model.removeRandomCandidateUses - 1
+                        , seed = newSeed
+                        , messages =
+                            addLocalMessage
+                                (String.concat
+                                    [ "Used Remove Random Candidate item to remove candidate "
+                                    , String.fromInt number
+                                    , " from Cell "
+                                    , rowToLabel (Tuple.first cell)
+                                    , String.fromInt (Tuple.second cell)
+                                    ]
+                                )
+                                model.messages
+                      }
+                    , Cmd.none
+                    )
+                        |> andThen updateState
+
+                Nothing ->
+                    ( { model
+                        | messages =
+                            addLocalMessage
+                                "Remove Random Candidate item could not be used because there are no valid candidates to remove in the selected board."
+                                model.messages
+                      }
+                    , Cmd.none
+                    )
+
         SeedInputChanged value ->
             ( { model
                 | seedInput =
@@ -1015,6 +1102,13 @@ update msg model =
 
         SolveRandomCellPressed ->
             let
+                boardCells : Set ( Int, Int )
+                boardCells =
+                    Dict.get model.selectedCell model.cellBoards
+                        |> Maybe.withDefault []
+                        |> List.concatMap Engine.getAreaCells
+                        |> Set.fromList
+
                 cellCandidates : List ( Int, Int )
                 cellCandidates =
                     List.filterMap
@@ -1024,7 +1118,9 @@ update msg model =
                                     Nothing
 
                                 _ ->
-                                    if Set.member cell model.visibleCells then
+                                    if Set.member cell model.visibleCells
+                                        && Set.member cell boardCells
+                                    then
                                         Just cell
 
                                     else
@@ -1032,52 +1128,54 @@ update msg model =
                         )
                         (Dict.keys model.solution)
 
-                ( selectedCell, newSeed ) =
+                ( maybeTargetCell, newSeed ) =
                     case cellCandidates of
                         [] ->
-                            ( (-1, -1), model.seed )
+                            ( Nothing, model.seed )
 
                         firstCandidate :: restCandidates ->
                             Random.step
                                 (Random.uniform firstCandidate restCandidates)
                                 model.seed
+                                |> Tuple.mapFirst Just
             in
-            if selectedCell == (-1, -1) then
-                ( { model
-                    | messages =
-                        addLocalMessage
-                            "Solve Random Cell item could not be used because there are no unsolved visible cells."
-                            model.messages
-                  }
-                , Cmd.none
-                )
-
-            else
-                ( { model
-                    | current =
-                        Dict.insert
-                            selectedCell
-                            (Dict.get selectedCell model.solution
-                                |> Maybe.withDefault 0
-                                |> Given
-                            )
-                            model.current
-                    , pendingCellChanges = Set.insert selectedCell model.pendingCellChanges
-                    , seed = newSeed
-                    , solveRandomCellUses = model.solveRandomCellUses - 1
-                    , messages =
-                        addLocalMessage
-                            (String.concat
-                                [ "Used Solve Random Cell item at Cell "
-                                , rowToLabel (Tuple.first selectedCell)
-                                , String.fromInt (Tuple.second selectedCell)
-                                ]
-                            )
-                            model.messages
-                  }
-                , Cmd.none
-                )
+            case maybeTargetCell of
+                Just targetCell ->
+                    ( { model
+                        | current =
+                            Dict.insert
+                                targetCell
+                                (Dict.get targetCell model.solution
+                                    |> Maybe.withDefault 0
+                                    |> Given
+                                )
+                                model.current
+                        , pendingCellChanges = Set.insert targetCell model.pendingCellChanges
+                        , seed = newSeed
+                        , solveRandomCellUses = model.solveRandomCellUses - 1
+                        , messages =
+                            addLocalMessage
+                                (String.concat
+                                    [ "Used Solve Random Cell item at Cell "
+                                    , rowToLabel (Tuple.first targetCell)
+                                    , String.fromInt (Tuple.second targetCell)
+                                    ]
+                                )
+                                model.messages
+                      }
+                    , Cmd.none
+                    )
                     |> andThen updateState
+
+                Nothing ->
+                    ( { model
+                        | messages =
+                            addLocalMessage
+                                "Solve Random Cell item could not be used because there are no unsolved visible cells in the selected board."
+                                model.messages
+                      }
+                    , Cmd.none
+                    )
 
         SolveSelectedCellPressed ->
             case Dict.get model.selectedCell model.current of
@@ -1570,17 +1668,26 @@ unlockNextBlock model =
 
                     item : Maybe Item
                     item =
-                        if rand < 10 then
+                        if rand < 5 then
                             Just SolveSelectedCell
 
-                        else if rand < 30 then
+                        else if rand < 15 then
                             Just SolveRandomCell
+
+                        else if rand < 40 then
+                            Just RemoveRandomCandidate
 
                         else
                             Nothing
                 in
                 ( { model
                     | lockedBlocks = remainingBlocks
+                    , removeRandomCandidateUses =
+                        if item == Just RemoveRandomCandidate then
+                            model.removeRandomCandidateUses + 1
+
+                        else
+                            model.removeRandomCandidateUses
                     , solveRandomCellUses =
                         if item == Just SolveRandomCell then
                             model.solveRandomCellUses + 1
@@ -1603,8 +1710,11 @@ unlockNextBlock model =
                                  else if item == Just SolveSelectedCell then
                                     "Unlocked a Solve Selected Cell."
 
+                                 else if item == Just RemoveRandomCandidate then
+                                    "Unlocked a Remove Random Candidate."
+
                                  else
-                                     "Unlocked Nothing"
+                                    "Unlocked Nothing"
                                 )
                                 model.messages
 
@@ -1844,6 +1954,13 @@ updateStateItem item model =
         SolveRandomCell ->
             ( { model
                 | solveRandomCellUses = model.solveRandomCellUses + 1
+              }
+            , Cmd.none
+            )
+
+        RemoveRandomCandidate ->
+            ( { model
+                | removeRandomCandidateUses = model.removeRandomCandidateUses + 1
               }
             , Cmd.none
             )
@@ -2549,28 +2666,10 @@ viewInfoPanelHelpers model =
                 [ HA.class "row gap-m"
                 ]
                 [ Html.button
-                    [ HE.onClick FillAllCandidatesPressed ]
-                    [ Html.text "Fill all cells with valid candidates" ]
-                ]
-            , Html.div
-                [ HA.class "row gap-m"
-                ]
-                [ Html.button
-                    [ HE.onClick FillCellCandidatesPressed ]
-                    [ Html.text "Fill cell with valid candidates" ]
-                , Html.text "[Q]"
-                , Html.label
-                    [ HA.class "row gap-s"
-                    , HA.style "align-items" "center"
+                    [ HE.onClick SolveSingleCandidatesPressed
                     ]
-                    [ Html.input
-                        [ HA.type_ "checkbox"
-                        , HA.checked model.autoFillCandidatesOnUnlock
-                        , HE.onCheck AutoFillCandidatesOnUnlockChanged
-                        ]
-                        []
-                    , Html.text "Auto on Unlock"
-                    ]
+                    [ Html.text "Solve single-candidate cells" ]
+                , Html.text "[S]"
                 ]
             , Html.div
                 [ HA.class "row gap-m"
@@ -2597,10 +2696,28 @@ viewInfoPanelHelpers model =
                 [ HA.class "row gap-m"
                 ]
                 [ Html.button
-                    [ HE.onClick SolveSingleCandidatesPressed
+                    [ HE.onClick FillCellCandidatesPressed ]
+                    [ Html.text "Fill cell with valid candidates" ]
+                , Html.text "[Q]"
+                , Html.label
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
                     ]
-                    [ Html.text "Solve single-candidate cells" ]
-                , Html.text "[S]"
+                    [ Html.input
+                        [ HA.type_ "checkbox"
+                        , HA.checked model.autoFillCandidatesOnUnlock
+                        , HE.onCheck AutoFillCandidatesOnUnlockChanged
+                        ]
+                        []
+                    , Html.text "Auto on Unlock"
+                    ]
+                ]
+            , Html.div
+                [ HA.class "row gap-m"
+                ]
+                [ Html.button
+                    [ HE.onClick FillAllCandidatesPressed ]
+                    [ Html.text "Fill all cells with valid candidates" ]
                 ]
             ]
         ]
@@ -2617,6 +2734,7 @@ viewInfoPanelItems model =
             [ Html.text "Items" ]
         , Html.div
             [ HA.class "row gap-m"
+            , HA.style "flex-wrap" "wrap"
             ]
             [ Html.button
                 [ HAE.attributeIf
@@ -2642,6 +2760,20 @@ viewInfoPanelItems model =
                     (String.concat
                         [ "Solve Random Cell ("
                         , String.fromInt model.solveRandomCellUses
+                        , " uses)"
+                        ]
+                    )
+                ]
+            , Html.button
+                [ HAE.attributeIf
+                    (model.removeRandomCandidateUses > 0)
+                    (HE.onClick RemoveRandomCandidatePressed)
+                , HA.disabled (model.removeRandomCandidateUses <= 0)
+                ]
+                [ Html.text
+                    (String.concat
+                        [ "Remove Random Candidate ("
+                        , String.fromInt model.removeRandomCandidateUses
                         , " uses)"
                         ]
                     )

@@ -264,6 +264,7 @@ def row_to_label(row: int) -> str:
 item_name_to_id = {
     # 0xx: Filler Items
     "Solve Random Cell": 1,
+    "Remove Random Candidate": 2,
     "Nothing": 99,
     # 1xx: Progression Items
     "Progressive Block": 101,

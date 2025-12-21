@@ -267,6 +267,7 @@ class ArchipeladokuWorld(World):
         weights = {
             "Solve Selected Cell": self.options.solve_selected_cell_weight.value,
             "Solve Random Cell": self.options.solve_random_cell_weight.value,
+            "Remove Random Candidate": self.options.remove_random_candidate_weight.value,
             "Nothing": self.options.nothing_weight.value,
         }
 

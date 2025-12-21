@@ -3,6 +3,11 @@
 
     --color-bg: light-dark(#eeeeee, #222222);
 
+    --spacing-s: 0.25rem;
+    --spacing-m: 0.5rem;
+    --spacing-l: 1rem;
+    --spacing-xl: 2rem;
+
     --h4-1: 0;
     --h4-2: 60;
     --h4-3: 120;
@@ -72,9 +77,46 @@ body {
     margin: 0;
 }
 
+.row {
+    display: flex;
+    flex-direction: row;
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+}
+
+.gap-s {
+    gap: var(--spacing-s);
+}
+
+.gap-m {
+    gap: var(--spacing-m);
+}
+
+.gap-l {
+    gap: var(--spacing-l);
+}
+
+.gap-xl {
+    gap: var(--spacing-xl);
+}
+
+.info-panel-details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-m);
+}
+
+.info-panel-details summary {
+    font-weight: 700;
+    font-size: 1.25em;
+}
+
 .board {
     display: grid;
-    font-size: 32px;
+    font-size: 2em;
     overflow: hidden;
     flex-grow: 1;
     position: relative;
@@ -128,6 +170,8 @@ body {
     border-left: 1px solid #888888;
     border-right: none;
     font-style: italic;
+    content-visibility: auto;
+    contain-intrinsic-size: 48px 48px;
 }
 
 .cell.selected {

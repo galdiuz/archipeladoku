@@ -97,6 +97,7 @@ type alias Model =
 type Msg
     = AutoRemoveInvalidCandidatesChanged Bool
     | BlockSizeChanged Int
+    | CandidateModeChanged Bool
     | CellSelected ( Int, Int )
     | ConnectPressed
     | DeletePressed
@@ -569,6 +570,11 @@ update msg model =
 
         BlockSizeChanged size ->
             ( { model | blockSize = size }
+            , Cmd.none
+            )
+
+        CandidateModeChanged value ->
+            ( { model | candidateMode = value }
             , Cmd.none
             )
 
@@ -1886,13 +1892,13 @@ view model =
 
         Connecting ->
             Html.div
-                [ HA.style "padding" "1em"
+                [ HA.style "padding" "var(--spacing-l)"
                 ]
                 [ Html.text "Connecting..." ]
 
         Generating ->
             Html.div
-                [ HA.style "padding" "1em"
+                [ HA.style "padding" "var(--spacing-l)"
                 ]
                 [ Html.text (Tuple.first model.generationProgress)
                 , Html.text " "
@@ -1906,7 +1912,7 @@ view model =
 
         Playing ->
             Html.div
-                [ HA.style "display" "flex"
+                [ HA.class "row"
                 , HA.style "justify-content" "space-between"
                 , HA.style "height" "100vh"
                 ]
@@ -1918,49 +1924,53 @@ view model =
 viewMenu : Model -> Html Msg
 viewMenu model =
     Html.div
-        [ HA.style "padding" "1em"
-        , HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
-        , HA.style "gap" "2em"
+        [ HA.class "column gap-xl"
+        , HA.style "padding" "var(--spacing-l)"
         ]
         [ Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "column"
+            [ HA.class "column gap-m"
             , HA.style "align-items" "start"
-            , HA.style "gap" "0.5em"
             ]
             [ Html.h2
                 [ HA.style "margin" "0" ]
                 [ Html.text "Connect to Archipelago" ]
             , Html.form
-                [ HA.style "display" "flex"
-                , HA.style "gap" "0.5em"
+                [ HA.class "row gap-m"
                 , HE.onSubmit ConnectPressed
                 ]
-                [ Html.input
-                    [ HA.type_ "text"
-                    , HA.placeholder "Host"
-                    , HA.value model.host
-                    , HE.onInput HostInputChanged
+                [ Html.label
+                    [ HA.class "column"
                     ]
-                    []
-                , Html.input
-                    [ HA.type_ "text"
-                    , HA.placeholder "Player name"
-                    , HA.value model.player
-                    , HE.onInput PlayerInputChanged
+                    [ Html.text "Host:"
+                    , Html.input
+                        [ HA.type_ "text"
+                        , HA.placeholder "archipelago.gg:12345"
+                        , HA.value model.host
+                        , HE.onInput HostInputChanged
+                        ]
+                        []
                     ]
-                    []
+                , Html.label
+                    [ HA.class "column"
+                    ]
+                    [ Html.text "Slot Name:"
+                    , Html.input
+                        [ HA.type_ "text"
+                        , HA.placeholder "Player1"
+                        , HA.value model.player
+                        , HE.onInput PlayerInputChanged
+                        ]
+                        []
+                    ]
                 , Html.button
-                    []
+                    [ HA.style "align-self" "end"
+                    ]
                     [ Html.text "Connect"]
                 ]
             ]
         , Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "column"
+            [ HA.class "column gap-m"
             , HA.style "align-items" "start"
-            , HA.style "gap" "0.5em"
             ]
             [ Html.h2
                 [ HA.style "margin" "0" ]
@@ -1969,9 +1979,7 @@ viewMenu model =
                 []
                 [ Html.text "Block Size:"
                 , Html.div
-                    [ HA.style "display" "flex"
-                    , HA.style "flex-direction" "row"
-                    , HA.style "gap" "0.5em"
+                    [ HA.class "row gap-m"
                     ]
                     [ viewNumberRadioButton 4 model.blockSize "block-size" BlockSizeChanged
                     , viewNumberRadioButton 6 model.blockSize "block-size" BlockSizeChanged
@@ -1985,9 +1993,7 @@ viewMenu model =
                 []
                 [ Html.text "Number of Boards:"
                 , Html.div
-                    [ HA.style "display" "flex"
-                    , HA.style "flex-direction" "row"
-                    , HA.style "gap" "0.5em"
+                    [ HA.class "row gap-m"
                     ]
                     [ viewNumberRadioButton 1 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
                     , viewNumberRadioButton 3 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
@@ -2006,9 +2012,7 @@ viewMenu model =
                 []
                 [ Html.text "Difficulty:"
                 , Html.div
-                    [ HA.style "display" "flex"
-                    , HA.style "flex-direction" "row"
-                    , HA.style "gap" "0.5em"
+                    [ HA.class "row gap-m"
                     ]
                     [ viewRadioButton 1 model.difficulty "difficulty" DifficultyChanged (\_ -> "Beginner")
                     , viewRadioButton 2 model.difficulty "difficulty" DifficultyChanged (\_ -> "Easy")
@@ -2017,9 +2021,7 @@ viewMenu model =
                     ]
                 ]
             , Html.div
-                [ HA.style "display" "flex"
-                , HA.style "flex-direction" "row"
-                , HA.style "gap" "0.25em"
+                [ HA.class "row gap-s"
                 , HA.style "align-items" "baseline"
                 , HA.min "0"
                 , HA.max (String.fromInt Random.maxInt)
@@ -2042,9 +2044,8 @@ viewMenu model =
 viewRadioButton : a -> a -> String -> (a -> Msg) -> (a -> String) -> Html Msg
 viewRadioButton value selected name msg toLabel =
     Html.label
-        [ HA.style "display" "flex"
+        [ HA.class "row gap-s"
         , HA.style "align-items" "baseline"
-        , HA.style "gap" "0.25em"
         ]
         [ Html.input
             [ HA.type_ "radio"
@@ -2270,12 +2271,10 @@ viewMultipleNumbers blockSize errorsAtCell numbers =
 viewZoomControls : Html Msg
 viewZoomControls =
     Html.div
-        [ HA.style "position" "absolute"
-        , HA.style "top" "0.5em"
-        , HA.style "right" "0.5em"
-        , HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
-        , HA.style "gap" "0.5em"
+        [ HA.class "column gap-m"
+        , HA.style "position" "absolute"
+        , HA.style "top" "var(--spacing-m)"
+        , HA.style "right" "var(--spacing-m)"
         , HA.style "z-index" "10"
         ]
         [ Html.button
@@ -2302,15 +2301,96 @@ viewZoomControls =
 viewInfoPanel : Model -> Html Msg
 viewInfoPanel model =
     Html.div
-        [ HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
-        , HA.style "gap" "1em"
-        , HA.style "padding" "1em"
+        [ HA.class "column gap-l"
+        , HA.style "padding" "var(--spacing-l)"
+        , HA.style "width" "350px"
+        , HA.style "min-width" "350px"
+        , HA.style "overflow-y" "auto"
+        , HA.style "border-left" "1px solid #888888"
         ]
-        [ Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "column"
-            , HA.style "gap" "0.5em"
+        [ viewInfoPanelInput model
+        , viewInfoPanelHelpers model
+        , viewInfoPanelItems model
+        , viewInfoPanelSelected model
+        , viewInfoPanelMessages model
+        ]
+
+
+viewInfoPanelInput : Model -> Html Msg
+viewInfoPanelInput model =
+    let
+        validCellCandidates : Set Int
+        validCellCandidates =
+            getValidCellCandidates model model.selectedCell
+    in
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Input" ]
+        , Html.div
+            [ HA.class "column gap-l"
+            ]
+            [ Html.label
+                [ HA.class "column gap-s"
+                ]
+                [ Html.text "Input mode (Toggle: Space, Hold: Shift)"
+                , Html.div
+                    [ HA.class "row gap-m"
+                    ]
+                    [ viewRadioButton
+                        False
+                        (getCandidateMode model)
+                        "input-mode"
+                        CandidateModeChanged
+                        (\_ -> "Number")
+                    , viewRadioButton
+                        True
+                        (getCandidateMode model)
+                        "input-mode"
+                        CandidateModeChanged
+                        (\_ -> "Candidates")
+                    ]
+                ]
+            , Html.div
+                [ HA.class "row gap-m"
+                , HA.class <| "block-" ++ String.fromInt model.blockSize
+                , HA.style "font-size" "1.5em"
+                , HA.style "flex-wrap" "wrap"
+                ]
+                (List.map
+                    (\n ->
+                        Html.button
+                            [ HE.onClick (NumberPressed n)
+                            , HA.class "cell"
+                            , HA.class <| "val-" ++ String.fromInt n
+                            , HA.style "width" "1.5em"
+                            , HA.style "height" "1.5em"
+                            , HAE.attributeIf
+                                (not <| Set.member n validCellCandidates)
+                                (HA.class "error")
+                            ]
+                            [ Html.text (numberToString model.blockSize n) ]
+                    )
+                    (List.range 1 model.blockSize)
+                )
+            ]
+        ]
+
+
+viewInfoPanelSelected : Model -> Html Msg
+viewInfoPanelSelected model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Selected Cell / Hints" ]
+        , Html.div
+            [ HA.class "column gap-m"
             ]
             (List.concat
                 [ [ viewCellInfo model model.selectedCell ]
@@ -2341,72 +2421,92 @@ viewInfoPanel model =
                         |> Maybe.withDefault []
                         |> List.sortBy .startRow
                     )
-                ]
-            )
-        , viewInfoHints model
-        , Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "row"
-            , HA.style "gap" "0.25em"
-            , HA.style "align-items" "baseline"
-            ]
-            [ Html.text "Input mode (Toggle: Space, Hold: Shift)"
-            , Html.button
-                [ HE.onClick ToggleCandidateModePressed ]
-                [ if getCandidateMode model then
-                    Html.text "Candidates"
+                , if model.gameIsLocal then
+                    []
 
                   else
-                    Html.text "Set"
-                ]
-            ]
-        , Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "row"
-            , HA.style "gap" "0.5em"
-            ]
-            [ Html.button
-                [ HE.onClick FillAllCandidatesPressed ]
-                [ Html.text "Fill all cells with valid candidates" ]
-            ]
-        , Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "row"
-            , HA.style "gap" "0.5em"
-            ]
-            [ Html.button
-                [ HE.onClick FillCellCandidatesPressed ]
-                [ Html.text "Fill cell with valid candidates" ]
-            , Html.text "(Hotkey: Q)"
-            ]
-        , Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "row"
-            , HA.style "gap" "0.5em"
-            ]
-            [ Html.button
-                [ HE.onClick RemoveInvalidCandidatesPressed
-                , HA.style "align-self" "start"
-                ]
-                [ Html.text "Remove all invalid candidates" ]
-            , Html.label
-                [ HA.style "display" "flex"
-                , HA.style "align-items" "center"
-                , HA.style "gap" "0.25em"
-                ]
-                [ Html.input
-                    [ HA.type_ "checkbox"
-                    , HA.checked model.autoRemoveInvalidCandidates
-                    , HE.onCheck AutoRemoveInvalidCandidatesChanged
+                    [ Html.div
+                        []
+                        [ Html.text
+                            (String.concat
+                                [ "Hints available: "
+                                , String.fromInt <| model.hintPoints // model.hintCost
+                                , " ("
+                                , String.fromInt model.hintPoints
+                                , " points, cost "
+                                , String.fromInt model.hintCost
+                                , ")"
+                                ]
+                            )
+                        ]
                     ]
-                    []
-                , Html.text "Auto"
+                ]
+            )
+        ]
+
+
+viewInfoPanelHelpers : Model -> Html Msg
+viewInfoPanelHelpers model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Helpers" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            ]
+            [ Html.div
+                [ HA.class "row gap-m"
+                ]
+                [ Html.button
+                    [ HE.onClick FillAllCandidatesPressed ]
+                    [ Html.text "Fill all cells with valid candidates" ]
+                ]
+            , Html.div
+                [ HA.class "row gap-m"
+                ]
+                [ Html.button
+                    [ HE.onClick FillCellCandidatesPressed ]
+                    [ Html.text "Fill cell with valid candidates" ]
+                , Html.text "(Hotkey: Q)"
+                ]
+            , Html.div
+                [ HA.class "row gap-m"
+                ]
+                [ Html.button
+                    [ HE.onClick RemoveInvalidCandidatesPressed
+                    ]
+                    [ Html.text "Remove all invalid candidates" ]
+                , Html.label
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.type_ "checkbox"
+                        , HA.checked model.autoRemoveInvalidCandidates
+                        , HE.onCheck AutoRemoveInvalidCandidatesChanged
+                        ]
+                        []
+                    , Html.text "Auto"
+                    ]
                 ]
             ]
+        ]
+
+
+viewInfoPanelItems : Model -> Html Msg
+viewInfoPanelItems model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Items" ]
         , Html.div
-            [ HA.style "display" "flex"
-            , HA.style "flex-direction" "row"
-            , HA.style "gap" "0.5em"
+            [ HA.class "row gap-m"
             ]
             [ Html.button
                 [ HAE.attributeIf
@@ -2437,7 +2537,52 @@ viewInfoPanel model =
                     )
                 ]
             ]
-        , viewMessages model
+        ]
+
+
+viewInfoPanelMessages : Model -> Html Msg
+viewInfoPanelMessages model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        , HA.style "flex-grow" "1"
+        , HA.style "justify-content" "flex-end"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Messages" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            ]
+            [ Html.div
+                [ HA.style "max-width" "400px"
+                , HA.style "max-height" "400px"
+                , HA.style "overflow-y" "auto"
+                , HA.style "display" "flex"
+                , HA.style "flex-direction" "column-reverse"
+                , HA.class "gap-m"
+                ]
+                (List.map viewMessage model.messages)
+            , Html.Extra.viewIf
+                (not model.gameIsLocal)
+                (Html.form
+                    [ HA.class "row gap-m"
+                    , HE.onSubmit SendMessagePressed
+                    ]
+                    [ Html.input
+                        [ HA.type_ "text"
+                        , HA.placeholder "Enter message..."
+                        , HA.value model.messageInput
+                        , HA.style "flex-grow" "1"
+                        , HE.onInput MessageInputChanged
+                        ]
+                        []
+                    , Html.button
+                        []
+                        [ Html.text "Send" ]
+                    ]
+                )
+            ]
         ]
 
 
@@ -2452,8 +2597,7 @@ viewCellInfo model ( row, col ) =
 viewBlockInfo : Model -> Engine.Area -> Html Msg
 viewBlockInfo model block =
     Html.div
-        [ HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
+        [ HA.class "column"
         ]
         [ viewCellLabel "Block" block.startRow block.startCol
 
@@ -2496,8 +2640,7 @@ viewBlockInfo model block =
 
                 Nothing ->
                     Html.div
-                        [ HA.style "display" "flex"
-                        , HA.style "gap" "0.5em"
+                        [ HA.class "row gap-m"
                         ]
                         [ Html.text "Unlock: ???"
                         , Html.button
@@ -2520,8 +2663,7 @@ viewBlockInfo model block =
 viewRowInfo : Model -> Engine.Area -> Html Msg
 viewRowInfo model row =
     Html.div
-        [ HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
+        [ HA.class "column"
         ]
         [ viewCellLabel "Row" row.startRow row.startCol
 
@@ -2543,8 +2685,7 @@ viewRowInfo model row =
 viewColInfo : Model -> Engine.Area -> Html Msg
 viewColInfo model col =
     Html.div
-        [ HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
+        [ HA.class "column"
         ]
         [ viewCellLabel "Column" col.startRow col.startCol
 
@@ -2566,8 +2707,7 @@ viewColInfo model col =
 viewBoardInfo : Model -> Engine.Area -> Html Msg
 viewBoardInfo model board =
     Html.div
-        [ HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
+        [ HA.class "column"
         ]
         [ viewCellLabel "Board" board.startRow board.startCol
 
@@ -2631,70 +2771,6 @@ viewRewardLabel hint =
                 , ", "
                 , hint.gameName
                 , ")"
-                ]
-            )
-        ]
-
-
-viewInfoHints : Model -> Html Msg
-viewInfoHints model =
-    if model.gameIsLocal then
-        Html.text ""
-
-    else
-        Html.div
-            []
-            [ Html.text
-                (String.concat
-                    [ "Hints available: "
-                    , String.fromInt <| model.hintPoints // model.hintCost
-                    , " ("
-                    , String.fromInt model.hintPoints
-                    , " points, cost "
-                    , String.fromInt model.hintCost
-                    , ")"
-                    ]
-                )
-            ]
-
-
-viewMessages : Model -> Html Msg
-viewMessages model =
-    Html.div
-        [ HA.style "display" "flex"
-        , HA.style "flex-direction" "column"
-        , HA.style "gap" "0.5em"
-        , HA.style "flex-grow" "1"
-        , HA.style "justify-content" "flex-end"
-        ]
-        [ Html.div
-            [ HA.style "max-width" "400px"
-            , HA.style "max-height" "400px"
-            , HA.style "overflow-y" "auto"
-            , HA.style "display" "flex"
-            , HA.style "flex-direction" "column-reverse"
-            , HA.style "gap" "0.5em"
-            ]
-            (List.map viewMessage model.messages)
-        , Html.Extra.viewIf
-            (not model.gameIsLocal)
-            (Html.form
-                [ HA.style "display" "flex"
-                , HA.style "flex-direction" "row"
-                , HA.style "gap" "0.5em"
-                , HE.onSubmit SendMessagePressed
-                ]
-                [ Html.input
-                    [ HA.type_ "text"
-                    , HA.placeholder "Enter message..."
-                    , HA.value model.messageInput
-                    , HA.style "flex-grow" "1"
-                    , HE.onInput MessageInputChanged
-                    ]
-                    []
-                , Html.button
-                    []
-                    [ Html.text "Send" ]
                 ]
             )
         ]

@@ -49,7 +49,8 @@ port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
-    { autoRemoveInvalidCandidates : Bool
+    { autoFillCandidatesOnUnlock : Bool
+    , autoRemoveInvalidCandidates : Bool
     , blockSize : Int
     , candidateMode : Bool
     , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
@@ -95,7 +96,8 @@ type alias Model =
 
 
 type Msg
-    = AutoRemoveInvalidCandidatesChanged Bool
+    = AutoFillCandidatesOnUnlockChanged Bool
+    | AutoRemoveInvalidCandidatesChanged Bool
     | BlockSizeChanged Int
     | CandidateModeChanged Bool
     | CellSelected ( Int, Int )
@@ -400,7 +402,8 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { autoRemoveInvalidCandidates = False
+    ( { autoFillCandidatesOnUnlock = False
+      , autoRemoveInvalidCandidates = False
       , blockSize = 9
       , candidateMode = False
       , cellBlocks = Dict.empty
@@ -563,8 +566,13 @@ keyUpDecoder =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        AutoRemoveInvalidCandidatesChanged enabled ->
-            ( { model | autoRemoveInvalidCandidates = enabled }
+        AutoFillCandidatesOnUnlockChanged value ->
+            ( { model | autoFillCandidatesOnUnlock = value }
+            , Cmd.none
+            )
+
+        AutoRemoveInvalidCandidatesChanged value ->
+            ( { model | autoRemoveInvalidCandidates = value }
             , Cmd.none
             )
 
@@ -1648,12 +1656,40 @@ unlockBlock block model =
         , unlockedBlocks = Set.insert block model.unlockedBlocks
         , visibleCells = newVisibleCells
       }
+        |> autoFillCandidatesOnUnlock (Set.diff blockCells model.visibleCells)
     , triggerAnimation
         (Set.diff blockCells model.visibleCells
             |> Set.toList
             |> encodeTriggerAnimation "shatter"
         )
     )
+
+
+autoFillCandidatesOnUnlock : Set ( Int, Int ) -> Model -> Model
+autoFillCandidatesOnUnlock cells model =
+    if model.autoFillCandidatesOnUnlock then
+        { model
+            | current =
+                Set.foldl
+                    (\cell current ->
+                        if cellIsGiven model cell then
+                            current
+
+                        else
+                            Dict.insert
+                                cell
+                                (getValidCellCandidates model cell
+                                    |> Multiple
+                                )
+                                current
+                    )
+                    model.current
+                    cells
+        }
+
+    else
+        model
+
 
 
 getBoardErrors : Model -> Dict ( Int, Int ) (Set Int)
@@ -2340,7 +2376,7 @@ viewInfoPanelInput model =
             [ Html.label
                 [ HA.class "column gap-s"
                 ]
-                [ Html.text "Input mode (Toggle: Space, Hold: Shift)"
+                [ Html.text "Input mode (Toggle [Space], Hold [Shift])"
                 , Html.div
                     [ HA.class "row gap-m"
                     ]
@@ -2474,7 +2510,19 @@ viewInfoPanelHelpers model =
                 [ Html.button
                     [ HE.onClick FillCellCandidatesPressed ]
                     [ Html.text "Fill cell with valid candidates" ]
-                , Html.text "(Hotkey: Q)"
+                , Html.text "[Q]"
+                , Html.label
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.type_ "checkbox"
+                        , HA.checked model.autoFillCandidatesOnUnlock
+                        , HE.onCheck AutoFillCandidatesOnUnlockChanged
+                        ]
+                        []
+                    , Html.text "Auto on Unlock"
+                    ]
                 ]
             , Html.div
                 [ HA.class "row gap-m"

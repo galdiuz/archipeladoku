@@ -516,7 +516,8 @@ keyDownDecoder model =
                         , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
                         , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
                         , ( "KeyQ", FillCellCandidatesPressed )
-                        , ( "KeyW", SolveSingleCandidatesPressed )
+                        , ( "KeyW", RemoveInvalidCandidatesPressed )
+                        , ( "KeyS", SolveSingleCandidatesPressed )
                         , ( "Numpad1", NumberPressed 1 )
                         , ( "Numpad2", NumberPressed 2 )
                         , ( "Numpad3", NumberPressed 3 )
@@ -2578,6 +2579,7 @@ viewInfoPanelHelpers model =
                     [ HE.onClick RemoveInvalidCandidatesPressed
                     ]
                     [ Html.text "Remove all invalid candidates" ]
+                , Html.text "[W]"
                 , Html.label
                     [ HA.class "row gap-s"
                     , HA.style "align-items" "center"
@@ -2598,7 +2600,7 @@ viewInfoPanelHelpers model =
                     [ HE.onClick SolveSingleCandidatesPressed
                     ]
                     [ Html.text "Solve single-candidate cells" ]
-                , Html.text "[W]"
+                , Html.text "[S]"
                 ]
             ]
         ]

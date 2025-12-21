@@ -904,9 +904,20 @@ update msg model =
                                     model.current
 
                             else
-                                Dict.insert
+                                Dict.update
                                     model.selectedCell
-                                    (Single number)
+                                    (\cellValue ->
+                                        case cellValue of
+                                            Just (Single curretNum) ->
+                                                if curretNum == number then
+                                                    Nothing
+
+                                                else
+                                                    Just (Single number)
+
+                                            _ ->
+                                                Just (Single number)
+                                    )
                                     model.current
                 in
                 ( { model

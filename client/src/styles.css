@@ -64,6 +64,48 @@ body {
     gap: var(--spacing-xl);
 }
 
+.main-container {
+    display: flex;
+    height: 100vh;
+}
+
+.info-panel {
+    padding: var(--spacing-l);
+    gap: var(--spacing-l);
+    overflow-y: auto;
+    border-color: #888888;
+    border-style: solid;
+    border-width: 0;
+}
+
+@media (max-width: 999px) {
+    .main-container {
+        flex-direction: column;
+    }
+
+    .info-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+        min-height: 35vh;
+        max-height: 35vh;
+        border-top-width: 1px;
+    }
+}
+
+@media (min-width: 1000px) {
+    .main-container {
+        flex-direction: row;
+    }
+
+    .info-panel {
+        display: flex;
+        flex-direction: column;
+        min-width: 350px;
+        max-width: 350px;
+        border-left-width: 1px;
+    }
+}
+
 .info-panel-details {
     display: flex;
     flex-direction: column;

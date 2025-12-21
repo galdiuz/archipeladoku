@@ -1923,9 +1923,7 @@ view model =
 
         Playing ->
             Html.div
-                [ HA.class "row"
-                , HA.style "justify-content" "space-between"
-                , HA.style "height" "100vh"
+                [ HA.class "main-container"
                 ]
                 [ viewBoard model
                 , viewInfoPanel model
@@ -2312,12 +2310,7 @@ viewZoomControls =
 viewInfoPanel : Model -> Html Msg
 viewInfoPanel model =
     Html.div
-        [ HA.class "column gap-l"
-        , HA.style "padding" "var(--spacing-l)"
-        , HA.style "width" "350px"
-        , HA.style "min-width" "350px"
-        , HA.style "overflow-y" "auto"
-        , HA.style "border-left" "1px solid #888888"
+        [ HA.class "info-panel"
         ]
         [ viewInfoPanelInput model
         , viewInfoPanelHelpers model
@@ -2566,8 +2559,7 @@ viewInfoPanelMessages model =
             [ HA.class "column gap-m"
             ]
             [ Html.div
-                [ HA.style "max-width" "400px"
-                , HA.style "max-height" "400px"
+                [ HA.style "max-height" "400px"
                 , HA.style "overflow-y" "auto"
                 , HA.style "display" "flex"
                 , HA.style "flex-direction" "column-reverse"

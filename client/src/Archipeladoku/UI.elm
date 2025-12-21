@@ -132,6 +132,7 @@ type Msg
     | ShiftReleased
     | SolveRandomCellPressed
     | SolveSelectedCellPressed
+    | SolveSingleCandidatesPressed
     | ToggleCandidateModePressed
     | ZoomInPressed
     | ZoomOutPressed
@@ -515,6 +516,7 @@ keyDownDecoder model =
                         , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
                         , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
                         , ( "KeyQ", FillCellCandidatesPressed )
+                        , ( "KeyW", SolveSingleCandidatesPressed )
                         , ( "Numpad1", NumberPressed 1 )
                         , ( "Numpad2", NumberPressed 2 )
                         , ( "Numpad3", NumberPressed 3 )
@@ -1119,6 +1121,51 @@ update msg model =
                     , Cmd.none
                     )
                         |> andThen updateState
+
+        SolveSingleCandidatesPressed ->
+            let
+                singleCandidates : Dict ( Int, Int ) Int
+                singleCandidates =
+                    Dict.foldl
+                        (\cell cellValue acc ->
+                            case cellValue of
+                                Multiple values ->
+                                    if Set.size values == 1 && Set.member cell model.visibleCells then
+                                        Dict.insert
+                                            cell
+                                            (Set.toList values |> List.head |> Maybe.withDefault 0)
+                                            acc
+
+                                    else
+                                        acc
+
+                                _ ->
+                                    acc
+                        )
+                        Dict.empty
+                        model.current
+            in
+            ( { model
+                | current =
+                    Dict.foldl
+                        (\cell number current ->
+                            Dict.insert
+                                cell
+                                (Given number)
+                                current
+                        )
+                        model.current
+                        singleCandidates
+                , pendingCellChanges =
+                    Set.union
+                        model.pendingCellChanges
+                        (Dict.keys singleCandidates
+                            |> Set.fromList
+                        )
+              }
+            , Cmd.none
+            )
+                |> andThen updateState
 
         ToggleCandidateModePressed ->
             ( { model | candidateMode = not model.candidateMode }
@@ -2543,6 +2590,15 @@ viewInfoPanelHelpers model =
                         []
                     , Html.text "Auto"
                     ]
+                ]
+            , Html.div
+                [ HA.class "row gap-m"
+                ]
+                [ Html.button
+                    [ HE.onClick SolveSingleCandidatesPressed
+                    ]
+                    [ Html.text "Solve single-candidate cells" ]
+                , Html.text "[W]"
                 ]
             ]
         ]

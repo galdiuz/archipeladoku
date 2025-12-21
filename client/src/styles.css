@@ -128,7 +128,7 @@ body {
 .board-corner {
     background-color: var(--color-bg);
     transform-origin: 0 0;
-    z-index: 4;
+    z-index: 40;
 }
 
 .board-columns-header, .board-rows-header {
@@ -141,13 +141,13 @@ body {
 .board-columns-header {
     grid-template-columns: subgrid;
     grid-column: 2 / -1;
-    z-index: 3;
+    z-index: 30;
 }
 
 .board-rows-header {
     grid-template-rows: subgrid;
     grid-row: 2 / -1;
-    z-index: 2;
+    z-index: 20;
 }
 
 .board-cells {
@@ -252,7 +252,7 @@ body {
     position: absolute;
     background-color: light-dark(#888888, #888888);
     pointer-events: none;
-    z-index: 99;
+    z-index: 10;
     will-change: transform, opacity;
 }
 

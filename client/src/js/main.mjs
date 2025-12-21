@@ -141,7 +141,22 @@ function triggerAnimation(data) {
 
     ids.forEach((id, i) => {
         const element = document.getElementById(id)
-        if (!element) {
+        const viewport = document.querySelector('panzoom-board-wrapper')
+
+        if (!element || !viewport) {
+            return
+        }
+
+        const rect = element.getBoundingClientRect()
+        const viewportRect = viewport.getBoundingClientRect()
+        const isVisibleInViewport = (
+            rect.top <= viewportRect.bottom
+            && rect.bottom >= viewportRect.top
+            && rect.left <= viewportRect.right
+            && rect.right >= viewportRect.left
+        );
+
+        if (!isVisibleInViewport) {
             return
         }
 
@@ -176,9 +191,8 @@ function triggerAnimation(data) {
                 element.style.backgroundPosition = ''
             }
         } else if (type === 'shatter') {
-            const panzoom = document.querySelector('panzoom-board-wrapper').panzoomInstance
+            const panzoom = viewport.panzoomInstance
             const scale = panzoom.getTransform().scale
-            const rect = element.getBoundingClientRect()
             const width = rect.width
             const height = rect.height
 

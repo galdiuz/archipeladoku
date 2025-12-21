@@ -8,66 +8,27 @@
     --spacing-l: 1rem;
     --spacing-xl: 2rem;
 
-    --h4-1: 0;
-    --h4-2: 60;
-    --h4-3: 120;
-    --h4-4: 210;
+    --hue-1: 0;
+    --hue-2: 22;
+    --hue-3: 45;
+    --hue-4: 67;
+    --hue-5: 90;
+    --hue-6: 112;
+    --hue-7: 135;
+    --hue-8: 157;
+    --hue-9: 180;
+    --hue-10: 202;
+    --hue-11: 225;
+    --hue-12: 247;
+    --hue-13: 270;
+    --hue-14: 292;
+    --hue-15: 315;
+    --hue-16: 337;
 
-    --h6-1: 0;
-    --h6-2: 40;
-    --h6-3: 110;
-    --h6-4: 180;
-    --h6-5: 240;
-    --h6-6: 300;
-
-    --h8-1: 0;
-    --h8-2: 35;
-    --h8-3: 65;
-    --h8-4: 120;
-    --h8-5: 170;
-    --h8-6: 220;
-    --h8-7: 275;
-    --h8-8: 320;
-
-    --h9-1: 0;
-    --h9-2: 30;
-    --h9-3: 60;
-    --h9-4: 90;
-    --h9-5: 150;
-    --h9-6: 195;
-    --h9-7: 225;
-    --h9-8: 270;
-    --h9-9: 315;
-
-    --h12-1: 0;
-    --h12-2: 30;
-    --h12-3: 60;
-    --h12-4: 90;
-    --h12-5: 120;
-    --h12-6: 150;
-    --h12-7: 180;
-    --h12-8: 210;
-    --h12-9: 240;
-    --h12-10: 270;
-    --h12-11: 300;
-    --h12-12: 330;
-
-    --h16-1: 0;
-    --h16-2: 22;
-    --h16-3: 45;
-    --h16-4: 67;
-    --h16-5: 90;
-    --h16-6: 112;
-    --h16-7: 135;
-    --h16-8: 157;
-    --h16-9: 180;
-    --h16-10: 202;
-    --h16-11: 225;
-    --h16-12: 247;
-    --h16-13: 270;
-    --h16-14: 292;
-    --h16-15: 315;
-    --h16-16: 337;
+    --lightness-light: 80%;
+    --lightness-dark-regular: 25%;
+    --lightness-dark-darker: 20%;
+    --lightness-dark-brighter: 30%;
 }
 
 body {
@@ -269,63 +230,236 @@ body {
     border-right: 2px solid #aaaaaa;
 }
 
-.block-4 .val-1 { background-color: light-dark(hsl(var(--h4-1), 60%, 80%), hsl(var(--h4-1), 60%, 25%)); }
-.block-4 .val-2 { background-color: light-dark(hsl(var(--h4-2), 60%, 80%), hsl(var(--h4-2), 60%, 20%)); }
-.block-4 .val-3 { background-color: light-dark(hsl(var(--h4-3), 60%, 80%), hsl(var(--h4-3), 60%, 25%)); }
-.block-4 .val-4 { background-color: light-dark(hsl(var(--h4-4), 60%, 80%), hsl(var(--h4-4), 60%, 30%)); }
+.block-4 {
+    --val-1-hue: var(--hue-1);
+    --val-2-hue: var(--hue-4);
+    --val-3-hue: var(--hue-6);
+    --val-4-hue: var(--hue-11);
+    --val-1-lightness-light: var(--lightness-light);
+    --val-2-lightness-light: var(--lightness-light);
+    --val-3-lightness-light: var(--lightness-light);
+    --val-4-lightness-light: var(--lightness-light);
+    --val-1-lightness-dark: var(--lightness-dark-regular);
+    --val-2-lightness-dark: var(--lightness-dark-darker);
+    --val-3-lightness-dark: var(--lightness-dark-regular);
+    --val-4-lightness-dark: var(--lightness-dark-brighter);
+}
 
-.block-6 .val-1 { background-color: light-dark(hsl(var(--h6-1), 60%, 80%), hsl(var(--h6-1), 60%, 25%)); }
-.block-6 .val-2 { background-color: light-dark(hsl(var(--h6-2), 60%, 80%), hsl(var(--h6-2), 60%, 20%)); }
-.block-6 .val-3 { background-color: light-dark(hsl(var(--h6-3), 60%, 80%), hsl(var(--h6-3), 60%, 20%)); }
-.block-6 .val-4 { background-color: light-dark(hsl(var(--h6-4), 60%, 80%), hsl(var(--h6-4), 60%, 25%)); }
-.block-6 .val-5 { background-color: light-dark(hsl(var(--h6-5), 60%, 80%), hsl(var(--h6-5), 60%, 30%)); }
-.block-6 .val-6 { background-color: light-dark(hsl(var(--h6-6), 60%, 80%), hsl(var(--h6-6), 60%, 25%)); }
+.block-6 {
+    --val-1-hue: var(--hue-1);
+    --val-2-hue: var(--hue-3);
+    --val-3-hue: var(--hue-6);
+    --val-4-hue: var(--hue-9);
+    --val-5-hue: var(--hue-12);
+    --val-6-hue: var(--hue-15);
+    --val-1-lightness-light: var(--lightness-light);
+    --val-2-lightness-light: var(--lightness-light);
+    --val-3-lightness-light: var(--lightness-light);
+    --val-4-lightness-light: var(--lightness-light);
+    --val-5-lightness-light: var(--lightness-light);
+    --val-6-lightness-light: var(--lightness-light);
+    --val-1-lightness-dark: var(--lightness-dark-regular);
+    --val-2-lightness-dark: var(--lightness-dark-darker);
+    --val-3-lightness-dark: var(--lightness-dark-darker);
+    --val-4-lightness-dark: var(--lightness-dark-regular);
+    --val-5-lightness-dark: var(--lightness-dark-brighter);
+    --val-6-lightness-dark: var(--lightness-dark-regular);
+}
 
-.block-8 .val-1 { background-color: light-dark(hsl(var(--h8-1), 60%, 80%), hsl(var(--h8-1), 60%, 25%)); }
-.block-8 .val-2 { background-color: light-dark(hsl(var(--h8-2), 60%, 80%), hsl(var(--h8-2), 60%, 25%)); }
-.block-8 .val-3 { background-color: light-dark(hsl(var(--h8-3), 60%, 80%), hsl(var(--h8-3), 60%, 20%)); }
-.block-8 .val-4 { background-color: light-dark(hsl(var(--h8-4), 60%, 80%), hsl(var(--h8-4), 60%, 20%)); }
-.block-8 .val-5 { background-color: light-dark(hsl(var(--h8-5), 60%, 80%), hsl(var(--h8-5), 60%, 20%)); }
-.block-8 .val-6 { background-color: light-dark(hsl(var(--h8-6), 60%, 80%), hsl(var(--h8-6), 60%, 30%)); }
-.block-8 .val-7 { background-color: light-dark(hsl(var(--h8-7), 60%, 80%), hsl(var(--h8-7), 60%, 30%)); }
-.block-8 .val-8 { background-color: light-dark(hsl(var(--h8-8), 60%, 80%), hsl(var(--h8-8), 60%, 25%)); }
+.block-8 {
+    --val-1-hue: var(--hue-1);
+    --val-2-hue: var(--hue-2);
+    --val-3-hue: var(--hue-4);
+    --val-4-hue: var(--hue-6);
+    --val-5-hue: var(--hue-9);
+    --val-6-hue: var(--hue-11);
+    --val-7-hue: var(--hue-13);
+    --val-8-hue: var(--hue-15);
+    --val-1-lightness-light: var(--lightness-light);
+    --val-2-lightness-light: var(--lightness-light);
+    --val-3-lightness-light: var(--lightness-light);
+    --val-4-lightness-light: var(--lightness-light);
+    --val-5-lightness-light: var(--lightness-light);
+    --val-6-lightness-light: var(--lightness-light);
+    --val-7-lightness-light: var(--lightness-light);
+    --val-8-lightness-light: var(--lightness-light);
+    --val-1-lightness-dark: var(--lightness-dark-regular);
+    --val-2-lightness-dark: var(--lightness-dark-regular);
+    --val-3-lightness-dark: var(--lightness-dark-darker);
+    --val-4-lightness-dark: var(--lightness-dark-darker);
+    --val-5-lightness-dark: var(--lightness-dark-darker);
+    --val-6-lightness-dark: var(--lightness-dark-brighter);
+    --val-7-lightness-dark: var(--lightness-dark-brighter);
+    --val-8-lightness-dark: var(--lightness-dark-regular);
+}
 
-.block-9 .val-1 { background-color: light-dark(hsl(var(--h9-1), 60%, 80%), hsl(var(--h9-1), 60%, 25%)); }
-.block-9 .val-2 { background-color: light-dark(hsl(var(--h9-2), 60%, 80%), hsl(var(--h9-2), 60%, 25%)); }
-.block-9 .val-3 { background-color: light-dark(hsl(var(--h9-3), 60%, 80%), hsl(var(--h9-3), 60%, 20%)); }
-.block-9 .val-4 { background-color: light-dark(hsl(var(--h9-4), 60%, 80%), hsl(var(--h9-4), 60%, 25%)); }
-.block-9 .val-5 { background-color: light-dark(hsl(var(--h9-5), 60%, 80%), hsl(var(--h9-5), 60%, 25%)); }
-.block-9 .val-6 { background-color: light-dark(hsl(var(--h9-6), 60%, 80%), hsl(var(--h9-6), 60%, 25%)); }
-.block-9 .val-7 { background-color: light-dark(hsl(var(--h9-7), 60%, 80%), hsl(var(--h9-7), 60%, 30%)); }
-.block-9 .val-8 { background-color: light-dark(hsl(var(--h9-8), 60%, 80%), hsl(var(--h9-8), 60%, 30%)); }
-.block-9 .val-9 { background-color: light-dark(hsl(var(--h9-9), 60%, 80%), hsl(var(--h9-9), 60%, 25%)); }
+.block-9 {
+    --val-1-hue: var(--hue-1);
+    --val-2-hue: var(--hue-2);
+    --val-3-hue: var(--hue-4);
+    --val-4-hue: var(--hue-5);
+    --val-5-hue: var(--hue-8);
+    --val-6-hue: var(--hue-10);
+    --val-7-hue: var(--hue-11);
+    --val-8-hue: var(--hue-13);
+    --val-9-hue: var(--hue-15);
+    --val-1-lightness-light: var(--lightness-light);
+    --val-2-lightness-light: var(--lightness-light);
+    --val-3-lightness-light: var(--lightness-light);
+    --val-4-lightness-light: var(--lightness-light);
+    --val-5-lightness-light: var(--lightness-light);
+    --val-6-lightness-light: var(--lightness-light);
+    --val-7-lightness-light: var(--lightness-light);
+    --val-8-lightness-light: var(--lightness-light);
+    --val-9-lightness-light: var(--lightness-light);
+    --val-1-lightness-dark: var(--lightness-dark-regular);
+    --val-2-lightness-dark: var(--lightness-dark-regular);
+    --val-3-lightness-dark: var(--lightness-dark-darker);
+    --val-4-lightness-dark: var(--lightness-dark-regular);
+    --val-5-lightness-dark: var(--lightness-dark-regular);
+    --val-6-lightness-dark: var(--lightness-dark-regular);
+    --val-7-lightness-dark: var(--lightness-dark-brighter);
+    --val-8-lightness-dark: var(--lightness-dark-brighter);
+    --val-9-lightness-dark: var(--lightness-dark-regular);
+}
 
-.block-12 .val-1 { background-color: light-dark(hsl(var(--h12-1), 60%, 80%), hsl(var(--h12-1), 60%, 25%)); }
-.block-12 .val-2 { background-color: light-dark(hsl(var(--h12-2), 60%, 80%), hsl(var(--h12-2), 60%, 25%)); }
-.block-12 .val-3 { background-color: light-dark(hsl(var(--h12-3), 60%, 80%), hsl(var(--h12-3), 60%, 20%)); }
-.block-12 .val-4 { background-color: light-dark(hsl(var(--h12-4), 60%, 80%), hsl(var(--h12-4), 60%, 20%)); }
-.block-12 .val-5 { background-color: light-dark(hsl(var(--h12-5), 60%, 80%), hsl(var(--h12-5), 60%, 20%)); }
-.block-12 .val-6 { background-color: light-dark(hsl(var(--h12-6), 60%, 80%), hsl(var(--h12-6), 60%, 20%)); }
-.block-12 .val-7 { background-color: light-dark(hsl(var(--h12-7), 60%, 80%), hsl(var(--h12-7), 60%, 25%)); }
-.block-12 .val-8 { background-color: light-dark(hsl(var(--h12-8), 60%, 80%), hsl(var(--h12-8), 60%, 30%)); }
-.block-12 .val-9 { background-color: light-dark(hsl(var(--h12-9), 60%, 80%), hsl(var(--h12-9), 60%, 30%)); }
-.block-12 .val-10 { background-color: light-dark(hsl(var(--h12-10), 60%, 80%), hsl(var(--h12-10), 60%, 30%)); }
-.block-12 .val-11 { background-color: light-dark(hsl(var(--h12-11), 60%, 80%), hsl(var(--h12-11), 60%, 25%)); }
-.block-12 .val-12 { background-color: light-dark(hsl(var(--h12-12), 60%, 80%), hsl(var(--h12-12), 60%, 25%)); }
+.block-12 {
+    --val-1-hue: var(--hue-1);
+    --val-2-hue: var(--hue-2);
+    --val-3-hue: var(--hue-4);
+    --val-4-hue: var(--hue-5);
+    --val-5-hue: var(--hue-7);
+    --val-6-hue: var(--hue-9);
+    --val-7-hue: var(--hue-10);
+    --val-8-hue: var(--hue-11);
+    --val-9-hue: var(--hue-12);
+    --val-10-hue: var(--hue-13);
+    --val-11-hue: var(--hue-14);
+    --val-12-hue: var(--hue-16);
+    --val-1-lightness-light: var(--lightness-light);
+    --val-2-lightness-light: var(--lightness-light);
+    --val-3-lightness-light: var(--lightness-light);
+    --val-4-lightness-light: var(--lightness-light);
+    --val-5-lightness-light: var(--lightness-light);
+    --val-6-lightness-light: var(--lightness-light);
+    --val-7-lightness-light: var(--lightness-light);
+    --val-8-lightness-light: var(--lightness-light);
+    --val-9-lightness-light: var(--lightness-light);
+    --val-10-lightness-light: var(--lightness-light);
+    --val-11-lightness-light: var(--lightness-light);
+    --val-12-lightness-light: var(--lightness-light);
+    --val-1-lightness-dark: var(--lightness-dark-regular);
+    --val-2-lightness-dark: var(--lightness-dark-regular);
+    --val-3-lightness-dark: var(--lightness-dark-darker);
+    --val-4-lightness-dark: var(--lightness-dark-darker);
+    --val-5-lightness-dark: var(--lightness-dark-darker);
+    --val-6-lightness-dark: var(--lightness-dark-regular);
+    --val-7-lightness-dark: var(--lightness-dark-regular);
+    --val-8-lightness-dark: var(--lightness-dark-brighter);
+    --val-9-lightness-dark: var(--lightness-dark-brighter);
+    --val-10-lightness-dark: var(--lightness-dark-regular);
+    --val-11-lightness-dark: var(--lightness-dark-regular);
+    --val-12-lightness-dark: var(--lightness-dark-regular);
+}
 
-.block-16 .val-1 { background-color: light-dark(hsl(var(--h16-1), 60%, 80%), hsl(var(--h16-1), 60%, 25%)); }
-.block-16 .val-2 { background-color: light-dark(hsl(var(--h16-2), 60%, 80%), hsl(var(--h16-2), 60%, 25%)); }
-.block-16 .val-3 { background-color: light-dark(hsl(var(--h16-3), 60%, 80%), hsl(var(--h16-3), 60%, 20%)); }
-.block-16 .val-4 { background-color: light-dark(hsl(var(--h16-4), 60%, 80%), hsl(var(--h16-4), 60%, 20%)); }
-.block-16 .val-5 { background-color: light-dark(hsl(var(--h16-5), 60%, 80%), hsl(var(--h16-5), 60%, 20%)); }
-.block-16 .val-6 { background-color: light-dark(hsl(var(--h16-6), 60%, 80%), hsl(var(--h16-6), 60%, 20%)); }
-.block-16 .val-7 { background-color: light-dark(hsl(var(--h16-7), 60%, 80%), hsl(var(--h16-7), 60%, 20%)); }
-.block-16 .val-8 { background-color: light-dark(hsl(var(--h16-8), 60%, 80%), hsl(var(--h16-8), 60%, 20%)); }
-.block-16 .val-9 { background-color: light-dark(hsl(var(--h16-9), 60%, 80%), hsl(var(--h16-9), 60%, 25%)); }
-.block-16 .val-10 { background-color: light-dark(hsl(var(--h16-10), 60%, 80%), hsl(var(--h16-10), 60%, 30%)); }
-.block-16 .val-11 { background-color: light-dark(hsl(var(--h16-11), 60%, 80%), hsl(var(--h16-11), 60%, 30%)); }
-.block-16 .val-12 { background-color: light-dark(hsl(var(--h16-12), 60%, 80%), hsl(var(--h16-12), 60%, 30%)); }
-.block-16 .val-13 { background-color: light-dark(hsl(var(--h16-13), 60%, 80%), hsl(var(--h16-13), 60%, 30%)); }
-.block-16 .val-14 { background-color: light-dark(hsl(var(--h16-14), 60%, 80%), hsl(var(--h16-14), 60%, 25%)); }
-.block-16 .val-15 { background-color: light-dark(hsl(var(--h16-15), 60%, 80%), hsl(var(--h16-15), 60%, 25%)); }
-.block-16 .val-16 { background-color: light-dark(hsl(var(--h16-16), 60%, 80%), hsl(var(--h16-16), 60%, 25%)); }
+.block-16 {
+    --val-1-hue: var(--hue-1);
+    --val-2-hue: var(--hue-2);
+    --val-3-hue: var(--hue-3);
+    --val-4-hue: var(--hue-4);
+    --val-5-hue: var(--hue-5);
+    --val-6-hue: var(--hue-6);
+    --val-7-hue: var(--hue-7);
+    --val-8-hue: var(--hue-8);
+    --val-9-hue: var(--hue-9);
+    --val-10-hue: var(--hue-10);
+    --val-11-hue: var(--hue-11);
+    --val-12-hue: var(--hue-12);
+    --val-13-hue: var(--hue-13);
+    --val-14-hue: var(--hue-14);
+    --val-15-hue: var(--hue-15);
+    --val-16-hue: var(--hue-16);
+    --val-1-lightness-light: var(--lightness-light);
+    --val-2-lightness-light: var(--lightness-light);
+    --val-3-lightness-light: var(--lightness-light);
+    --val-4-lightness-light: var(--lightness-light);
+    --val-5-lightness-light: var(--lightness-light);
+    --val-6-lightness-light: var(--lightness-light);
+    --val-7-lightness-light: var(--lightness-light);
+    --val-8-lightness-light: var(--lightness-light);
+    --val-9-lightness-light: var(--lightness-light);
+    --val-10-lightness-light: var(--lightness-light);
+    --val-11-lightness-light: var(--lightness-light);
+    --val-12-lightness-light: var(--lightness-light);
+    --val-13-lightness-light: var(--lightness-light);
+    --val-14-lightness-light: var(--lightness-light);
+    --val-15-lightness-light: var(--lightness-light);
+    --val-16-lightness-light: var(--lightness-light);
+    --val-1-lightness-dark: var(--lightness-dark-regular);
+    --val-2-lightness-dark: var(--lightness-dark-regular);
+    --val-3-lightness-dark: var(--lightness-dark-darker);
+    --val-4-lightness-dark: var(--lightness-dark-darker);
+    --val-5-lightness-dark: var(--lightness-dark-darker);
+    --val-6-lightness-dark: var(--lightness-dark-darker);
+    --val-7-lightness-dark: var(--lightness-dark-darker);
+    --val-8-lightness-dark: var(--lightness-dark-darker);
+    --val-9-lightness-dark: var(--lightness-dark-regular);
+    --val-10-lightness-dark: var(--lightness-dark-brighter);
+    --val-11-lightness-dark: var(--lightness-dark-brighter);
+    --val-12-lightness-dark: var(--lightness-dark-brighter);
+    --val-13-lightness-dark: var(--lightness-dark-brighter);
+    --val-14-lightness-dark: var(--lightness-dark-regular);
+    --val-15-lightness-dark: var(--lightness-dark-regular);
+    --val-16-lightness-dark: var(--lightness-dark-regular);
+}
+
+.val-1 { background-color: light-dark(hsl(var(--val-1-hue), 60%, var(--val-1-lightness-light)), hsl(var(--val-1-hue), 60%, var(--val-1-lightness-dark))); }
+.val-2 { background-color: light-dark(hsl(var(--val-2-hue), 60%, var(--val-2-lightness-light)), hsl(var(--val-2-hue), 60%, var(--val-2-lightness-dark))); }
+.val-3 { background-color: light-dark(hsl(var(--val-3-hue), 60%, var(--val-3-lightness-light)), hsl(var(--val-3-hue), 60%, var(--val-3-lightness-dark))); }
+.val-4 { background-color: light-dark(hsl(var(--val-4-hue), 60%, var(--val-4-lightness-light)), hsl(var(--val-4-hue), 60%, var(--val-4-lightness-dark))); }
+.val-5 { background-color: light-dark(hsl(var(--val-5-hue), 60%, var(--val-5-lightness-light)), hsl(var(--val-5-hue), 60%, var(--val-5-lightness-dark))); }
+.val-6 { background-color: light-dark(hsl(var(--val-6-hue), 60%, var(--val-6-lightness-light)), hsl(var(--val-6-hue), 60%, var(--val-6-lightness-dark))); }
+.val-7 { background-color: light-dark(hsl(var(--val-7-hue), 60%, var(--val-7-lightness-light)), hsl(var(--val-7-hue), 60%, var(--val-7-lightness-dark))); }
+.val-8 { background-color: light-dark(hsl(var(--val-8-hue), 60%, var(--val-8-lightness-light)), hsl(var(--val-8-hue), 60%, var(--val-8-lightness-dark))); }
+.val-9 { background-color: light-dark(hsl(var(--val-9-hue), 60%, var(--val-9-lightness-light)), hsl(var(--val-9-hue), 60%, var(--val-9-lightness-dark))); }
+.val-10 { background-color: light-dark(hsl(var(--val-10-hue), 60%, var(--val-10-lightness-light)), hsl(var(--val-10-hue), 60%, var(--val-10-lightness-dark))); }
+.val-11 { background-color: light-dark(hsl(var(--val-11-hue), 60%, var(--val-11-lightness-light)), hsl(var(--val-11-hue), 60%, var(--val-11-lightness-dark))); }
+.val-12 { background-color: light-dark(hsl(var(--val-12-hue), 60%, var(--val-12-lightness-light)), hsl(var(--val-12-hue), 60%, var(--val-12-lightness-dark))); }
+.val-13 { background-color: light-dark(hsl(var(--val-13-hue), 60%, var(--val-13-lightness-light)), hsl(var(--val-13-hue), 60%, var(--val-13-lightness-dark))); }
+.val-14 { background-color: light-dark(hsl(var(--val-14-hue), 60%, var(--val-14-lightness-light)), hsl(var(--val-14-hue), 60%, var(--val-14-lightness-dark))); }
+.val-15 { background-color: light-dark(hsl(var(--val-15-hue), 60%, var(--val-15-lightness-light)), hsl(var(--val-15-hue), 60%, var(--val-15-lightness-dark))); }
+.val-16 { background-color: light-dark(hsl(var(--val-16-hue), 60%, var(--val-16-lightness-light)), hsl(var(--val-16-hue), 60%, var(--val-16-lightness-dark))); }
+
+.val-1:hover { background-color: light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 10%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) + 10%))); }
+.val-2:hover { background-color: light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 10%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) + 10%))); }
+.val-3:hover { background-color: light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 10%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) + 10%))); }
+.val-4:hover { background-color: light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 10%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) + 10%))); }
+.val-5:hover { background-color: light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 10%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) + 10%))); }
+.val-6:hover { background-color: light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 10%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) + 10%))); }
+.val-7:hover { background-color: light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 10%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) + 10%))); }
+.val-8:hover { background-color: light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 10%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) + 10%))); }
+.val-9:hover { background-color: light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 10%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) + 10%))); }
+.val-10:hover { background-color: light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 10%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) + 10%))); }
+.val-11:hover { background-color: light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 10%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) + 10%))); }
+.val-12:hover { background-color: light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 10%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) + 10%))); }
+.val-13:hover { background-color: light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 10%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) + 10%))); }
+.val-14:hover { background-color: light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 10%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) + 10%))); }
+.val-15:hover { background-color: light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 10%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) + 10%))); }
+.val-16:hover { background-color: light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 10%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) + 10%))); }
+
+.val-1:active { background-color: light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 15%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) - 5%))); }
+.val-2:active { background-color: light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 15%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) - 5%))); }
+.val-3:active { background-color: light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 15%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) - 5%))); }
+.val-4:active { background-color: light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 15%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) - 5%))); }
+.val-5:active { background-color: light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 15%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) - 5%))); }
+.val-6:active { background-color: light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 15%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) - 5%))); }
+.val-7:active { background-color: light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 15%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) - 5%))); }
+.val-8:active { background-color: light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 15%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) - 5%))); }
+.val-9:active { background-color: light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 15%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) - 5%))); }
+.val-10:active { background-color: light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 15%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) - 5%))); }
+.val-11:active { background-color: light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 15%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) - 5%))); }
+.val-12:active { background-color: light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 15%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) - 5%))); }
+.val-13:active { background-color: light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 15%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) - 5%))); }
+.val-14:active { background-color: light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 15%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) - 5%))); }
+.val-15:active { background-color: light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 15%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) - 5%))); }
+.val-16:active { background-color: light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 15%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) - 5%))); }

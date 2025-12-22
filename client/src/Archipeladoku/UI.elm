@@ -1250,7 +1250,7 @@ update msg model =
                         (\cell number current ->
                             Dict.insert
                                 cell
-                                (Given number)
+                                (Single number)
                                 current
                         )
                         model.current

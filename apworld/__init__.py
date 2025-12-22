@@ -1,10 +1,11 @@
 from typing import Any, Dict
 
 from . import options, utils
-from BaseClasses import Region, Location, Item, Tutorial, ItemClassification
+from BaseClasses import Region, Location, Item, Tutorial, ItemClassification, MultiWorld
 from Options import OptionError
 from collections import defaultdict
 from worlds.AutoWorld import World
+from .utils import Cluster
 
 
 class ArchipeladokuWorld(World):
@@ -16,8 +17,13 @@ class ArchipeladokuWorld(World):
     item_name_to_id = utils.item_name_to_id
     location_name_to_id = utils.location_name_to_id
 
-    block_unlock_order = defaultdict(list)
-    clusters = defaultdict(dict)
+    block_unlock_order: list[tuple[int, int]]
+    clusters: dict[int, Cluster]
+
+    def __init__(self, multiworld: MultiWorld, player: int):
+        super().__init__(multiworld, player)
+
+        self.clusters = dict()
 
 
     def generate_early(self):
@@ -40,12 +46,12 @@ class ArchipeladokuWorld(World):
                 positions=set(positions)
             )
 
-            self.clusters[self.player][idx] = cluster
+            self.clusters[idx] = cluster
 
-        self.block_unlock_order[self.player] = utils.build_block_unlock_order(
+        self.block_unlock_order = utils.build_block_unlock_order(
             self.options.block_size.value,
             self.options.number_of_boards.value,
-            self.clusters[self.player],
+            self.clusters,
             self.random,
         )
 
@@ -56,21 +62,21 @@ class ArchipeladokuWorld(World):
         self.multiworld.regions.append(menu)
 
         initial_unlock_count = self.options.block_size.value
-        initial_blocks = set(self.block_unlock_order[self.player][:initial_unlock_count])
+        initial_blocks = set(self.block_unlock_order[:initial_unlock_count])
         cluster_unlock_requirements = utils.calculate_cluster_unlock_requirements(
-            self.clusters[self.player],
-            self.block_unlock_order[self.player],
+            self.clusters,
+            self.block_unlock_order,
             initial_unlock_count,
         )
 
         block_region_map = {}
         block_cluster_map = defaultdict(list)
-        for cluster in self.clusters[self.player].values():
+        for cluster in self.clusters.values():
             for block in cluster.blocks:
                 for position in cluster.positions:
                     block_cluster_map[block].append(position)
 
-        for cluster in self.clusters[self.player].values():
+        for cluster in self.clusters.values():
             region = Region(f"Board {cluster.id}", self.player, self.multiworld)
             self.multiworld.regions.append(region)
             connection = menu.connect(region)
@@ -172,7 +178,7 @@ class ArchipeladokuWorld(World):
             case options.BlockUnlocks.option_shuffled:
                 victory_location.access_rule = lambda state: \
                     state.has_all(
-                        [utils.block_item_name(row, col) for (row, col) in self.block_unlock_order[self.player][initial_unlock_count:] if row > 0],
+                        [utils.block_item_name(row, col) for (row, col) in self.block_unlock_order[initial_unlock_count:] if row > 0],
                         self.player,
                     )
 
@@ -191,7 +197,7 @@ class ArchipeladokuWorld(World):
             self.options.number_of_boards.value,
         )
 
-        for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
+        for ( row, col ) in self.block_unlock_order[initial_unlock_count:]:
             match self.options.block_unlocks:
                 case options.BlockUnlocks.option_fixed:
                     item = self.create_item("Progressive Block")
@@ -218,9 +224,9 @@ class ArchipeladokuWorld(World):
 
         return {
             "blockSize": self.options.block_size.value,
-            "blockUnlockOrder": self.block_unlock_order[self.player],
+            "blockUnlockOrder": self.block_unlock_order,
             "blockUnlocks": self.options.block_unlocks.value,
-            "clusters": [cluster.positions for cluster in self.clusters[self.player].values()],
+            "clusters": [cluster.positions for cluster in self.clusters.values()],
             "difficulty": self.options.difficulty.value,
             "seed": self.random.getrandbits(32),
         }

@@ -1550,7 +1550,7 @@ updateStateCellChange updatedCell initialModel =
                                 , pendingSolvedRows =
                                     Set.insert
                                         ( row.startRow, row.startCol )
-                                        model.pendingSolvedBlocks
+                                        model.pendingSolvedRows
                                 , solvedLocations =
                                     Set.insert rowId model.solvedLocations
                               }
@@ -1586,7 +1586,7 @@ updateStateCellChange updatedCell initialModel =
                                 , pendingSolvedCols =
                                     Set.insert
                                         ( col.startRow, col.startCol )
-                                        model.pendingSolvedBlocks
+                                        model.pendingSolvedCols
                                 , solvedLocations =
                                     Set.insert colId model.solvedLocations
                               }

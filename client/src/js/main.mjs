@@ -10,7 +10,8 @@ let uiContainer = document.getElementById('ui-container')
 let ui = Elm.Archipeladoku.UI.init({
     node: uiContainer,
     flags: {
-        seed: Math.floor(Math.random() * 2147483647)
+        seed: Math.floor(Math.random() * 2147483647),
+        localStorage: { ...localStorage },
     }
 })
 let worker = new Worker(Worker)
@@ -126,6 +127,11 @@ ui.ports.scoutLocations?.subscribe(ids => {
 
 ui.ports.sendMessage?.subscribe(text => {
     client.messages.say(text)
+})
+
+ui.ports.setLocalStorage?.subscribe(kv => {
+    const [ key, value ] = kv
+    localStorage.setItem(key, value)
 })
 
 ui.ports.hintForItem?.subscribe(itemName => {

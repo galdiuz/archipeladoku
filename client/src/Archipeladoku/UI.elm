@@ -32,6 +32,7 @@ port log : String -> Cmd msg
 port moveCellIntoView : String -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
+port setLocalStorage : (String, String) -> Cmd msg
 port triggerAnimation : Encode.Value -> Cmd msg
 port zoom : Encode.Value -> Cmd msg
 port zoomReset : () -> Cmd msg
@@ -57,6 +58,7 @@ type alias Model =
     , cellBoards : Dict ( Int, Int ) (List Engine.Area)
     , cellCols : Dict ( Int, Int ) (List Engine.Area)
     , cellRows : Dict ( Int, Int ) (List Engine.Area)
+    , colorScheme : String
     , current : Dict ( Int, Int ) CellValue
     , difficulty : Int
     , errors : Dict ( Int, Int ) (Set Int)
@@ -103,6 +105,7 @@ type Msg
     | BlockSizeChanged Int
     | CandidateModeChanged Bool
     | CellSelected ( Int, Int )
+    | ColorSchemeChanged String
     | ConnectPressed
     | DeletePressed
     | DifficultyChanged Int
@@ -144,8 +147,23 @@ type Msg
 
 
 type alias Flags =
-    { seed : Int
+    { localStorage : Dict String String
+    , seed : Int
     }
+
+
+defaultFlags : Flags
+defaultFlags =
+    { localStorage = Dict.empty
+    , seed = 1
+    }
+
+
+flagsDecoder : Decode.Decoder Flags
+flagsDecoder =
+    Decode.map2 Flags
+        (Decode.field "localStorage" (Decode.dict Decode.string))
+        (Decode.field "seed" Decode.int)
 
 
 type GameState
@@ -399,7 +417,7 @@ encodeTriggerAnimation animationType cells =
         ]
 
 
-main : Program Flags Model Msg
+main : Program Decode.Value Model Msg
 main =
     Browser.element
         { init = init
@@ -409,8 +427,14 @@ main =
         }
 
 
-init : Flags -> ( Model, Cmd Msg )
-init flags =
+init : Decode.Value -> ( Model, Cmd Msg )
+init flagsValue =
+    let
+        flags : Flags
+        flags =
+            Decode.decodeValue flagsDecoder flagsValue
+                |> Result.withDefault defaultFlags
+    in
     ( { autoFillCandidatesOnUnlock = False
       , autoRemoveInvalidCandidates = False
       , blockSize = 9
@@ -419,6 +443,7 @@ init flags =
       , cellBoards = Dict.empty
       , cellCols = Dict.empty
       , cellRows = Dict.empty
+      , colorScheme = "light dark"
       , current = Dict.empty
       , difficulty = 2
       , errors = Dict.empty
@@ -463,6 +488,7 @@ init flags =
       }
     , Cmd.none
     )
+        |> andThen (updateFromLocalStorage flags.localStorage)
 
 
 subscriptions : Model -> Sub Msg
@@ -611,6 +637,11 @@ update msg model =
         CellSelected ( row, col ) ->
             ( { model | selectedCell = ( row, col ) }
             , Cmd.none
+            )
+
+        ColorSchemeChanged scheme ->
+            ( { model | colorScheme = scheme }
+            , setLocalStorage ( "apdk-color-scheme", scheme )
             )
 
         ConnectPressed ->
@@ -1317,6 +1348,28 @@ update msg model =
             ( model
             , zoomReset ()
             )
+
+
+updateFromLocalStorage : Dict String String -> Model -> ( Model, Cmd Msg )
+updateFromLocalStorage storage model =
+    Dict.foldl
+        (\key value ->
+            andThen (updateFromLocalStorageValue key value)
+        )
+        ( model, Cmd.none )
+        storage
+
+
+updateFromLocalStorageValue : String -> String -> Model -> ( Model, Cmd Msg )
+updateFromLocalStorageValue key value model =
+    case key of
+        "apdk-color-scheme" ->
+            ( { model | colorScheme = value }
+            , Cmd.none
+            )
+
+        _ ->
+            ( model, Cmd.none )
 
 
 moveSelection : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
@@ -2120,37 +2173,54 @@ getValidCellCandidates model cell =
 
 view : Model -> Html Msg
 view model =
-    case model.gameState of
-        MainMenu ->
-            viewMenu model
-
-        Connecting ->
-            Html.div
-                [ HA.style "padding" "var(--spacing-l)"
-                ]
-                [ Html.text "Connecting..." ]
-
-        Generating ->
-            Html.div
-                [ HA.style "padding" "var(--spacing-l)"
-                ]
-                [ Html.text (Tuple.first model.generationProgress)
-                , Html.text " "
-                , Html.text
-                    (Tuple.second model.generationProgress
-                        |> round
-                        |> String.fromInt
+    Html.main_
+        [ HA.class "main-container"
+        ]
+        (List.append
+            [ Html.node "style"
+                []
+                [ Html.text
+                    (String.concat
+                        [ ":root { color-scheme: "
+                        , model.colorScheme
+                        , "; }"
+                        ]
                     )
-                , Html.text "%"
                 ]
+            ]
+            (case model.gameState of
+                MainMenu ->
+                    [ viewMenu model
+                    ]
 
-        Playing ->
-            Html.div
-                [ HA.class "main-container"
-                ]
-                [ viewBoard model
-                , viewInfoPanel model
-                ]
+                Connecting ->
+                    [ Html.div
+                        [ HA.style "padding" "var(--spacing-l)"
+                        ]
+                        [ Html.text "Connecting..." ]
+                    ]
+
+                Generating ->
+                    [ Html.div
+                        [ HA.style "padding" "var(--spacing-l)"
+                        ]
+                        [ Html.text (Tuple.first model.generationProgress)
+                        , Html.text " "
+                        , Html.text
+                            (Tuple.second model.generationProgress
+                                |> round
+                                |> String.fromInt
+                            )
+                        , Html.text "%"
+                        ]
+                    ]
+
+                Playing ->
+                    [ viewBoard model
+                    , viewInfoPanel model
+                    ]
+            )
+        )
 
 
 viewMenu : Model -> Html Msg
@@ -2539,6 +2609,7 @@ viewInfoPanel model =
         , viewInfoPanelHelpers model
         , viewInfoPanelItems model
         , viewInfoPanelSelected model
+        , viewInfoPanelSettings model
         , viewInfoPanelDebug model
         , viewInfoPanelMessages model
         ]
@@ -2823,6 +2894,46 @@ viewInfoPanelItems model =
                         ]
                     )
                 ]
+            ]
+        ]
+
+
+viewInfoPanelSettings : Model -> Html Msg
+viewInfoPanelSettings model =
+    Html.details
+        [ HA.class "info-panel-details"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Settings" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            , HA.style "align-items" "flex-start"
+            ]
+            [ Html.label
+                [ HA.class "row gap-s" ]
+                [ Html.text "Color Scheme:"
+                , Html.select
+                    [ HE.onInput ColorSchemeChanged
+                    ]
+                    [ Html.option
+                        [ HA.value "light dark"
+                        , HA.selected (model.colorScheme == "light dark")
+                        ]
+                        [ Html.text "Browser default" ]
+                    , Html.option
+                        [ HA.value "light"
+                        , HA.selected (model.colorScheme == "light")
+                        ]
+                        [ Html.text "Light" ]
+                    , Html.option
+                        [ HA.value "dark"
+                        , HA.selected (model.colorScheme == "dark")
+                        ]
+                        [ Html.text "Dark" ]
+                    ]
+                ]
+              -- Auto scouting
             ]
         ]
 

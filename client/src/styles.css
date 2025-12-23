@@ -9,13 +9,14 @@
     --color-bg: light-dark(#eeeeee, #222222);
     --color-bg-hover: light-dark(#dddddd, #333333);
     --color-border: light-dark(#888888, #888888);
+    --color-text: light-dark(#000000, #eeeeee);
 
     --color-button-bg: light-dark(#dddddd, #333333);
     --color-button-bg-hover: light-dark(#cccccc, #444444);
     --color-button-bg-active: light-dark(#bbbbbb, #555555);
     --color-button-bg-disabled: var(--color-bg);
     --color-button-border: var(--color-border);
-    --color-button-text: light-dark(#000000, #eeeeee);
+    --color-button-text: var(--color-text);
     --color-button-text-disabled: light-dark(#888888, #aaaaaa);
 
     --hue-1: 0;
@@ -81,7 +82,7 @@ body {
 
 .info-panel {
     padding: var(--spacing-l);
-    gap: var(--spacing-l);
+    gap: var(--spacing-m);
     overflow-y: auto;
     border-color: #888888;
     border-style: solid;
@@ -119,12 +120,47 @@ body {
 .info-panel-details {
     display: flex;
     flex-direction: column;
+}
+
+.info-panel-details[open] {
     gap: var(--spacing-m);
+    margin-bottom: var(--spacing-m);
 }
 
 .info-panel-details summary {
     font-weight: 700;
     font-size: 1.25em;
+    list-style: none;
+    user-select: none;
+    border-bottom: 2px solid var(--color-border);
+    padding: var(--spacing-s) var(--spacing-m);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.info-panel-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.info-panel-details summary:hover {
+    background-color: var(--color-bg-hover);
+    cursor: pointer;
+}
+
+.info-panel-details summary::after {
+    content: " ";
+    display: inline-block;
+    width: 0.5em;
+    height: 0.5em;
+    border-right: 2px solid var(--color-text);
+    border-bottom: 2px solid var(--color-text);
+    transform: rotate(135deg);
+    transition: transform 0.2s ease;
+}
+
+.info-panel-details[open] summary::after {
+    transform: rotate(45deg) translateX(-25%);
 }
 
 .button {

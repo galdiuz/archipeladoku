@@ -2173,7 +2173,8 @@ viewMenu model =
                         []
                     ]
                 , Html.button
-                    [ HA.style "align-self" "end"
+                    [ HA.class "button"
+                    , HA.style "align-self" "end"
                     ]
                     [ Html.text "Connect"]
                 ]
@@ -2245,7 +2246,9 @@ viewMenu model =
                     []
                 ]
             , Html.button
-                [ HE.onClick PlayLocalPressed ]
+                [ HA.class "button"
+                , HE.onClick PlayLocalPressed
+                ]
                 [ Html.text "Play" ]
             ]
         ]
@@ -2485,24 +2488,21 @@ viewZoomControls =
         , HA.style "position" "absolute"
         , HA.style "top" "var(--spacing-m)"
         , HA.style "right" "var(--spacing-m)"
-        , HA.style "z-index" "10"
+        , HA.style "z-index" "50"
         ]
         [ Html.button
-            [ HE.onClick ZoomInPressed
-            , HA.style "width" "1.5rem"
-            , HA.style "height" "1.5rem"
+            [ HA.class "zoom-button"
+            , HE.onClick ZoomInPressed
             ]
             [ Html.text "+" ]
         , Html.button
-            [ HE.onClick ZoomOutPressed
-            , HA.style "width" "1.5rem"
-            , HA.style "height" "1.5rem"
+            [ HA.class "zoom-button"
+            , HE.onClick ZoomOutPressed
             ]
             [ Html.text "−" ]
         , Html.button
-            [ HE.onClick ZoomResetPressed
-            , HA.style "width" "1.5rem"
-            , HA.style "height" "1.5rem"
+            [ HA.class "zoom-button"
+            , HE.onClick ZoomResetPressed
             ]
             [ Html.text "=" ]
         ]
@@ -2664,18 +2664,22 @@ viewInfoPanelHelpers model =
             ]
             [ Html.div
                 [ HA.class "row gap-m"
+                , HA.style "align-items" "center"
                 ]
                 [ Html.button
-                    [ HE.onClick SolveSingleCandidatesPressed
+                    [ HA.class "button"
+                    , HE.onClick SolveSingleCandidatesPressed
                     ]
                     [ Html.text "Solve single-candidate cells" ]
                 , Html.text "[S]"
                 ]
             , Html.div
                 [ HA.class "row gap-m"
+                , HA.style "align-items" "center"
                 ]
                 [ Html.button
-                    [ HE.onClick RemoveInvalidCandidatesPressed
+                    [ HA.class "button"
+                    , HE.onClick RemoveInvalidCandidatesPressed
                     ]
                     [ Html.text "Remove all invalid candidates" ]
                 , Html.text "[W]"
@@ -2694,9 +2698,12 @@ viewInfoPanelHelpers model =
                 ]
             , Html.div
                 [ HA.class "row gap-m"
+                , HA.style "align-items" "center"
                 ]
                 [ Html.button
-                    [ HE.onClick FillCellCandidatesPressed ]
+                    [ HA.class "button"
+                    , HE.onClick FillCellCandidatesPressed
+                    ]
                     [ Html.text "Fill cell with valid candidates" ]
                 , Html.text "[Q]"
                 , Html.label
@@ -2716,7 +2723,9 @@ viewInfoPanelHelpers model =
                 [ HA.class "row gap-m"
                 ]
                 [ Html.button
-                    [ HE.onClick FillAllCandidatesPressed ]
+                    [ HA.class "button"
+                    , HE.onClick FillAllCandidatesPressed
+                    ]
                     [ Html.text "Fill all cells with valid candidates" ]
                 ]
             ]
@@ -2737,7 +2746,8 @@ viewInfoPanelItems model =
             , HA.style "flex-wrap" "wrap"
             ]
             [ Html.button
-                [ HAE.attributeIf
+                [ HA.class "button"
+                , HAE.attributeIf
                     (model.solveSelectedCellUses > 0)
                     (HE.onClick SolveSelectedCellPressed)
                 , HA.disabled (model.solveSelectedCellUses <= 0)
@@ -2751,7 +2761,8 @@ viewInfoPanelItems model =
                     )
                 ]
             , Html.button
-                [ HAE.attributeIf
+                [ HA.class "button"
+                , HAE.attributeIf
                     (model.solveRandomCellUses > 0)
                     (HE.onClick SolveRandomCellPressed)
                 , HA.disabled (model.solveRandomCellUses <= 0)
@@ -2765,7 +2776,8 @@ viewInfoPanelItems model =
                     )
                 ]
             , Html.button
-                [ HAE.attributeIf
+                [ HA.class "button"
+                , HAE.attributeIf
                     (model.removeRandomCandidateUses > 0)
                     (HE.onClick RemoveRandomCandidatePressed)
                 , HA.disabled (model.removeRandomCandidateUses <= 0)

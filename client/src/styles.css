@@ -1,12 +1,22 @@
 :root {
     color-scheme: dark;
 
-    --color-bg: light-dark(#eeeeee, #222222);
-
     --spacing-s: 0.25rem;
     --spacing-m: 0.5rem;
     --spacing-l: 1rem;
     --spacing-xl: 2rem;
+
+    --color-bg: light-dark(#eeeeee, #222222);
+    --color-bg-hover: light-dark(#dddddd, #333333);
+    --color-border: light-dark(#888888, #888888);
+
+    --color-button-bg: light-dark(#dddddd, #333333);
+    --color-button-bg-hover: light-dark(#cccccc, #444444);
+    --color-button-bg-active: light-dark(#bbbbbb, #555555);
+    --color-button-bg-disabled: var(--color-bg);
+    --color-button-border: var(--color-border);
+    --color-button-text: light-dark(#000000, #eeeeee);
+    --color-button-text-disabled: light-dark(#888888, #aaaaaa);
 
     --hue-1: 0;
     --hue-2: 22;
@@ -117,6 +127,43 @@ body {
     font-size: 1.25em;
 }
 
+.button {
+    font: inherit;
+    color: var(--color-button-text);
+    background-color: var(--color-button-bg);
+    border: 1px solid var(--color-border);
+    padding: var(--spacing-s) var(--spacing-m);
+}
+
+.zoom-button {
+    font: inherit;
+    font-family: Arial, sans-serif;
+    font-size: 1.5rem;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: inherit;
+    background-color: var(--color-button-bg);
+    border: 1px solid var(--color-border);
+    box-shadow: 1px 1px 4px 0px #000000;
+}
+
+.button:hover:not(:disabled), .zoom-button:hover:not(:disabled) {
+    background-color: var(--color-button-bg-hover);
+    cursor: pointer;
+}
+
+.button:active:not(:disabled), .zoom-button:active:not(:disabled) {
+    background-color: var(--color-button-bg-active);
+}
+
+.button:disabled {
+    color: var(--color-button-text-disabled);
+    background-color: var(--color-button-bg-disabled);
+}
+
 .board {
     display: grid;
     font-size: 2em;
@@ -173,8 +220,13 @@ body {
     border-left: 1px solid #888888;
     border-right: none;
     font-style: italic;
+    cursor: pointer;
     content-visibility: auto;
     contain-intrinsic-size: 48px 48px;
+}
+
+.cell:hover {
+    background-color: var(--color-bg-hover);
 }
 
 .cell.selected {
@@ -202,6 +254,14 @@ body {
 
 .cell.hidden {
     background-color: light-dark(#888888, #888888);
+}
+
+.cell.hidden:hover {
+    background-color: light-dark(#999999, #999999);
+}
+
+.cell.hidden:active {
+    background-color: light-dark(#777777, #777777);
 }
 
 .block-4 .cell.multi {

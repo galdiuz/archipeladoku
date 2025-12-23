@@ -85,6 +85,8 @@ body {
     border-color: #888888;
     border-style: solid;
     border-width: 0;
+    box-shadow: 0px 0px 4px 0 rgba(0, 0, 0, 0.5);
+    z-index: 50;
 }
 
 @media (max-width: 999px) {
@@ -169,6 +171,16 @@ body {
     padding: var(--spacing-s) var(--spacing-m);
 }
 
+.zoom-controls {
+    display: flex;
+    gap: var(--spacing-m);
+    flex-direction: column;
+    position: absolute;
+    top: var(--spacing-m);
+    right: var(--spacing-m);
+    z-index: 50;
+}
+
 .zoom-button {
     font: inherit;
     font-family: Arial, sans-serif;
@@ -181,7 +193,7 @@ body {
     color: inherit;
     background-color: var(--color-button-bg);
     border: 1px solid var(--color-border);
-    box-shadow: 1px 1px 4px 0px #000000;
+    box-shadow: 1px 1px 4px 0px rgba(0, 0, 0, 0.5);
 }
 
 .button:hover:not(:disabled), .zoom-button:hover:not(:disabled) {

@@ -2587,11 +2587,7 @@ viewMultipleNumbers blockSize errorsAtCell numbers =
 viewZoomControls : Html Msg
 viewZoomControls =
     Html.div
-        [ HA.class "column gap-m"
-        , HA.style "position" "absolute"
-        , HA.style "top" "var(--spacing-m)"
-        , HA.style "right" "var(--spacing-m)"
-        , HA.style "z-index" "50"
+        [ HA.class "zoom-controls"
         ]
         [ Html.button
             [ HA.class "zoom-button"

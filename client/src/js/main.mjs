@@ -288,7 +288,7 @@ ui.ports.zoom?.subscribe(data => {
 ui.ports.zoomReset?.subscribe(() => {
     const panzoom = document.querySelector('panzoom-board-wrapper')?.panzoomInstance
 
-    if (!viewport) {
+    if (!panzoom) {
         return
     }
 

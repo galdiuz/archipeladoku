@@ -5,6 +5,7 @@ import Archipeladoku.Json as Json
 import Array exposing (Array)
 import Bitwise
 import Browser
+import Browser.Dom
 import Browser.Events
 import Dict exposing (Dict)
 import Html exposing (Html)
@@ -125,6 +126,7 @@ type Msg
     | HostInputChanged String
     | MessageInputChanged String
     | MoveSelectionPressed ( Int, Int )
+    | NoOp
     | NumberOfBoardsChanged Int
     | NumberPressed Int
     | PlayLocalPressed
@@ -944,6 +946,11 @@ update msg model =
             )
                 |> andThen (moveSelection move)
 
+        NoOp ->
+            ( model
+            , Cmd.none
+            )
+
         NumberOfBoardsChanged value ->
             ( { model | numberOfBoards = value }
             , Cmd.none
@@ -1389,7 +1396,11 @@ moveSelection ( rowOffset, colOffset ) model =
     ( { model
         | selectedCell = newCell
       }
-    , moveCellIntoView (cellHtmlId newCell)
+    , Cmd.batch
+        [ moveCellIntoView (cellHtmlId newCell)
+        , Browser.Dom.focus (cellHtmlId newCell)
+            |> Task.attempt (always NoOp)
+        ]
     )
 
 

@@ -51,7 +51,8 @@ port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
-    { autoFillCandidatesOnUnlock : Bool
+    { animationsEnabled : Bool
+    , autoFillCandidatesOnUnlock : Bool
     , autoRemoveInvalidCandidates : Bool
     , blockSize : Int
     , candidateMode : Bool
@@ -110,6 +111,7 @@ type Msg
     | ConnectPressed
     | DeletePressed
     | DifficultyChanged Int
+    | EnableAnimationsChanged Bool
     | FillAllCandidatesPressed
     | FillCellCandidatesPressed
     | GotBoard Decode.Value
@@ -437,7 +439,8 @@ init flagsValue =
             Decode.decodeValue flagsDecoder flagsValue
                 |> Result.withDefault defaultFlags
     in
-    ( { autoFillCandidatesOnUnlock = False
+    ( { animationsEnabled = True
+      , autoFillCandidatesOnUnlock = False
       , autoRemoveInvalidCandidates = False
       , blockSize = 9
       , candidateMode = False
@@ -677,6 +680,11 @@ update msg model =
         DifficultyChanged value ->
             ( { model | difficulty = value }
             , Cmd.none
+            )
+
+        EnableAnimationsChanged value ->
+            ( { model | animationsEnabled = value }
+            , setLocalStorage ( "apdk-animations-enabled", if value then "1" else "0" )
             )
 
         FillAllCandidatesPressed ->
@@ -1370,6 +1378,11 @@ updateFromLocalStorage storage model =
 updateFromLocalStorageValue : String -> String -> Model -> ( Model, Cmd Msg )
 updateFromLocalStorageValue key value model =
     case key of
+        "apdk-animations-enabled" ->
+            ( { model | animationsEnabled = value == "1" }
+            , Cmd.none
+            )
+
         "apdk-color-scheme" ->
             ( { model | colorScheme = value }
             , Cmd.none
@@ -1901,11 +1914,15 @@ unlockBlock block model =
         , visibleCells = newVisibleCells
       }
         |> autoFillCandidatesOnUnlock (Set.diff blockCells model.visibleCells)
-    , triggerAnimation
-        (Set.diff blockCells model.visibleCells
-            |> Set.toList
-            |> encodeTriggerAnimation "shatter"
-        )
+    , if model.animationsEnabled then
+        triggerAnimation
+            (Set.diff blockCells model.visibleCells
+                |> Set.toList
+                |> encodeTriggerAnimation "shatter"
+            )
+
+      else
+        Cmd.none
     )
 
 
@@ -2084,7 +2101,11 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
         , solvedLocations =
             Set.insert (toId ( row, col )) model.solvedLocations
       }
-    , triggerAnimation (encodeTriggerAnimation "shine" cells)
+    , if model.animationsEnabled then
+        triggerAnimation (encodeTriggerAnimation "shine" cells)
+
+      else
+        Cmd.none
     )
 
 
@@ -2919,7 +2940,7 @@ viewInfoPanelSettings model =
             ]
             [ Html.label
                 [ HA.class "row gap-s" ]
-                [ Html.text "Color Scheme:"
+                [ Html.text "Color scheme:"
                 , Html.select
                     [ HE.onInput ColorSchemeChanged
                     ]
@@ -2939,6 +2960,18 @@ viewInfoPanelSettings model =
                         ]
                         [ Html.text "Dark" ]
                     ]
+                ]
+            , Html.label
+                [ HA.class "row gap-s"
+                , HA.style "align-items" "center"
+                ]
+                [ Html.input
+                    [ HA.type_ "checkbox"
+                    , HA.checked model.animationsEnabled
+                    , HE.onCheck EnableAnimationsChanged
+                    ]
+                    []
+                , Html.text "Enable animations"
                 ]
               -- Auto scouting
             ]

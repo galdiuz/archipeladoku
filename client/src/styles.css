@@ -229,6 +229,10 @@ body {
     background-color: var(--color-bg-hover);
 }
 
+.cell:active {
+    background-color: light-dark(#cccccc, #111111);
+}
+
 .cell.selected {
     z-index: 10;
     box-shadow: 1px 1px 0 2px light-dark(#aaaaaa, #aaaaaa),

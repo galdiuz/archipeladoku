@@ -2588,21 +2588,31 @@ viewInfoPanelInput model =
                 , HA.style "font-size" "1.5em"
                 , HA.style "flex-wrap" "wrap"
                 ]
-                (List.map
-                    (\n ->
-                        Html.button
-                            [ HE.onClick (NumberPressed n)
-                            , HA.class "cell"
-                            , HA.class <| "val-" ++ String.fromInt n
-                            , HA.style "width" "1.5em"
-                            , HA.style "height" "1.5em"
-                            , HAE.attributeIf
-                                (not <| Set.member n validCellCandidates)
-                                (HA.class "error")
-                            ]
-                            [ Html.text (numberToString model.blockSize n) ]
+                (List.append
+                    (List.map
+                        (\n ->
+                            Html.button
+                                [ HE.onClick (NumberPressed n)
+                                , HA.class "cell"
+                                , HA.class <| "val-" ++ String.fromInt n
+                                , HA.style "width" "1.5em"
+                                , HA.style "height" "1.5em"
+                                , HAE.attributeIf
+                                    (not <| Set.member n validCellCandidates)
+                                    (HA.class "error")
+                                ]
+                                [ Html.text (numberToString model.blockSize n) ]
+                        )
+                        (List.range 1 model.blockSize)
                     )
-                    (List.range 1 model.blockSize)
+                    [ Html.button
+                        [ HE.onClick DeletePressed
+                        , HA.class "cell"
+                        , HA.style "width" "1.5em"
+                        , HA.style "height" "1.5em"
+                        ]
+                        [ Html.text "×" ]
+                    ]
                 )
             ]
         ]
@@ -3253,4 +3263,4 @@ addLocalMessage text messages =
 
 maxMessages : Int
 maxMessages =
-    1000
+    500

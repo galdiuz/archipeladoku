@@ -97,7 +97,8 @@ type alias Model =
 
 
 type Msg
-    = AutoFillCandidatesOnUnlockChanged Bool
+    = AddDebugItemsPressed
+    | AutoFillCandidatesOnUnlockChanged Bool
     | AutoRemoveInvalidCandidatesChanged Bool
     | BlockSizeChanged Int
     | CandidateModeChanged Bool
@@ -136,6 +137,7 @@ type Msg
     | SolveSelectedCellPressed
     | SolveSingleCandidatesPressed
     | ToggleCandidateModePressed
+    | UnlockSelectedBlockPressed
     | ZoomInPressed
     | ZoomOutPressed
     | ZoomResetPressed
@@ -576,6 +578,15 @@ keyUpDecoder =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        AddDebugItemsPressed ->
+            ( { model
+                | removeRandomCandidateUses = model.removeRandomCandidateUses + 1000
+                , solveSelectedCellUses = model.solveSelectedCellUses + 1000
+                , solveRandomCellUses = model.solveRandomCellUses + 1000
+              }
+            , Cmd.none
+            )
+
         AutoFillCandidatesOnUnlockChanged value ->
             ( { model | autoFillCandidatesOnUnlock = value }
             , Cmd.none
@@ -1270,6 +1281,17 @@ update msg model =
             ( { model | candidateMode = not model.candidateMode }
             , Cmd.none
             )
+
+        UnlockSelectedBlockPressed ->
+            List.foldl
+                (andThen << \block -> (unlockBlock ( block.startRow, block.startCol ))
+                )
+                ( model
+                , Cmd.none
+                )
+                (Dict.get model.selectedCell model.cellBlocks
+                    |> Maybe.withDefault []
+                )
 
         ZoomInPressed ->
             ( model
@@ -2517,6 +2539,7 @@ viewInfoPanel model =
         , viewInfoPanelHelpers model
         , viewInfoPanelItems model
         , viewInfoPanelSelected model
+        , viewInfoPanelDebug model
         , viewInfoPanelMessages model
         ]
 
@@ -2790,6 +2813,32 @@ viewInfoPanelItems model =
                         ]
                     )
                 ]
+            ]
+        ]
+
+
+viewInfoPanelDebug : Model -> Html Msg
+viewInfoPanelDebug model =
+    Html.details
+        [ HA.class "info-panel-details"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Debug" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            , HA.style "align-items" "flex-start"
+            ]
+            [ Html.button
+                [ HA.class "button"
+                , HE.onClick UnlockSelectedBlockPressed
+                ]
+                [ Html.text "Unlock selected block" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick AddDebugItemsPressed
+                ]
+                [ Html.text "Add 1000 of each item" ]
             ]
         ]
 

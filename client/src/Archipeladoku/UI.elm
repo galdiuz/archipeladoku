@@ -107,6 +107,7 @@ type Msg
     | BlockSizeChanged Int
     | CandidateModeChanged Bool
     | CellSelected ( Int, Int )
+    | ClearBoardPressed
     | ColorSchemeChanged String
     | ConnectPressed
     | DeletePressed
@@ -643,6 +644,32 @@ update msg model =
             ( { model | selectedCell = ( row, col ) }
             , Cmd.none
             )
+
+        ClearBoardPressed ->
+            let
+                boardCells : Set ( Int, Int )
+                boardCells =
+                    Dict.get model.selectedCell model.cellBoards
+                        |> Maybe.withDefault []
+                        |> List.concatMap Engine.getAreaCells
+                        |> Set.fromList
+            in
+            ( { model
+                | current =
+                    List.foldl
+                        (\cell current ->
+                            if Set.member cell boardCells && not (cellIsGiven model cell) then
+                                Dict.remove cell current
+
+                            else
+                                current
+                        )
+                        model.current
+                        (Set.toList boardCells)
+              }
+            , Cmd.none
+            )
+                |> andThen updateState
 
         ColorSchemeChanged scheme ->
             ( { model | colorScheme = scheme }
@@ -1385,6 +1412,16 @@ updateFromLocalStorageValue key value model =
 
         "apdk-color-scheme" ->
             ( { model | colorScheme = value }
+            , Cmd.none
+            )
+
+        "apdk-auto-fill-candidates-on-unlock" ->
+            ( { model | autoFillCandidatesOnUnlock = value == "1" }
+            , Cmd.none
+            )
+
+        "apdk-auto-remove-invalid-candidates" ->
+            ( { model | autoRemoveInvalidCandidates = value == "1" }
             , Cmd.none
             )
 
@@ -2836,7 +2873,7 @@ viewInfoPanelHelpers model =
                     [ HA.class "button"
                     , HE.onClick FillCellCandidatesPressed
                     ]
-                    [ Html.text "Fill cell with valid candidates" ]
+                    [ Html.text "Add candidates to cell" ]
                 , Html.text "[Q]"
                 , Html.label
                     [ HA.class "row gap-s"
@@ -2858,7 +2895,16 @@ viewInfoPanelHelpers model =
                     [ HA.class "button"
                     , HE.onClick FillAllCandidatesPressed
                     ]
-                    [ Html.text "Fill all cells with valid candidates" ]
+                    [ Html.text "Add candidates to board" ]
+                ]
+            , Html.div
+                [ HA.class "row gap-m"
+                ]
+                [ Html.button
+                    [ HA.class "button"
+                    , HE.onClick ClearBoardPressed
+                    ]
+                    [ Html.text "Clear board" ]
                 ]
             ]
         ]

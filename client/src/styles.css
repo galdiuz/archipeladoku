@@ -299,7 +299,10 @@ body {
 .cell.error, .cell .error {
     color: light-dark(#aa0000, #ff8888);
     text-decoration: underline;
-    font-weight: 700;
+}
+
+.cell.error-context, .cell .error-context {
+    text-decoration: underline;
 }
 
 .cell.hidden {

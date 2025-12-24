@@ -62,7 +62,7 @@ type alias Model =
     , colorScheme : String
     , current : Dict ( Int, Int ) CellValue
     , difficulty : Int
-    , errors : Dict ( Int, Int ) (Set Int)
+    , errors : Dict ( Int, Int ) CellError
     , generationProgress : ( String, Float )
     , gameIsLocal : Bool
     , gameState : GameState
@@ -181,6 +181,12 @@ type CellValue
     = Given Int
     | Single Int
     | Multiple (Set Int)
+
+
+type CellError
+    = CandidateErrors (Set Int)
+    | NumberError
+    | ErrorContext
 
 
 type Item
@@ -1468,11 +1474,11 @@ removeInvalidCandidates model =
         | current =
             Dict.foldl
                 (\cell cellErrors current ->
-                    case Dict.get cell current of
-                        Just (Multiple values) ->
+                    case ( cellErrors, Dict.get cell current ) of
+                        ( CandidateErrors errorNumbers, Just (Multiple values) ) ->
                             Dict.insert
                                 cell
-                                (Set.diff values cellErrors
+                                (Set.diff values errorNumbers
                                     |> Multiple
                                 )
                                 current
@@ -1989,7 +1995,7 @@ autoFillCandidatesOnUnlock cells model =
 
 
 
-getBoardErrors : Model -> Dict ( Int, Int ) (Set Int)
+getBoardErrors : Model -> Dict ( Int, Int ) CellError
 getBoardErrors model =
     List.foldl
         (\area errors ->
@@ -2013,7 +2019,10 @@ getBoardErrors model =
                                         |> List.foldl Set.union Set.empty
                             in
                             if Set.member v numbersInArea then
-                                insertDictSetValue cell v acc
+                                Dict.insert
+                                    cell
+                                    ErrorContext
+                                    acc
 
                             else
                                 acc
@@ -2026,11 +2035,29 @@ getBoardErrors model =
                                         |> List.filter ((/=) cell)
                                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
                                         |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
+                                        |> List.filterMap cellValueToInt
+                                        |> Set.fromList
+
+                                candidatesInArea : Set Int
+                                candidatesInArea =
+                                    areaCells
+                                        |> List.filter ((/=) cell)
+                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
+                                        |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
                                         |> List.map cellValueToInts
                                         |> List.foldl Set.union Set.empty
                             in
                             if Set.member v numbersInArea then
-                                insertDictSetValue cell v acc
+                                Dict.insert
+                                    cell
+                                    NumberError
+                                    acc
+
+                            else if Set.member v candidatesInArea then
+                                Dict.insert
+                                    cell
+                                    ErrorContext
+                                    acc
 
                             else
                                 acc
@@ -2050,11 +2077,11 @@ getBoardErrors model =
                                 cell
                                 (\maybeSet ->
                                     case maybeSet of
-                                        Just set ->
-                                            Just <| Set.union set numbersInArea
+                                        Just (CandidateErrors set) ->
+                                            Just <| CandidateErrors <| Set.union set numbersInArea
 
-                                        Nothing ->
-                                            Just numbersInArea
+                                        _ ->
+                                            Just <| CandidateErrors numbersInArea
                                 )
                                 acc
 
@@ -2531,10 +2558,27 @@ viewCell model ( row, col ) =
             Dict.get ( row, col - 1 ) model.cellBlocks
                 |> Maybe.withDefault []
 
-        errorsAtCell : Set Int
-        errorsAtCell =
+        cellError : Maybe CellError
+        cellError =
             Dict.get ( row, col ) model.errors
-                |> Maybe.withDefault Set.empty
+
+        errorIsContext : Bool
+        errorIsContext =
+            case cellError of
+                Just ErrorContext ->
+                    True
+
+                _ ->
+                    False
+
+        errorIsNumber : Bool
+        errorIsNumber =
+            case cellError of
+                Just NumberError ->
+                    True
+
+                _ ->
+                    False
 
         cellIsMultiple : Bool
         cellIsMultiple =
@@ -2574,7 +2618,8 @@ viewCell model ( row, col ) =
                   )
                 , ( "multi", cellIsMultiple )
                 , ( "hidden", not isVisible )
-                , ( "error", (not <| Set.isEmpty errorsAtCell) && (not cellIsMultiple) && isVisible )
+                , ( "error", errorIsNumber && (not cellIsMultiple) && isVisible )
+                , ( "error-context", errorIsContext && (not cellIsMultiple) && isVisible )
                 ]
             , HE.onClick (CellSelected ( row, col ))
             ]
@@ -2589,7 +2634,7 @@ viewCell model ( row, col ) =
                                 [ Html.text (numberToString model.blockSize v) ]
 
                             Multiple numbers ->
-                                viewMultipleNumbers model.blockSize errorsAtCell numbers
+                                viewMultipleNumbers model.blockSize cellError numbers
 
                     Nothing ->
                         []
@@ -2610,8 +2655,18 @@ viewCell model ( row, col ) =
             []
 
 
-viewMultipleNumbers : Int -> Set Int -> Set Int -> List (Html Msg)
-viewMultipleNumbers blockSize errorsAtCell numbers =
+viewMultipleNumbers : Int -> Maybe CellError -> Set Int -> List (Html Msg)
+viewMultipleNumbers blockSize cellError numbers =
+    let
+        errorNumbers : Set Int
+        errorNumbers =
+            case cellError of
+                Just (CandidateErrors nums) ->
+                    nums
+
+                _ ->
+                    Set.empty
+    in
     List.map
         (\number ->
             let
@@ -2633,7 +2688,7 @@ viewMultipleNumbers blockSize errorsAtCell numbers =
                 , HA.class "center"
                 , HA.class <| "val-" ++ String.fromInt number
                 , HAE.attributeIf
-                    (Set.member number errorsAtCell)
+                    (Set.member number errorNumbers)
                     (HA.class "error")
                 ]
                 [ Html.text (numberToString blockSize number) ]

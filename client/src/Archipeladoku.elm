@@ -66,6 +66,7 @@ type alias Model =
     , generationProgress : ( String, Float )
     , gameIsLocal : Bool
     , gameState : GameState
+    , givens : Set ( Int, Int )
     , heldKeys : Set String
     , hints : Dict Int Hint
     , hintCost : Int
@@ -94,6 +95,7 @@ type alias Model =
     , solveRandomCellUses : Int
     , solveSelectedCellUses : Int -- TODO: Need to persist these counts
     , solvedLocations : Set Int
+    , undoStack : List (Dict ( Int, Int ) CellValue)
     , unlockedBlocks : Set ( Int, Int )
     , visibleCells : Set ( Int, Int )
     }
@@ -144,6 +146,7 @@ type Msg
     | SolveSelectedCellPressed
     | SolveSingleCandidatesPressed
     | ToggleCandidateModePressed
+    | UndoPressed
     | UnlockSelectedBlockPressed
     | ZoomInPressed
     | ZoomOutPressed
@@ -461,6 +464,7 @@ init flagsValue =
       , generationProgress = ( "", 0 )
       , gameIsLocal = False
       , gameState = MainMenu
+      , givens = Set.empty
       , heldKeys = Set.empty
       , hints = Dict.empty
       , hintCost = 0
@@ -494,6 +498,7 @@ init flagsValue =
       , solveRandomCellUses = 0
       , solveSelectedCellUses = 0
       , solvedLocations = Set.empty
+      , undoStack = []
       , unlockedBlocks = Set.empty
       , visibleCells = Set.empty
       }
@@ -564,6 +569,7 @@ keyDownDecoder model =
                         , ( "KeyQ", FillCellCandidatesPressed )
                         , ( "KeyW", RemoveInvalidCandidatesPressed )
                         , ( "KeyS", SolveSingleCandidatesPressed )
+                        , ( "KeyZ", UndoPressed )
                         , ( "Numpad1", NumberPressed 1 )
                         , ( "Numpad2", NumberPressed 2 )
                         , ( "Numpad3", NumberPressed 3 )
@@ -661,16 +667,12 @@ update msg model =
             in
             ( { model
                 | current =
-                    List.foldl
-                        (\cell current ->
-                            if Set.member cell boardCells && not (cellIsGiven model cell) then
-                                Dict.remove cell current
-
-                            else
-                                current
+                    Dict.filter
+                        (\cell _ ->
+                            not (Set.member cell boardCells)
                         )
                         model.current
-                        (Set.toList boardCells)
+                , undoStack = pushUndoStack model
               }
             , Cmd.none
             )
@@ -693,12 +695,13 @@ update msg model =
             )
 
         DeletePressed ->
-            if Set.member model.selectedCell model.visibleCells && not (cellIsGiven model model.selectedCell) then
+            if Set.member model.selectedCell model.visibleCells
+                && not (cellIsGiven model model.selectedCell)
+            then
                 ( { model
-                    | current =
-                        Dict.remove model.selectedCell model.current
-                    , pendingCellChanges =
-                        Set.insert model.selectedCell model.pendingCellChanges
+                    | current = Dict.remove model.selectedCell model.current
+                    , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
+                    , undoStack = pushUndoStack model
                   }
                 , Cmd.none
                 )
@@ -760,18 +763,22 @@ update msg model =
                         )
                         model.current
                         model.visibleCells
+                , undoStack = pushUndoStack model
               }
             , Cmd.none
             )
 
         FillCellCandidatesPressed ->
-            if Set.member model.selectedCell model.visibleCells && not (cellIsGiven model model.selectedCell) then
+            if Set.member model.selectedCell model.visibleCells
+                && not (cellIsGiven model model.selectedCell)
+            then
                 ( { model
                     | current =
                         Dict.insert
                             model.selectedCell
                             (Multiple (getValidCellCandidates model model.selectedCell))
                             model.current
+                    , undoStack = pushUndoStack model
                   }
                 , Cmd.none
                 )
@@ -794,9 +801,10 @@ update msg model =
                             , cellCols = Data.buildCellAreasMap board.puzzleAreas.cols
                             , cellRows = Data.buildCellAreasMap board.puzzleAreas.rows
                             , blockSize = board.blockSize
-                            , current = Dict.map (\_ v -> Given v) board.givens
+                            , current = Dict.empty
                             , errors = Dict.empty
                             , gameState = Playing
+                            , givens = Set.fromList (Dict.keys board.givens)
                             , lockedBlocks = board.unlockOrder
                             , puzzleAreas = board.puzzleAreas
                             , solution = board.solution
@@ -1040,6 +1048,7 @@ update msg model =
                 ( { model
                     | current = newCurrent
                     , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
+                    , undoStack = pushUndoStack model
                   }
                 , Cmd.none
                 )
@@ -1209,20 +1218,11 @@ update msg model =
 
                 cellCandidates : List ( Int, Int )
                 cellCandidates =
-                    List.filterMap
+                    List.filter
                         (\cell ->
-                            case Dict.get cell model.current of
-                                Just (Given _) ->
-                                    Nothing
-
-                                _ ->
-                                    if Set.member cell model.visibleCells
-                                        && Set.member cell boardCells
-                                    then
-                                        Just cell
-
-                                    else
-                                        Nothing
+                            Set.member cell model.visibleCells
+                                && Set.member cell boardCells
+                                && not (Set.member cell model.givens)
                         )
                         (Dict.keys model.solution)
 
@@ -1240,14 +1240,8 @@ update msg model =
             case maybeTargetCell of
                 Just targetCell ->
                     ( { model
-                        | current =
-                            Dict.insert
-                                targetCell
-                                (Dict.get targetCell model.solution
-                                    |> Maybe.withDefault 0
-                                    |> Given
-                                )
-                                model.current
+                        | current = Dict.remove targetCell model.current
+                        , givens = Set.insert targetCell model.givens
                         , pendingCellChanges = Set.insert targetCell model.pendingCellChanges
                         , seed = newSeed
                         , solveRandomCellUses = model.solveRandomCellUses - 1
@@ -1276,48 +1270,57 @@ update msg model =
                     )
 
         SolveSelectedCellPressed ->
-            case Dict.get model.selectedCell model.current of
-                Just (Given _) ->
-                    ( { model
-                        | messages =
-                            addLocalMessage
-                                (String.concat
-                                    [ "Solve Selected Cell item at Cell "
-                                    , rowToLabel (Tuple.first model.selectedCell)
-                                    , String.fromInt (Tuple.second model.selectedCell)
-                                    , " could not be used because the cell is already solved."
-                                    ]
-                                )
-                                model.messages
-                      }
-                    , Cmd.none
-                    )
+            if not (Set.member model.selectedCell model.visibleCells) then
+                ( { model
+                    | messages =
+                        addLocalMessage
+                            (String.concat
+                                [ "Solve Selected Cell item at Cell "
+                                , rowToLabel (Tuple.first model.selectedCell)
+                                , String.fromInt (Tuple.second model.selectedCell)
+                                , " could not be used because the cell isn't unlocked."
+                                ]
+                            )
+                            model.messages
+                  }
+                , Cmd.none
+                )
 
-                _ ->
-                    ( { model
-                        | current =
-                            Dict.insert
-                                model.selectedCell
-                                (Dict.get model.selectedCell model.solution
-                                    |> Maybe.withDefault 0
-                                    |> Given
-                                )
-                                model.current
-                        , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
-                        , solveSelectedCellUses = model.solveSelectedCellUses - 1
-                        , messages =
-                            addLocalMessage
-                                (String.concat
-                                    [ "Used Solve Selected Cell item at Cell "
-                                    , rowToLabel (Tuple.first model.selectedCell)
-                                    , String.fromInt (Tuple.second model.selectedCell)
-                                    ]
-                                )
-                                model.messages
-                      }
-                    , Cmd.none
-                    )
-                        |> andThen updateState
+            else if Set.member model.selectedCell model.givens then
+                ( { model
+                    | messages =
+                        addLocalMessage
+                            (String.concat
+                                [ "Solve Selected Cell item at Cell "
+                                , rowToLabel (Tuple.first model.selectedCell)
+                                , String.fromInt (Tuple.second model.selectedCell)
+                                , " could not be used because the cell is already solved."
+                                ]
+                            )
+                            model.messages
+                  }
+                , Cmd.none
+                )
+
+            else
+                ( { model
+                    | current = Dict.remove model.selectedCell model.current
+                    , givens = Set.insert model.selectedCell model.givens
+                    , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
+                    , solveSelectedCellUses = model.solveSelectedCellUses - 1
+                    , messages =
+                        addLocalMessage
+                            (String.concat
+                                [ "Used Solve Selected Cell item at Cell "
+                                , rowToLabel (Tuple.first model.selectedCell)
+                                , String.fromInt (Tuple.second model.selectedCell)
+                                ]
+                            )
+                            model.messages
+                  }
+                , Cmd.none
+                )
+                    |> andThen updateState
 
         SolveSingleCandidatesPressed ->
             let
@@ -1359,6 +1362,7 @@ update msg model =
                         (Dict.keys singleCandidates
                             |> Set.fromList
                         )
+                , undoStack = pushUndoStack model
               }
             , Cmd.none
             )
@@ -1368,6 +1372,20 @@ update msg model =
             ( { model | candidateMode = not model.candidateMode }
             , Cmd.none
             )
+
+        UndoPressed ->
+            case model.undoStack of
+                [] ->
+                    ( model, Cmd.none )
+
+                prevCurrent :: restUndoStack ->
+                    ( { model
+                        | current = prevCurrent
+                        , undoStack = restUndoStack
+                      }
+                    , Cmd.none
+                    )
+                        |> andThen updateState
 
         UnlockSelectedBlockPressed ->
             List.foldl
@@ -1441,6 +1459,12 @@ updateFromLocalStorageValue key value model =
 
         _ ->
             ( model, Cmd.none )
+
+
+pushUndoStack : Model -> List (Dict ( Int, Int ) CellValue)
+pushUndoStack model =
+    model.current :: model.undoStack
+        |> List.take 10
 
 
 moveSelection : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
@@ -1984,7 +2008,7 @@ autoFillCandidatesOnUnlock cells model =
             | current =
                 Set.foldl
                     (\cell current ->
-                        if cellIsGiven model cell then
+                        if Set.member cell model.givens then
                             current
 
                         else
@@ -2003,7 +2027,6 @@ autoFillCandidatesOnUnlock cells model =
         model
 
 
-
 getBoardErrors : Model -> Dict ( Int, Int ) CellError
 getBoardErrors model =
     List.foldl
@@ -2015,7 +2038,12 @@ getBoardErrors model =
             in
             List.foldl
                 (\cell acc ->
-                    case Dict.get cell model.current of
+                    let
+                        cellValue : Maybe CellValue
+                        cellValue =
+                            getCellValue model cell
+                    in
+                    case cellValue of
                         Just (Given v) ->
                             let
                                 numbersInArea : Set Int
@@ -2023,7 +2051,7 @@ getBoardErrors model =
                                     areaCells
                                         |> List.filter ((/=) cell)
                                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
+                                        |> List.filterMap (getCellValue model)
                                         |> List.map cellValueToInts
                                         |> List.foldl Set.union Set.empty
                             in
@@ -2043,7 +2071,7 @@ getBoardErrors model =
                                     areaCells
                                         |> List.filter ((/=) cell)
                                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
+                                        |> List.filterMap (getCellValue model)
                                         |> List.filterMap cellValueToInt
                                         |> Set.fromList
 
@@ -2052,7 +2080,7 @@ getBoardErrors model =
                                     areaCells
                                         |> List.filter ((/=) cell)
                                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
+                                        |> List.filterMap (getCellValue model)
                                         |> List.map cellValueToInts
                                         |> List.foldl Set.union Set.empty
                             in
@@ -2078,7 +2106,7 @@ getBoardErrors model =
                                     areaCells
                                         |> List.filter ((/=) cell)
                                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
+                                        |> List.filterMap (getCellValue model)
                                         |> List.filterMap cellValueToInt
                                         |> Set.fromList
                             in
@@ -2159,19 +2187,12 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
     in
     ( { model
         | current =
-            List.foldl
-                (\cell acc ->
-                    Dict.insert
-                        cell
-                        (Given (Dict.get cell model.solution |> Maybe.withDefault 0))
-                        acc
-                )
+            Dict.filter
+                (\cell _ -> not <| List.member cell cells)
                 model.current
-                cells
-        , pendingCellChanges =
-            Set.union (Set.fromList cells) model.pendingCellChanges
-        , solvedLocations =
-            Set.insert (toId ( row, col )) model.solvedLocations
+        , givens = Set.union (Set.fromList cells) model.givens
+        , pendingCellChanges = Set.union (Set.fromList cells) model.pendingCellChanges
+        , solvedLocations = Set.insert (toId ( row, col )) model.solvedLocations
       }
     , if model.animationsEnabled then
         triggerAnimation (encodeTriggerAnimation "shine" cells)
@@ -2222,7 +2243,7 @@ toggleNumber number maybeCellValue =
 
 cellIsSolved : Model -> ( Int, Int ) -> Bool
 cellIsSolved model cell =
-    case ( Dict.get cell model.current, Dict.get cell model.solution ) of
+    case ( getCellValue model cell, Dict.get cell model.solution ) of
         ( Just (Given v), Just sol ) ->
             v == sol
 
@@ -2240,9 +2261,17 @@ cellIsVisible model cell =
 
 cellIsGiven : Model -> ( Int, Int ) -> Bool
 cellIsGiven model cell =
-    Dict.get cell model.current
-        |> Maybe.map isGiven
-        |> Maybe.withDefault False
+    Set.member cell model.givens
+
+
+getCellValue : Model -> ( Int, Int ) -> Maybe CellValue
+getCellValue model cell =
+    if Set.member cell model.givens then
+        Dict.get cell model.solution
+            |> Maybe.map Given
+
+    else
+        Dict.get cell model.current
 
 
 getValidCellCandidates : Model -> ( Int, Int ) -> Set Int
@@ -2255,7 +2284,7 @@ getValidCellCandidates model cell =
                     Data.getAreaCells area
                         |> List.filter ((/=) cell)
                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                        |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
+                        |> List.filterMap (getCellValue model)
                         |> List.filterMap cellValueToInt
                         |> Set.fromList
             in
@@ -2591,9 +2620,13 @@ viewCell model ( row, col ) =
 
         cellIsMultiple : Bool
         cellIsMultiple =
-            Dict.get ( row, col ) model.current
+            cellValue
                 |> Maybe.map isMultiple
                 |> Maybe.withDefault False
+
+        cellValue : Maybe CellValue
+        cellValue =
+            getCellValue model ( row, col )
     in
     if cellIsAt ( row, col ) then
         Html.button
@@ -2609,9 +2642,7 @@ viewCell model ( row, col ) =
                     else
                         HAE.empty
                 )
-                (Dict.get ( row, col ) model.current
-                    |> Maybe.andThen cellValueToInt
-                )
+                (Maybe.andThen cellValueToInt cellValue)
             , HA.classList
                 [ ( "selected", model.selectedCell == ( row, col ) )
                 , ( "given", cellIsGiven model ( row, col ) && isVisible )
@@ -2633,7 +2664,7 @@ viewCell model ( row, col ) =
             , HE.onClick (CellSelected ( row, col ))
             ]
             (if isVisible then
-                case Dict.get ( row, col ) model.current of
+                case cellValue of
                     Just value ->
                         case value of
                             Given v ->
@@ -2895,6 +2926,18 @@ viewInfoPanelHelpers model =
             [ HA.class "column gap-m"
             ]
             [ Html.div
+                [ HA.class "row gap-m"
+                , HA.style "align-items" "center"
+                ]
+                [ Html.button
+                    [ HA.class "button"
+                    , HA.disabled (List.isEmpty model.undoStack)
+                    , HE.onClick UndoPressed
+                    ]
+                    [ Html.text "Undo" ]
+                , Html.text "[Z]"
+                ]
+            , Html.div
                 [ HA.class "row gap-m"
                 , HA.style "align-items" "center"
                 ]

@@ -138,6 +138,7 @@ type Msg
     | RemoveInvalidCandidatesPressed
     | RemoveRandomCandidatePressed
     | SeedInputChanged String
+    | SelectSingleCandidateCellPressed
     | SendMessagePressed
     | ShiftDebouncePassed Int
     | ShiftHeld
@@ -568,7 +569,7 @@ keyDownDecoder model =
                         , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
                         , ( "KeyQ", FillCellCandidatesPressed )
                         , ( "KeyW", RemoveInvalidCandidatesPressed )
-                        , ( "KeyS", SolveSingleCandidatesPressed )
+                        , ( "KeyS", SelectSingleCandidateCellPressed )
                         , ( "KeyZ", UndoPressed )
                         , ( "Numpad1", NumberPressed 1 )
                         , ( "Numpad2", NumberPressed 2 )
@@ -1175,6 +1176,37 @@ update msg model =
             , Cmd.none
             )
 
+        SelectSingleCandidateCellPressed ->
+            let
+                targetCell : Maybe ( Int, Int )
+                targetCell =
+                    Dict.foldl
+                        (\cell cellValue acc ->
+                            case ( acc, cellValue ) of
+                                ( Nothing, Multiple candidates ) ->
+                                    if Set.size candidates == 1 then
+                                        Just cell
+
+                                    else
+                                        Nothing
+
+                                _ ->
+                                    acc
+                        )
+                        Nothing
+                        model.current
+            in
+            case targetCell of
+                Just cell ->
+                    ( { model | selectedCell = cell }
+                    , moveCellIntoView (cellHtmlId cell)
+                    )
+
+                Nothing ->
+                    ( model
+                    , Cmd.none
+                    )
+
         SendMessagePressed ->
             ( { model | messageInput = "" }
             , if String.isEmpty model.messageInput || model.gameIsLocal then
@@ -1380,7 +1412,12 @@ update msg model =
 
                 prevCurrent :: restUndoStack ->
                     ( { model
-                        | current = prevCurrent
+                        | current =
+                            Dict.filter
+                                (\cell _ ->
+                                    not (Set.member cell model.givens)
+                                )
+                                prevCurrent
                         , undoStack = restUndoStack
                       }
                     , Cmd.none
@@ -2943,9 +2980,9 @@ viewInfoPanelHelpers model =
                 ]
                 [ Html.button
                     [ HA.class "button"
-                    , HE.onClick SolveSingleCandidatesPressed
+                    , HE.onClick SelectSingleCandidateCellPressed
                     ]
-                    [ Html.text "Solve single-candidate cells" ]
+                    [ Html.text "Select first single-candidate cell" ]
                 , Html.text "[S]"
                 ]
             , Html.div
@@ -3137,7 +3174,7 @@ viewInfoPanelDebug model =
         ]
         [ Html.summary
             []
-            [ Html.text "Debug" ]
+            [ Html.text "Debug / Cheats" ]
         , Html.div
             [ HA.class "column gap-m"
             , HA.style "align-items" "flex-start"
@@ -3152,6 +3189,16 @@ viewInfoPanelDebug model =
                 , HE.onClick AddDebugItemsPressed
                 ]
                 [ Html.text "Add 1000 of each item" ]
+            , Html.div
+                [ HA.class "row gap-m"
+                , HA.style "align-items" "center"
+                ]
+                [ Html.button
+                    [ HA.class "button"
+                    , HE.onClick SolveSingleCandidatesPressed
+                    ]
+                    [ Html.text "Solve single-candidate cells" ]
+                ]
             ]
         ]
 

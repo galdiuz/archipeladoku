@@ -1356,13 +1356,23 @@ update msg model =
 
         SolveSingleCandidatesPressed ->
             let
+                boardCells : Set ( Int, Int )
+                boardCells =
+                    Dict.get model.selectedCell model.cellBoards
+                        |> Maybe.withDefault []
+                        |> List.concatMap Data.getAreaCells
+                        |> Set.fromList
+
                 singleCandidates : Dict ( Int, Int ) Int
                 singleCandidates =
                     Dict.foldl
                         (\cell cellValue acc ->
                             case cellValue of
                                 Multiple values ->
-                                    if Set.size values == 1 && Set.member cell model.visibleCells then
+                                    if Set.size values == 1
+                                        && Set.member cell model.visibleCells
+                                        && Set.member cell boardCells
+                                    then
                                         Dict.insert
                                             cell
                                             (Set.toList values |> List.head |> Maybe.withDefault 0)
@@ -3197,7 +3207,7 @@ viewInfoPanelDebug model =
                     [ HA.class "button"
                     , HE.onClick SolveSingleCandidatesPressed
                     ]
-                    [ Html.text "Solve single-candidate cells" ]
+                    [ Html.text "Solve single-candidate cells in board" ]
                 ]
             ]
         ]

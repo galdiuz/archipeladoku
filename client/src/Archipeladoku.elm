@@ -1,7 +1,6 @@
 port module Archipeladoku exposing (..)
 
-import Archipeladoku.Engine as Engine
-import Archipeladoku.Json as Json
+import Archipeladoku.Data as Data
 import Array exposing (Array)
 import Bitwise
 import Browser
@@ -56,10 +55,10 @@ type alias Model =
     , autoRemoveInvalidCandidates : Bool
     , blockSize : Int
     , candidateMode : Bool
-    , cellBlocks : Dict ( Int, Int ) (List Engine.Area)
-    , cellBoards : Dict ( Int, Int ) (List Engine.Area)
-    , cellCols : Dict ( Int, Int ) (List Engine.Area)
-    , cellRows : Dict ( Int, Int ) (List Engine.Area)
+    , cellBlocks : Dict ( Int, Int ) (List Data.Area)
+    , cellBoards : Dict ( Int, Int ) (List Data.Area)
+    , cellCols : Dict ( Int, Int ) (List Data.Area)
+    , cellRows : Dict ( Int, Int ) (List Data.Area)
     , colorScheme : String
     , current : Dict ( Int, Int ) CellValue
     , difficulty : Int
@@ -84,7 +83,7 @@ type alias Model =
     , pendingSolvedCols : Set ( Int, Int )
     , pendingSolvedRows : Set ( Int, Int )
     , player : String
-    , puzzleAreas : Engine.PuzzleAreas
+    , puzzleAreas : Data.PuzzleAreas
     , removeRandomCandidateUses : Int
     , scoutedItems : Dict Int Hint
     , seed : Random.Seed
@@ -651,7 +650,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Engine.getAreaCells
+                        |> List.concatMap Data.getAreaCells
                         |> Set.fromList
             in
             ( { model
@@ -768,17 +767,17 @@ update msg model =
                 )
 
         GotBoard value ->
-            case Decode.decodeValue Json.boardDecoder value of
+            case Decode.decodeValue Data.boardDecoder value of
                 Ok board ->
                     List.foldl
                         (\_ ->
                             andThen unlockNextBlock
                         )
                         ( { model
-                            | cellBlocks = Engine.buildCellAreasMap board.puzzleAreas.blocks
-                            , cellBoards = Engine.buildCellAreasMap board.puzzleAreas.boards
-                            , cellCols = Engine.buildCellAreasMap board.puzzleAreas.cols
-                            , cellRows = Engine.buildCellAreasMap board.puzzleAreas.rows
+                            | cellBlocks = Data.buildCellAreasMap board.puzzleAreas.blocks
+                            , cellBoards = Data.buildCellAreasMap board.puzzleAreas.boards
+                            , cellCols = Data.buildCellAreasMap board.puzzleAreas.cols
+                            , cellRows = Data.buildCellAreasMap board.puzzleAreas.rows
                             , blockSize = board.blockSize
                             , current = Dict.map (\_ v -> Given v) board.givens
                             , errors = Dict.empty
@@ -1042,7 +1041,7 @@ update msg model =
                 , gameState = Generating
               }
             , generateBoard
-                (Json.encodeGenerateArgs
+                (Data.encodeGenerateArgs
                     { blockSize = model.blockSize
                     , difficulty = model.difficulty
                     , numberOfBoards = model.numberOfBoards
@@ -1068,7 +1067,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Engine.getAreaCells
+                        |> List.concatMap Data.getAreaCells
                         |> Set.fromList
 
                 targets : List ( ( Int, Int ), Int )
@@ -1190,7 +1189,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Engine.getAreaCells
+                        |> List.concatMap Data.getAreaCells
                         |> Set.fromList
 
                 cellCandidates : List ( Int, Int )
@@ -1641,8 +1640,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToBlockId ( block.startRow, block.startCol )
                         in
                         if (not <| Set.member blockId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Engine.getAreaCells block)
-                            && List.all (cellIsVisible model) (Engine.getAreaCells block)
+                            && List.all (cellIsSolved model) (Data.getAreaCells block)
+                            && List.all (cellIsVisible model) (Data.getAreaCells block)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -1677,8 +1676,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToRowId ( row.startRow, row.startCol )
                         in
                         if (not <| Set.member rowId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Engine.getAreaCells row)
-                            && List.all (cellIsVisible model) (Engine.getAreaCells row)
+                            && List.all (cellIsSolved model) (Data.getAreaCells row)
+                            && List.all (cellIsVisible model) (Data.getAreaCells row)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -1713,8 +1712,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToColId ( col.startRow, col.startCol )
                         in
                         if (not <| Set.member colId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Engine.getAreaCells col)
-                            && List.all (cellIsVisible model) (Engine.getAreaCells col)
+                            && List.all (cellIsSolved model) (Data.getAreaCells col)
+                            && List.all (cellIsVisible model) (Data.getAreaCells col)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -1749,8 +1748,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToBoardId ( board.startRow, board.startCol )
                         in
                         if (not <| Set.member boardId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Engine.getAreaCells board)
-                            && List.all (cellIsVisible model) (Engine.getAreaCells board)
+                            && List.all (cellIsSolved model) (Data.getAreaCells board)
+                            && List.all (cellIsVisible model) (Data.getAreaCells board)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -1878,7 +1877,7 @@ unlockBlock block model =
                         area.startRow == Tuple.first block
                             && area.startCol == Tuple.second block
                     )
-                |> Maybe.map Engine.getAreaCells
+                |> Maybe.map Data.getAreaCells
                 |> Maybe.withDefault []
                 |> Set.fromList
 
@@ -1887,7 +1886,7 @@ unlockBlock block model =
             Set.union blockCells model.visibleCells
 
         unlockedAreas :
-            Dict ( Int, Int ) (List Engine.Area)
+            Dict ( Int, Int ) (List Data.Area)
             -> (( Int, Int ) -> Int)
             -> Set Int
         unlockedAreas areaDict toId =
@@ -1901,7 +1900,7 @@ unlockBlock block model =
                 |> List.filterMap
                     (\area ->
                         if
-                            Engine.getAreaCells area
+                            Data.getAreaCells area
                                 |> Set.fromList
                                 |> Set.Extra.isSubsetOf newVisibleCells
                         then
@@ -1997,7 +1996,7 @@ getBoardErrors model =
             let
                 areaCells : List ( Int, Int )
                 areaCells =
-                    Engine.getAreaCells area
+                    Data.getAreaCells area
             in
             List.foldl
                 (\cell acc ->
@@ -2107,7 +2106,7 @@ updateStateItem item model =
 
 
 updateStateSolvedArea :
-    Dict ( Int, Int ) (List Engine.Area)
+    Dict ( Int, Int ) (List Data.Area)
     -> (( Int, Int ) -> Int)
     -> ( Int, Int )
     -> Model
@@ -2119,7 +2118,7 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
             Dict.get ( row, col ) cellAreas
                 |> Maybe.withDefault []
                 |> List.Extra.find (\area -> area.startRow == row && area.startCol == col)
-                |> Maybe.map Engine.getAreaCells
+                |> Maybe.map Data.getAreaCells
                 |> Maybe.withDefault []
     in
     ( { model
@@ -2217,7 +2216,7 @@ getValidCellCandidates model cell =
             let
                 numbersInArea : Set Int
                 numbersInArea =
-                    Engine.getAreaCells area
+                    Data.getAreaCells area
                         |> List.filter ((/=) cell)
                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
                         |> List.filterMap (\areaCell -> Dict.get areaCell model.current)
@@ -2513,7 +2512,7 @@ viewCell model ( row, col ) =
         cellIsAt ( r, c ) =
             Dict.member ( r, c ) model.solution
 
-        blocks : List Engine.Area
+        blocks : List Data.Area
         blocks =
             Dict.get ( row, col ) model.cellBlocks
                 |> Maybe.withDefault []
@@ -2522,12 +2521,12 @@ viewCell model ( row, col ) =
         isVisible =
             Set.member ( row, col ) model.visibleCells
 
-        blockAbove : List Engine.Area
+        blockAbove : List Data.Area
         blockAbove =
             Dict.get ( row - 1, col ) model.cellBlocks
                 |> Maybe.withDefault []
 
-        blockLeft : List Engine.Area
+        blockLeft : List Data.Area
         blockLeft =
             Dict.get ( row, col - 1 ) model.cellBlocks
                 |> Maybe.withDefault []
@@ -2618,7 +2617,7 @@ viewMultipleNumbers blockSize errorsAtCell numbers =
             let
                 blockWidth : Int
                 blockWidth =
-                    Tuple.second (Engine.blockSizeToDimensions blockSize)
+                    Tuple.second (Data.blockSizeToDimensions blockSize)
 
                 row : Int
                 row =
@@ -3103,7 +3102,7 @@ viewCellInfo model ( row, col ) =
         ]
 
 
-viewBlockInfo : Model -> Engine.Area -> Html Msg
+viewBlockInfo : Model -> Data.Area -> Html Msg
 viewBlockInfo model block =
     Html.div
         [ HA.class "column"
@@ -3169,7 +3168,7 @@ viewBlockInfo model block =
         ]
 
 
-viewRowInfo : Model -> Engine.Area -> Html Msg
+viewRowInfo : Model -> Data.Area -> Html Msg
 viewRowInfo model row =
     Html.div
         [ HA.class "column"
@@ -3191,7 +3190,7 @@ viewRowInfo model row =
         ]
 
 
-viewColInfo : Model -> Engine.Area -> Html Msg
+viewColInfo : Model -> Data.Area -> Html Msg
 viewColInfo model col =
     Html.div
         [ HA.class "column"
@@ -3213,7 +3212,7 @@ viewColInfo model col =
         ]
 
 
-viewBoardInfo : Model -> Engine.Area -> Html Msg
+viewBoardInfo : Model -> Data.Area -> Html Msg
 viewBoardInfo model board =
     Html.div
         [ HA.class "column"

@@ -112,7 +112,7 @@ type Msg
     | DeletePressed
     | DifficultyChanged Int
     | EnableAnimationsChanged Bool
-    | FillAllCandidatesPressed
+    | FillBoardCandidatesPressed
     | FillCellCandidatesPressed
     | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
@@ -719,8 +719,15 @@ update msg model =
             , setLocalStorage ( "apdk-animations-enabled", if value then "1" else "0" )
             )
 
-        FillAllCandidatesPressed ->
+        FillBoardCandidatesPressed ->
             let
+                boardCells : Set ( Int, Int )
+                boardCells =
+                    Dict.get model.selectedCell model.cellBoards
+                        |> Maybe.withDefault []
+                        |> List.concatMap Data.getAreaCells
+                        |> Set.fromList
+
                 cellIsValidTarget : ( Int, Int ) -> Bool
                 cellIsValidTarget cell =
                     case Dict.get cell model.current of
@@ -732,9 +739,11 @@ update msg model =
 
                         Just (Multiple _) ->
                             Set.member cell model.visibleCells
+                                && Set.member cell boardCells
 
                         Nothing ->
                             Set.member cell model.visibleCells
+                                && Set.member cell boardCells
             in
             ( { model
                 | current =
@@ -2947,7 +2956,7 @@ viewInfoPanelHelpers model =
                 ]
                 [ Html.button
                     [ HA.class "button"
-                    , HE.onClick FillAllCandidatesPressed
+                    , HE.onClick FillBoardCandidatesPressed
                     ]
                     [ Html.text "Add candidates to board" ]
                 ]

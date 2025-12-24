@@ -1,4 +1,4 @@
-port module Archipeladoku.UI exposing (..)
+port module Archipeladoku exposing (..)
 
 import Archipeladoku.Engine as Engine
 import Archipeladoku.Json as Json

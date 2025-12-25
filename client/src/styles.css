@@ -4,18 +4,26 @@
     --spacing-l: 1rem;
     --spacing-xl: 2rem;
 
-    --color-bg: light-dark(#eeeeee, #222222);
-    --color-bg-hover: light-dark(#dddddd, #333333);
-    --color-border: light-dark(#888888, #888888);
-    --color-text: light-dark(#000000, #eeeeee);
+    --color-bg: light-dark(#eee, #222);
+    --color-bg-hover: light-dark(#ddd, #333);
+    --color-bg-active: light-dark(#ccc, #181818);
+    --color-border: light-dark(#444, #aaa);
+    --color-grid: light-dark(#888, #888);
+    --color-text: light-dark(#000, #eee);
+    --color-text-error: light-dark(#800, #f88);
+    --color-selection: light-dark(#000, #fff);
+    --color-hidden-cell-bg: light-dark(#aaa, #666);
+    --color-hidden-cell-bg-hover: light-dark(#999, #777);
+    --color-hidden-cell-bg-active: light-dark(#888, #585858);
+    --color-shadow: rgba(0, 0, 0, 0.5);
 
-    --color-button-bg: light-dark(#dddddd, #333333);
-    --color-button-bg-hover: light-dark(#cccccc, #444444);
-    --color-button-bg-active: light-dark(#bbbbbb, #555555);
+    --color-button-bg: light-dark(#ddd, #333);
+    --color-button-bg-hover: light-dark(#ccc, #444);
+    --color-button-bg-active: light-dark(#bbb, #555);
     --color-button-bg-disabled: var(--color-bg);
     --color-button-border: var(--color-border);
     --color-button-text: var(--color-text);
-    --color-button-text-disabled: light-dark(#888888, #aaaaaa);
+    --color-button-text-disabled: light-dark(#888, #aaa);
 
     --hue-1: 0;
     --hue-2: 22;
@@ -42,7 +50,7 @@
 
 body {
     background-color: var(--color-bg);
-    color: light-dark(#000000, #eeeeee);
+    color: var(--color-text);
     padding: 0;
     margin: 0;
 }
@@ -82,10 +90,10 @@ body {
     padding: var(--spacing-l);
     gap: var(--spacing-m);
     overflow-y: auto;
-    border-color: #888888;
+    border-color: var(--color-border);
     border-style: solid;
     border-width: 0;
-    box-shadow: 0px 0px 4px 0 rgba(0, 0, 0, 0.5);
+    box-shadow: 0px 0px 4px 0 var(--color-shadow);
     z-index: 50;
 }
 
@@ -163,6 +171,16 @@ body {
     transform: rotate(45deg) translateX(-25%);
 }
 
+.info-panel .cell {
+    width: 1.5em;
+    height: 1.5em;
+    border: 1px solid var(--color-button-border);
+}
+
+.info-panel .cell.error {
+    box-shadow: none;
+}
+
 .button {
     font: inherit;
     color: var(--color-button-text);
@@ -193,7 +211,7 @@ body {
     color: inherit;
     background-color: var(--color-button-bg);
     border: 1px solid var(--color-border);
-    box-shadow: 1px 1px 4px 0px rgba(0, 0, 0, 0.5);
+    box-shadow: 1px 1px 4px 0px var(--color-shadow);
 }
 
 .button:hover:not(:disabled), .zoom-button:hover:not(:disabled) {
@@ -210,61 +228,95 @@ body {
     background-color: var(--color-button-bg-disabled);
 }
 
-.board {
+.grid {
     display: grid;
+    gap: 1px;
     font-size: 2em;
     overflow: hidden;
     flex-grow: 1;
     position: relative;
 }
 
-.board-corner {
-    background-color: var(--color-bg);
+.grid:focus-visible {
+    outline: none;
+}
+
+.grid-corner {
+    margin: 0px 1px 1px 0px;
     transform-origin: 0 0;
+    background-color: var(--color-bg);
+    box-shadow:
+        0px 0px 0px 3px var(--color-border),
+        0px 0px 4px 3px var(--color-shadow);
     z-index: 40;
 }
 
-.board-columns-header, .board-rows-header {
+.grid-columns-header, .grid-rows-header {
     display: grid;
-    font-size: 0.75em;
+    margin: 1px;
     transform-origin: 0 0;
+    background-color: var(--color-grid);
+    box-shadow:
+        0px 0px 0px 3px var(--color-border),
+        0px 0px 4px 3px var(--color-shadow);
+    font-size: 0.75em;
+}
+
+.grid-columns-header div, .grid-rows-header div {
+    display: flex;
+    justify-content: center;
+    align-items: center;
     background-color: var(--color-bg);
 }
 
-.board-columns-header {
+.grid-columns-header {
     grid-template-columns: subgrid;
     grid-column: 2 / -1;
+    margin-top: 0;
     z-index: 30;
 }
 
-.board-rows-header {
+.grid-rows-header {
     grid-template-rows: subgrid;
     grid-row: 2 / -1;
+    margin-left: 0;
     z-index: 20;
 }
 
-.board-cells {
+.grid-cells {
     display: grid;
     transform-origin: 0 0;
     grid-template-rows: subgrid;
     grid-template-columns: subgrid;
     grid-row: 2 / -1;
     grid-column: 2 / -1;
+}
+
+.board {
+    background-color: var(--color-grid);
+    z-index: -1;
+    pointer-events: none;
+}
+
+.block {
+    box-shadow: 0 0 0 3px var(--color-border);
+    z-index: 5;
+    pointer-events: none;
+    margin: 1px;
 }
 
 .cell {
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: inherit;
+    background-color: var(--color-bg);
     color: inherit;
     font-size: inherit;
     font-family: inherit;
+    text-shadow: 0px 0px 3px var(--color-bg);
     padding: 0;
-    border-top: 1px solid #888888;
-    border-bottom: none;
-    border-left: 1px solid #888888;
-    border-right: none;
+    border: none;
+    position: relative;
     font-style: italic;
     cursor: pointer;
     content-visibility: auto;
@@ -276,13 +328,12 @@ body {
 }
 
 .cell:active {
-    background-color: light-dark(#cccccc, #111111);
+    background-color: var(--color-bg-active);
 }
 
 .cell.selected {
+    box-shadow: 0px 0px 8px 4px var(--color-selection);
     z-index: 10;
-    box-shadow: 1px 1px 0 2px light-dark(#aaaaaa, #aaaaaa),
-                1px 1px 0 5px light-dark(#0066cc, #00d9ff);
 }
 
 .cell.given {
@@ -297,8 +348,15 @@ body {
 }
 
 .cell.error, .cell .error {
-    color: light-dark(#aa0000, #ff8888);
+    color: var(--color-text-error);
     text-decoration: underline;
+    box-shadow: inset 0px 0px 3px 1px var(--color-text-error);
+}
+
+.cell.error.selected {
+    box-shadow:
+        inset 0px 0px 3px 1px var(--color-text-error),
+        0px 0px 8px 4px var(--color-selection);
 }
 
 .cell.error-context, .cell .error-context {
@@ -306,15 +364,15 @@ body {
 }
 
 .cell.hidden {
-    background-color: light-dark(#888888, #888888);
+    background-color: var(--color-hidden-cell-bg);
 }
 
 .cell.hidden:hover {
-    background-color: light-dark(#999999, #999999);
+    background-color: var(--color-hidden-cell-bg-hover);
 }
 
 .cell.hidden:active {
-    background-color: light-dark(#777777, #777777);
+    background-color: var(--color-hidden-cell-bg-active);
 }
 
 .block-4 .cell.multi {
@@ -353,9 +411,7 @@ body {
     font-size: 0.3em;
 }
 
-.center,
-.board-columns-header div,
-.board-rows-header div {
+.center {
     display: flex;
     justify-content: center;
     align-items: center;
@@ -363,26 +419,27 @@ body {
 
 .shard {
     position: absolute;
-    background-color: light-dark(#888888, #888888);
+    background-color: var(--color-hidden-cell-bg);
     pointer-events: none;
     z-index: 10;
     will-change: transform, opacity;
 }
 
-.block-border-top {
-    border-top: 3px solid #aaaaaa;
-}
-
-.block-border-bottom {
-    border-bottom: 3px solid #aaaaaa;
-}
-
-.block-border-left {
-    border-left: 3px solid #aaaaaa;
-}
-
-.block-border-right {
-    border-right: 3px solid #aaaaaa;
+.shine {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    background-image: linear-gradient(
+        135deg,
+        transparent 40%,
+        rgba(255, 255, 255, 0.6) 50%,
+        transparent 60%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    background-position: 200% 0;
+    z-index: 10;
 }
 
 .block-4 {
@@ -568,53 +625,340 @@ body {
     --val-16-lightness-dark: var(--lightness-dark-regular);
 }
 
-.val-1 { background-color: light-dark(hsl(var(--val-1-hue), 60%, var(--val-1-lightness-light)), hsl(var(--val-1-hue), 60%, var(--val-1-lightness-dark))); }
-.val-2 { background-color: light-dark(hsl(var(--val-2-hue), 60%, var(--val-2-lightness-light)), hsl(var(--val-2-hue), 60%, var(--val-2-lightness-dark))); }
-.val-3 { background-color: light-dark(hsl(var(--val-3-hue), 60%, var(--val-3-lightness-light)), hsl(var(--val-3-hue), 60%, var(--val-3-lightness-dark))); }
-.val-4 { background-color: light-dark(hsl(var(--val-4-hue), 60%, var(--val-4-lightness-light)), hsl(var(--val-4-hue), 60%, var(--val-4-lightness-dark))); }
-.val-5 { background-color: light-dark(hsl(var(--val-5-hue), 60%, var(--val-5-lightness-light)), hsl(var(--val-5-hue), 60%, var(--val-5-lightness-dark))); }
-.val-6 { background-color: light-dark(hsl(var(--val-6-hue), 60%, var(--val-6-lightness-light)), hsl(var(--val-6-hue), 60%, var(--val-6-lightness-dark))); }
-.val-7 { background-color: light-dark(hsl(var(--val-7-hue), 60%, var(--val-7-lightness-light)), hsl(var(--val-7-hue), 60%, var(--val-7-lightness-dark))); }
-.val-8 { background-color: light-dark(hsl(var(--val-8-hue), 60%, var(--val-8-lightness-light)), hsl(var(--val-8-hue), 60%, var(--val-8-lightness-dark))); }
-.val-9 { background-color: light-dark(hsl(var(--val-9-hue), 60%, var(--val-9-lightness-light)), hsl(var(--val-9-hue), 60%, var(--val-9-lightness-dark))); }
-.val-10 { background-color: light-dark(hsl(var(--val-10-hue), 60%, var(--val-10-lightness-light)), hsl(var(--val-10-hue), 60%, var(--val-10-lightness-dark))); }
-.val-11 { background-color: light-dark(hsl(var(--val-11-hue), 60%, var(--val-11-lightness-light)), hsl(var(--val-11-hue), 60%, var(--val-11-lightness-dark))); }
-.val-12 { background-color: light-dark(hsl(var(--val-12-hue), 60%, var(--val-12-lightness-light)), hsl(var(--val-12-hue), 60%, var(--val-12-lightness-dark))); }
-.val-13 { background-color: light-dark(hsl(var(--val-13-hue), 60%, var(--val-13-lightness-light)), hsl(var(--val-13-hue), 60%, var(--val-13-lightness-dark))); }
-.val-14 { background-color: light-dark(hsl(var(--val-14-hue), 60%, var(--val-14-lightness-light)), hsl(var(--val-14-hue), 60%, var(--val-14-lightness-dark))); }
-.val-15 { background-color: light-dark(hsl(var(--val-15-hue), 60%, var(--val-15-lightness-light)), hsl(var(--val-15-hue), 60%, var(--val-15-lightness-dark))); }
-.val-16 { background-color: light-dark(hsl(var(--val-16-hue), 60%, var(--val-16-lightness-light)), hsl(var(--val-16-hue), 60%, var(--val-16-lightness-dark))); }
+.val-1 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) + 5%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 5%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) + 0%)))
+    );
+}
+.val-2 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) + 5%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 5%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) + 0%)))
+    );
+}
+.val-3 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) + 5%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 5%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) + 0%)))
+    );
+}
+.val-4 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) + 5%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 5%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) + 0%)))
+    );
+}
+.val-5 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) + 5%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 5%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) + 0%)))
+    );
+}
+.val-6 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) + 5%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 5%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) + 0%)))
+    );
+}
+.val-7 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) + 5%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 5%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) + 0%)))
+    );
+}
+.val-8 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) + 5%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 5%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) + 0%)))
+    );
+}
+.val-9 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) + 5%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 5%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) + 0%)))
+    );
+}
+.val-10 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) + 5%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 5%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) + 0%)))
+    );
+}
+.val-11 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) + 5%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 5%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) + 0%)))
+    );
+}
+.val-12 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) + 5%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 5%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) + 0%)))
+    );
+}
+.val-13 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) + 5%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 5%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) + 0%)))
+    );
+}
+.val-14 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) + 5%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 5%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) + 0%)))
+    );
+}
+.val-15 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) + 5%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 5%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) + 0%)))
+    );
+}
+.val-16 {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) + 5%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) + 10%))),
+        light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 5%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) + 0%)))
+    );
+}
 
-.cell:hover .val-1, .val-1:hover { background-color: light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 10%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) + 10%))); }
-.cell:hover .val-2, .val-2:hover { background-color: light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 10%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) + 10%))); }
-.cell:hover .val-3, .val-3:hover { background-color: light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 10%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) + 10%))); }
-.cell:hover .val-4, .val-4:hover { background-color: light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 10%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) + 10%))); }
-.cell:hover .val-5, .val-5:hover { background-color: light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 10%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) + 10%))); }
-.cell:hover .val-6, .val-6:hover { background-color: light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 10%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) + 10%))); }
-.cell:hover .val-7, .val-7:hover { background-color: light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 10%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) + 10%))); }
-.cell:hover .val-8, .val-8:hover { background-color: light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 10%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) + 10%))); }
-.cell:hover .val-9, .val-9:hover { background-color: light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 10%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) + 10%))); }
-.cell:hover .val-10, val-10:hover { background-color: light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 10%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) + 10%))); }
-.cell:hover .val-11, val-11:hover { background-color: light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 10%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) + 10%))); }
-.cell:hover .val-12, val-12:hover { background-color: light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 10%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) + 10%))); }
-.cell:hover .val-13, val-13:hover { background-color: light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 10%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) + 10%))); }
-.cell:hover .val-14, val-14:hover { background-color: light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 10%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) + 10%))); }
-.cell:hover .val-15, val-15:hover { background-color: light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 10%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) + 10%))); }
-.cell:hover .val-16, val-16:hover { background-color: light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 10%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) + 10%))); }
+.cell:hover .val-1, .val-1:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 5%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 15%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-2, .val-2:hover {
+    background-image: linear-gradient(
+        light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 5%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 15%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-3, .val-3:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 5%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 15%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-4, .val-4:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 5%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 15%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-5, .val-5:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 5%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 15%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-6, .val-6:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 5%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 15%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-7, .val-7:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 5%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 15%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-8, .val-8:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 5%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 15%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-9, .val-9:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 5%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 15%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-10, .val-10:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 5%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 15%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-11, .val-11:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 5%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 15%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-12, .val-12:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 5%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 15%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-13, .val-13:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 5%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 15%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-14, .val-14:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 5%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 15%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-15, .val-15:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 5%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 15%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) + 10%)))
+    );
+}
+.cell:hover .val-16, .val-16:hover {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 5%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) + 20%))),
+        light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 15%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) + 10%)))
+    );
+}
 
-.cell:active .val-1, .val-1:active { background-color: light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 15%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) - 5%))); }
-.cell:active .val-2, .val-2:active { background-color: light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 15%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) - 5%))); }
-.cell:active .val-3, .val-3:active { background-color: light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 15%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) - 5%))); }
-.cell:active .val-4, .val-4:active { background-color: light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 15%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) - 5%))); }
-.cell:active .val-5, .val-5:active { background-color: light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 15%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) - 5%))); }
-.cell:active .val-6, .val-6:active { background-color: light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 15%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) - 5%))); }
-.cell:active .val-7, .val-7:active { background-color: light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 15%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) - 5%))); }
-.cell:active .val-8, .val-8:active { background-color: light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 15%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) - 5%))); }
-.cell:active .val-9, .val-9:active { background-color: light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 15%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) - 5%))); }
-.cell:active .val-10, .val-10:active { background-color: light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 15%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) - 5%))); }
-.cell:active .val-11, .val-11:active { background-color: light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 15%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) - 5%))); }
-.cell:active .val-12, .val-12:active { background-color: light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 15%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) - 5%))); }
-.cell:active .val-13, .val-13:active { background-color: light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 15%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) - 5%))); }
-.cell:active .val-14, .val-14:active { background-color: light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 15%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) - 5%))); }
-.cell:active .val-15, .val-15:active { background-color: light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 15%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) - 5%))); }
-.cell:active .val-16, .val-16:active { background-color: light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 15%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) - 5%))); }
+.cell:active .val-1, .val-1:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 10%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-light) - 20%)), hsl(var(--val-1-hue), 60%, calc(var(--val-1-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-2, .val-2:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 10%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-light) - 20%)), hsl(var(--val-2-hue), 60%, calc(var(--val-2-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-3, .val-3:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 10%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-light) - 20%)), hsl(var(--val-3-hue), 60%, calc(var(--val-3-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-4, .val-4:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 10%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-light) - 20%)), hsl(var(--val-4-hue), 60%, calc(var(--val-4-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-5, .val-5:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 10%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-light) - 20%)), hsl(var(--val-5-hue), 60%, calc(var(--val-5-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-6, .val-6:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 10%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-light) - 20%)), hsl(var(--val-6-hue), 60%, calc(var(--val-6-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-7, .val-7:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 10%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-light) - 20%)), hsl(var(--val-7-hue), 60%, calc(var(--val-7-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-8, .val-8:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 10%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-light) - 20%)), hsl(var(--val-8-hue), 60%, calc(var(--val-8-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-9, .val-9:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 10%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-light) - 20%)), hsl(var(--val-9-hue), 60%, calc(var(--val-9-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-10, .val-10:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 10%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-light) - 20%)), hsl(var(--val-10-hue), 60%, calc(var(--val-10-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-11, .val-11:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 10%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-light) - 20%)), hsl(var(--val-11-hue), 60%, calc(var(--val-11-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-12, .val-12:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 10%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-light) - 20%)), hsl(var(--val-12-hue), 60%, calc(var(--val-12-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-13, .val-13:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 10%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-light) - 20%)), hsl(var(--val-13-hue), 60%, calc(var(--val-13-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-14, .val-14:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 10%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-light) - 20%)), hsl(var(--val-14-hue), 60%, calc(var(--val-14-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-15, .val-15:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 10%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-light) - 20%)), hsl(var(--val-15-hue), 60%, calc(var(--val-15-lightness-dark) - 5%)))
+    );
+}
+.cell:active .val-16, .val-16:active {
+    background-image: linear-gradient(
+        to bottom,
+        light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 10%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) + 5%))),
+        light-dark(hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-light) - 20%)), hsl(var(--val-16-hue), 60%, calc(var(--val-16-lightness-dark) - 5%)))
+    );
+}

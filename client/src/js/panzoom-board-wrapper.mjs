@@ -7,10 +7,10 @@ class PanzoomBoardWrapper extends HTMLElement {
     }
 
     connectedCallback() {
-        const board = this.querySelector('.board-cells')
-        const corner = this.querySelector('.board-corner')
-        const rows = this.querySelector('.board-rows-header')
-        const cols = this.querySelector('.board-columns-header')
+        const board = this.querySelector('.grid-cells')
+        const corner = this.querySelector('.grid-corner')
+        const rows = this.querySelector('.grid-rows-header')
+        const cols = this.querySelector('.grid-columns-header')
 
         if (!board || !rows || !cols) {
             return
@@ -19,7 +19,6 @@ class PanzoomBoardWrapper extends HTMLElement {
         this.panzoomInstance = Panzoom(board, {
             maxZoom: 3,
             minZoom: 0.20,
-            startScale: 1,
             bounds: true,
             boundsPadding: 0.2,
             zoomDoubleClickSpeed: 1,
@@ -36,6 +35,8 @@ class PanzoomBoardWrapper extends HTMLElement {
             cols.style.transform = `translate(${x}px, 0) scale(${scale})`
             rows.style.transform = `translate(0, ${y}px) scale(${scale})`
         })
+
+        this.panzoomInstance.moveTo(8, 8)
     }
 
     disconnectedCallback() {

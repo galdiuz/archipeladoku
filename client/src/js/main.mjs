@@ -153,6 +153,7 @@ function triggerAnimation(data) {
             return
         }
 
+        const container = document.body
         const rect = element.getBoundingClientRect()
         const viewportRect = viewport.getBoundingClientRect()
         const isVisibleInViewport = (
@@ -167,16 +168,9 @@ function triggerAnimation(data) {
         }
 
         if (type === 'shine') {
-            element.style.backgroundImage =
-                `linear-gradient(
-                    135deg,
-                    transparent 40%,
-                    rgba(255, 255, 255, 0.6) 50%,
-                    transparent 60%
-                )`
-            element.style.backgroundSize = '200% 100%'
-            element.style.backgroundRepeat = 'no-repeat'
-            element.style.backgroundPosition = '200% 0'
+            const shine = document.createElement('div')
+            shine.classList.add('shine')
+            element.appendChild(shine)
 
             const keyframes = [
                 { backgroundPosition: '200% 0' },
@@ -187,14 +181,10 @@ function triggerAnimation(data) {
                 delay: i * 60,
                 easing: 'ease-in-out',
             }
-
-            const animation = element.animate(keyframes, options)
+            const animation = shine.animate(keyframes, options)
 
             animation.onfinish = () => {
-                element.style.backgroundImage = ''
-                element.style.backgroundSize = ''
-                element.style.backgroundRepeat = ''
-                element.style.backgroundPosition = ''
+                shine.remove()
             }
         } else if (type === 'shatter') {
             const panzoom = viewport.panzoomInstance
@@ -206,8 +196,6 @@ function triggerAnimation(data) {
             const cols = 3
             const shardWidth = Math.ceil(width / cols)
             const shardHeight = Math.ceil(height / rows)
-
-            const container = document.body
 
             for (let row = 0; row < rows; row++) {
                 for (let col = 0; col < cols; col++) {
@@ -268,6 +256,8 @@ function triggerAnimation(data) {
     })
 }
 
+window.triggerAnimation = triggerAnimation
+
 app.ports.triggerAnimation?.subscribe(triggerAnimation)
 
 app.ports.zoom?.subscribe(data => {
@@ -298,8 +288,8 @@ app.ports.zoomReset?.subscribe(() => {
         return
     }
 
-    panzoom.moveTo(0, 0)
-    panzoom.zoomAbs(0, 0, 1.0)
+    panzoom.moveTo(8, 8)
+    panzoom.zoomAbs(8, 8, 1.0)
 })
 
 client.socket.on('disconnected', () => {

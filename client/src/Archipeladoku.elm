@@ -2566,16 +2566,16 @@ viewBoard model =
                 |> Maybe.withDefault 0
     in
     Html.node "panzoom-board-wrapper"
-        [ HA.class "board"
+        [ HA.class "grid"
         , HA.class <| "block-" ++ String.fromInt model.blockSize
-        , HA.style "grid-template-rows" ("repeat(" ++ String.fromInt (rows + 2) ++ ", 1.5em)")
-        , HA.style "grid-template-columns" ("repeat(" ++ String.fromInt (cols + 2) ++ ", 1.5em)")
+        , HA.style "grid-template-rows" ("repeat(" ++ String.fromInt (rows + 1) ++ ", 1.5em)")
+        , HA.style "grid-template-columns" ("repeat(" ++ String.fromInt (cols + 1) ++ ", 1.5em)")
         ]
         [ Html.div
-            [ HA.class "board-corner" ]
+            [ HA.class "grid-corner" ]
             []
         , Html.div
-            [ HA.class "board-columns-header" ]
+            [ HA.class "grid-columns-header" ]
             (List.map
                 (\col ->
                     Html.div
@@ -2587,7 +2587,7 @@ viewBoard model =
                 (List.range 1 cols)
             )
         , Html.div
-            [ HA.class "board-rows-header" ]
+            [ HA.class "grid-rows-header" ]
             (List.map
                 (\row ->
                     Html.div
@@ -2599,18 +2599,56 @@ viewBoard model =
                 (List.range 1 rows)
             )
         , Html.div
-            [ HA.class "board-cells" ]
-            (List.map
-                (\( row, col ) ->
-                    viewCell model ( row, col )
-                )
-                (List.range 0 (rows + 1)
-                    |> List.concatMap
-                        (\row ->
-                            List.range 0 (cols + 1)
-                                |> List.map (Tuple.pair row)
-                        )
-                )
+            [ HA.class "grid-cells" ]
+            (List.concat
+                [ List.map
+                    (viewCell model)
+                    (List.range 1 (rows)
+                        |> List.concatMap
+                            (\row ->
+                                List.range 1 (cols)
+                                    |> List.map (Tuple.pair row)
+                            )
+                    )
+                , List.map
+                    (\block ->
+                        Html.div
+                            [ HA.class "block"
+                            , HA.style "grid-area"
+                                (String.concat
+                                    [ String.fromInt block.startRow
+                                    , " / "
+                                    , String.fromInt block.startCol
+                                    , " / "
+                                    , String.fromInt (block.endRow + 1)
+                                    , " / "
+                                    , String.fromInt (block.endCol + 1)
+                                    ]
+                                )
+                            ]
+                            []
+                    )
+                    model.puzzleAreas.blocks
+                , List.map
+                    (\board ->
+                        Html.div
+                            [ HA.class "board"
+                            , HA.style "grid-area"
+                                (String.concat
+                                    [ String.fromInt board.startRow
+                                    , " / "
+                                    , String.fromInt board.startCol
+                                    , " / "
+                                    , String.fromInt (board.endRow + 1)
+                                    , " / "
+                                    , String.fromInt (board.endCol + 1)
+                                    ]
+                                )
+                            ]
+                            []
+                    )
+                    model.puzzleAreas.boards
+                ]
             )
         , viewZoomControls
         ]
@@ -2624,24 +2662,9 @@ viewCell model ( row, col ) =
         cellIsAt ( r, c ) =
             Dict.member ( r, c ) model.solution
 
-        blocks : List Data.Area
-        blocks =
-            Dict.get ( row, col ) model.cellBlocks
-                |> Maybe.withDefault []
-
         isVisible : Bool
         isVisible =
             Set.member ( row, col ) model.visibleCells
-
-        blockAbove : List Data.Area
-        blockAbove =
-            Dict.get ( row - 1, col ) model.cellBlocks
-                |> Maybe.withDefault []
-
-        blockLeft : List Data.Area
-        blockLeft =
-            Dict.get ( row, col - 1 ) model.cellBlocks
-                |> Maybe.withDefault []
 
         cellError : Maybe CellError
         cellError =
@@ -2693,16 +2716,6 @@ viewCell model ( row, col ) =
             , HA.classList
                 [ ( "selected", model.selectedCell == ( row, col ) )
                 , ( "given", cellIsGiven model ( row, col ) && isVisible )
-                , ( "block-border-top"
-                  , not (cellIsAt ( row - 1, col ))
-                    || List.any (.startRow >> (==) row) blocks
-                    || List.any (.endRow >> (==) (row - 1)) blockAbove
-                  )
-                , ( "block-border-left"
-                  , not (cellIsAt ( row, col - 1 ))
-                    || List.any (.startCol >> (==) col) blocks
-                    || List.any (.endCol >> (==) (col - 1)) blockLeft
-                  )
                 , ( "multi", cellIsMultiple )
                 , ( "hidden", not isVisible )
                 , ( "error", errorIsNumber && (not cellIsMultiple) && isVisible )
@@ -2731,15 +2744,7 @@ viewCell model ( row, col ) =
             )
 
     else
-        Html.div
-            [ HA.style "grid-row" (String.fromInt row)
-            , HA.style "grid-column" (String.fromInt col)
-            , HA.classList
-                [ ( "block-border-top", cellIsAt ( row - 1, col ) )
-                , ( "block-border-left", cellIsAt ( row, col - 1 ) )
-                ]
-            ]
-            []
+        Html.text ""
 
 
 viewMultipleNumbers : Int -> Maybe CellError -> Set Int -> List (Html Msg)
@@ -2872,8 +2877,6 @@ viewInfoPanelInput model =
                                 [ HE.onClick (NumberPressed n)
                                 , HA.class "cell"
                                 , HA.class <| "val-" ++ String.fromInt n
-                                , HA.style "width" "1.5em"
-                                , HA.style "height" "1.5em"
                                 , HAE.attributeIf
                                     (not <| Set.member n validCellCandidates)
                                     (HA.class "error")

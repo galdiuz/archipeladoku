@@ -68,6 +68,8 @@ type alias Model =
     , gameState : GameState
     , givens : Set ( Int, Int )
     , heldKeys : Set String
+    , highlightedCells : Set ( Int, Int )
+    , highlightMode : HighlightMode
     , hints : Dict Int Hint
     , hintCost : Int
     , hintPoints : Int
@@ -126,6 +128,7 @@ type Msg
     | GotItems (List Int)
     | GotMessage Decode.Value
     | GotScoutedItems Decode.Value
+    | HighlightModeChanged HighlightMode
     | HintItemPressed String
     | HostInputChanged String
     | MessageInputChanged String
@@ -147,6 +150,7 @@ type Msg
     | SolveSelectedCellPressed
     | SolveSingleCandidatesPressed
     | ToggleCandidateModePressed
+    | ToggleHighlightModePressed
     | UndoPressed
     | UnlockSelectedBlockPressed
     | ZoomInPressed
@@ -191,6 +195,13 @@ type CellError
     = CandidateErrors (Set Int)
     | NumberError
     | ErrorContext
+
+
+type HighlightMode
+    = HighlightNone
+    | HighlightBoard
+    | HighlightArea
+    | HighlightNumber
 
 
 type Item
@@ -467,6 +478,8 @@ init flagsValue =
       , gameState = MainMenu
       , givens = Set.empty
       , heldKeys = Set.empty
+      , highlightedCells = Set.empty
+      , highlightMode = HighlightNumber
       , hints = Dict.empty
       , hintCost = 0
       , hintPoints = 0
@@ -521,23 +534,14 @@ subscriptions model =
         , receiveItems GotItems
         , receiveMessage GotMessage
         , receiveScoutedItems GotScoutedItems
-        , Browser.Events.onKeyDown (keyDownDecoder model)
-        , Browser.Events.onKeyUp keyUpDecoder
         ]
 
 
-keyDownDecoder : Model -> Decode.Decoder Msg
+keyDownDecoder : Model -> Decode.Decoder ( Msg, Bool )
 keyDownDecoder model =
-    Decode.map2
-        (\code target ->
-            { code = code
-            , target = target
-            }
-        )
-        (Decode.field "code" Decode.string)
-        (Decode.at [ "target", "tagName" ] Decode.string)
+    Decode.field "code" Decode.string
         |> Decode.andThen
-            (\{ code, target } ->
+            (\code ->
                 let
                     keyMap : Dict String Msg
                     keyMap =
@@ -586,16 +590,13 @@ keyDownDecoder model =
                         , ( "ShiftLeft", ShiftHeld )
                         , ( "ShiftRight", ShiftHeld )
                         , ( "Space", ToggleCandidateModePressed )
+                        , ( "Tab", ToggleHighlightModePressed )
                         ]
                         |> Dict.fromList
                 in
                 case Dict.get code keyMap of
                     Just msg ->
-                        if target == "INPUT" then
-                            Decode.fail code
-
-                        else
-                            Decode.succeed msg
+                        Decode.succeed ( msg, True )
 
                     Nothing ->
                         Decode.fail code
@@ -654,6 +655,7 @@ update msg model =
 
         CellSelected ( row, col ) ->
             ( { model | selectedCell = ( row, col ) }
+                |> updateHighlightedCells
             , Cmd.none
             )
 
@@ -983,6 +985,12 @@ update msg model =
                     , Cmd.none
                     )
 
+        HighlightModeChanged mode ->
+            ( { model | highlightMode = mode }
+                |> updateHighlightedCells
+            , Cmd.none
+            )
+
         HintItemPressed name ->
             ( model
             , hintForItem name
@@ -1202,6 +1210,7 @@ update msg model =
             case targetCell of
                 Just cell ->
                     ( { model | selectedCell = cell }
+                        |> updateHighlightedCells
                     , moveCellIntoView (cellHtmlId cell)
                     )
 
@@ -1418,6 +1427,26 @@ update msg model =
             , Cmd.none
             )
 
+        ToggleHighlightModePressed ->
+            ( { model
+                | highlightMode =
+                    case model.highlightMode of
+                        HighlightNone ->
+                            HighlightBoard
+
+                        HighlightBoard ->
+                            HighlightArea
+
+                        HighlightArea ->
+                            HighlightNumber
+
+                        HighlightNumber ->
+                            HighlightNone
+              }
+                |> updateHighlightedCells
+            , Cmd.none
+            )
+
         UndoPressed ->
             case model.undoStack of
                 [] ->
@@ -1534,12 +1563,53 @@ moveSelection ( rowOffset, colOffset ) model =
     ( { model
         | selectedCell = newCell
       }
+        |> updateHighlightedCells
     , Cmd.batch
         [ moveCellIntoView (cellHtmlId newCell)
         , Browser.Dom.focus (cellHtmlId newCell)
             |> Task.attempt (always NoOp)
         ]
     )
+
+
+updateHighlightedCells : Model -> Model
+updateHighlightedCells model =
+    case model.highlightMode of
+        HighlightNone ->
+            { model | highlightedCells = Set.empty }
+
+        HighlightBoard ->
+            { model
+                | highlightedCells =
+                    Dict.get model.selectedCell model.cellBoards
+                        |> Maybe.withDefault []
+                        |> List.concatMap Data.getAreaCells
+                        |> Set.fromList
+            }
+
+        HighlightArea ->
+            { model
+                | highlightedCells =
+                    List.foldl
+                        Set.union
+                        Set.empty
+                        [ Dict.get model.selectedCell model.cellBlocks
+                            |> Maybe.withDefault []
+                            |> List.concatMap Data.getAreaCells
+                            |> Set.fromList
+                        , Dict.get model.selectedCell model.cellRows
+                            |> Maybe.withDefault []
+                            |> List.concatMap Data.getAreaCells
+                            |> Set.fromList
+                        , Dict.get model.selectedCell model.cellCols
+                            |> Maybe.withDefault []
+                            |> List.concatMap Data.getAreaCells
+                            |> Set.fromList
+                        ]
+            }
+
+        HighlightNumber ->
+            { model | highlightedCells = Set.empty }
 
 
 getCandidateMode : Model -> Bool
@@ -2573,6 +2643,8 @@ viewBoard model =
         , HA.class <| "block-" ++ String.fromInt model.blockSize
         , HA.style "grid-template-rows" ("repeat(" ++ String.fromInt (rows + 1) ++ ", 1.5em)")
         , HA.style "grid-template-columns" ("repeat(" ++ String.fromInt (cols + 1) ++ ", 1.5em)")
+        , HE.preventDefaultOn "keydown" (keyDownDecoder model)
+        , HE.on "keyup" keyUpDecoder
         ]
         [ Html.div
             [ HA.class "grid-corner" ]
@@ -2669,6 +2741,37 @@ viewCell model ( row, col ) =
         isVisible =
             Set.member ( row, col ) model.visibleCells
 
+        isDimmed : Bool
+        isDimmed =
+            if model.highlightMode == HighlightNumber then
+                if cellIsMultiple then
+                    False
+
+                else
+                    case ( getCellValue model model.selectedCell, cellValue ) of
+                        ( Just selectedCellValue, Just currentCellValue  ) ->
+                            Set.intersect
+                                (cellValueToInts selectedCellValue)
+                                (cellValueToInts currentCellValue)
+                                |> Set.isEmpty
+
+                        _ ->
+                            False
+
+            else
+                not (Set.isEmpty model.highlightedCells)
+                    && not (Set.member ( row, col ) model.highlightedCells)
+
+        highlightNumbers : Set Int
+        highlightNumbers =
+            if model.highlightMode == HighlightNumber then
+                getCellValue model model.selectedCell
+                    |> Maybe.map cellValueToInts
+                    |> Maybe.withDefault Set.empty
+
+            else
+                Set.empty
+
         cellError : Maybe CellError
         cellError =
             Dict.get ( row, col ) model.errors
@@ -2723,6 +2826,8 @@ viewCell model ( row, col ) =
                 , ( "hidden", not isVisible )
                 , ( "error", errorIsNumber && (not cellIsMultiple) && isVisible )
                 , ( "error-context", errorIsContext && (not cellIsMultiple) && isVisible )
+                , ( "dimmed", isDimmed && isVisible )
+                , ( "dimmed-bg", model.highlightMode == HighlightNumber && not (Set.isEmpty highlightNumbers) )
                 ]
             , HE.onClick (CellSelected ( row, col ))
             ]
@@ -2737,7 +2842,7 @@ viewCell model ( row, col ) =
                                 [ Html.text (numberToString model.blockSize v) ]
 
                             Multiple numbers ->
-                                viewMultipleNumbers model.blockSize cellError numbers
+                                viewMultipleNumbers model.blockSize cellError highlightNumbers numbers
 
                     Nothing ->
                         []
@@ -2750,8 +2855,8 @@ viewCell model ( row, col ) =
         Html.text ""
 
 
-viewMultipleNumbers : Int -> Maybe CellError -> Set Int -> List (Html Msg)
-viewMultipleNumbers blockSize cellError numbers =
+viewMultipleNumbers : Int -> Maybe CellError -> Set Int -> Set Int -> List (Html Msg)
+viewMultipleNumbers blockSize cellError highlightNumbers numbers =
     let
         errorNumbers : Set Int
         errorNumbers =
@@ -2785,6 +2890,9 @@ viewMultipleNumbers blockSize cellError numbers =
                 , HAE.attributeIf
                     (Set.member number errorNumbers)
                     (HA.class "error")
+                , HAE.attributeIf
+                    (not (Set.isEmpty highlightNumbers) && not (Set.member number highlightNumbers))
+                    (HA.class "dimmed")
                 ]
                 [ Html.text (numberToString blockSize number) ]
         )
@@ -2897,6 +3005,38 @@ viewInfoPanelInput model =
                         [ Html.text "×" ]
                     ]
                 )
+            , Html.div
+                [ HA.class "col gap-s" ]
+                [ Html.text "Highlight mode [Tab]"
+                , Html.div
+                    [ HA.class "row gap-m"
+                    ]
+                    [ viewRadioButton
+                        HighlightNone
+                        model.highlightMode
+                        "highlight-mode"
+                        HighlightModeChanged
+                        (\_ -> "None")
+                    , viewRadioButton
+                        HighlightBoard
+                        model.highlightMode
+                        "highlight-mode"
+                        HighlightModeChanged
+                        (\_ -> "Board")
+                    , viewRadioButton
+                        HighlightArea
+                        model.highlightMode
+                        "highlight-mode"
+                        HighlightModeChanged
+                        (\_ -> "Area")
+                    , viewRadioButton
+                        HighlightNumber
+                        model.highlightMode
+                        "highlight-mode"
+                        HighlightModeChanged
+                        (\_ -> "Number")
+                    ]
+                ]
             ]
         ]
 

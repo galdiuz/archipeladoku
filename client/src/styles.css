@@ -347,6 +347,14 @@ body {
     align-items: stretch;
 }
 
+.cell.dimmed, .cell .dimmed {
+    filter: brightness(0.5);
+}
+
+.cell.dimmed-bg {
+    background-color: light-dark(#999, var(--color-bg));
+}
+
 .cell.error, .cell .error {
     color: var(--color-text-error);
     text-decoration: underline;

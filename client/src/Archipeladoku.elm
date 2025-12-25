@@ -1184,7 +1184,10 @@ update msg model =
                         (\cell cellValue acc ->
                             case ( acc, cellValue ) of
                                 ( Nothing, Multiple candidates ) ->
-                                    if Set.size candidates == 1 then
+                                    if Set.size candidates == 1
+                                        && Set.member cell model.visibleCells
+                                        && not (Set.member cell model.givens)
+                                    then
                                         Just cell
 
                                     else

@@ -2744,16 +2744,27 @@ viewCell model ( row, col ) =
         isDimmed : Bool
         isDimmed =
             if model.highlightMode == HighlightNumber then
-                if cellIsMultiple then
+                if not (cellIsVisible model model.selectedCell) then
                     False
+
+                else if not isVisible then
+                    case getCellValue model model.selectedCell of
+                        Just selectedCellValue ->
+                            not (Set.isEmpty (cellValueToInts selectedCellValue))
+
+                        Nothing ->
+                            False
 
                 else
                     case ( getCellValue model model.selectedCell, cellValue ) of
-                        ( Just selectedCellValue, Just currentCellValue  ) ->
+                        ( Just selectedCellValue, Just currentCellValue ) ->
                             Set.intersect
                                 (cellValueToInts selectedCellValue)
                                 (cellValueToInts currentCellValue)
                                 |> Set.isEmpty
+
+                        ( Just _, Nothing ) ->
+                            True
 
                         _ ->
                             False
@@ -2764,7 +2775,10 @@ viewCell model ( row, col ) =
 
         highlightNumbers : Set Int
         highlightNumbers =
-            if model.highlightMode == HighlightNumber then
+            if model.highlightMode == HighlightNumber
+                && not isDimmed
+                && cellIsVisible model model.selectedCell
+            then
                 getCellValue model model.selectedCell
                     |> Maybe.map cellValueToInts
                     |> Maybe.withDefault Set.empty
@@ -2826,8 +2840,7 @@ viewCell model ( row, col ) =
                 , ( "hidden", not isVisible )
                 , ( "error", errorIsNumber && (not cellIsMultiple) && isVisible )
                 , ( "error-context", errorIsContext && (not cellIsMultiple) && isVisible )
-                , ( "dimmed", isDimmed && isVisible )
-                , ( "dimmed-bg", model.highlightMode == HighlightNumber && not (Set.isEmpty highlightNumbers) )
+                , ( "dimmed", isDimmed )
                 ]
             , HE.onClick (CellSelected ( row, col ))
             ]
@@ -2836,10 +2849,10 @@ viewCell model ( row, col ) =
                     Just value ->
                         case value of
                             Given v ->
-                                [ Html.text (numberToString model.blockSize v) ]
+                                [ Html.text (numberToString v) ]
 
                             Single v ->
-                                [ Html.text (numberToString model.blockSize v) ]
+                                [ Html.text (numberToString v) ]
 
                             Multiple numbers ->
                                 viewMultipleNumbers model.blockSize cellError highlightNumbers numbers
@@ -2894,7 +2907,7 @@ viewMultipleNumbers blockSize cellError highlightNumbers numbers =
                     (not (Set.isEmpty highlightNumbers) && not (Set.member number highlightNumbers))
                     (HA.class "dimmed")
                 ]
-                [ Html.text (numberToString blockSize number) ]
+                [ Html.text (numberToString number) ]
         )
         (Set.toList numbers)
 
@@ -2992,7 +3005,7 @@ viewInfoPanelInput model =
                                     (not <| Set.member n validCellCandidates)
                                     (HA.class "error")
                                 ]
-                                [ Html.text (numberToString model.blockSize n) ]
+                                [ Html.text (numberToString n) ]
                         )
                         (List.range 1 model.blockSize)
                     )
@@ -3673,8 +3686,8 @@ isMultiple cellValue =
             False
 
 
-numberToString : Int -> Int -> String
-numberToString blockSize number =
+numberToString : Int -> String
+numberToString number =
     if number < 10 then
         String.fromInt (number)
 

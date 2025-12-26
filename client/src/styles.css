@@ -348,11 +348,7 @@ body {
 }
 
 .cell.dimmed, .cell .dimmed {
-    filter: brightness(0.5);
-}
-
-.cell.dimmed-bg {
-    background-color: light-dark(#999, var(--color-bg));
+    filter: brightness(0.6);
 }
 
 .cell.error, .cell .error {

@@ -1430,18 +1430,33 @@ update msg model =
         ToggleHighlightModePressed ->
             ( { model
                 | highlightMode =
-                    case model.highlightMode of
-                        HighlightNone ->
-                            HighlightBoard
+                    if Set.member "Shift" model.heldKeys then
+                        case model.highlightMode of
+                            HighlightNone ->
+                                HighlightNumber
 
-                        HighlightBoard ->
-                            HighlightArea
+                            HighlightNumber ->
+                                HighlightArea
 
-                        HighlightArea ->
-                            HighlightNumber
+                            HighlightArea ->
+                                HighlightBoard
 
-                        HighlightNumber ->
-                            HighlightNone
+                            HighlightBoard ->
+                                HighlightNone
+
+                    else
+                        case model.highlightMode of
+                            HighlightNone ->
+                                HighlightBoard
+
+                            HighlightBoard ->
+                                HighlightArea
+
+                            HighlightArea ->
+                                HighlightNumber
+
+                            HighlightNumber ->
+                                HighlightNone
               }
                 |> updateHighlightedCells
             , Cmd.none

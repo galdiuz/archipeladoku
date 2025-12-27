@@ -33,11 +33,27 @@ worker.onmessage = function(event) {
     }
 }
 
+function itemData(item) {
+    return {
+        locationId: item.locationId,
+        locationName: item.locationName,
+        itemId: item.id,
+        itemName: item.name,
+        senderAlias: item.sender.alias,
+        senderName: item.sender.name,
+        receiverAlias: item.receiver.alias,
+        receiverName: item.receiver.name,
+        gameName: item.game,
+        itemClass: item.flags,
+    }
+}
+
 app.ports.connect?.subscribe(data => {
     client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
         .then(slotData => {
             app.ports.receiveHintCost.send(client.room.hintCost)
             app.ports.receiveConnectionStatus.send(true)
+            app.ports.receiveSlotData.send(slotData)
             worker.postMessage({ type: 'generateBoard', data: slotData })
         })
         .catch(error => {
@@ -108,17 +124,9 @@ app.ports.scoutLocations?.subscribe(ids => {
             .then(scoutedItems => {
                 let data = []
                 for (let item of scoutedItems) {
-                    data.push({
-                        locationId: item.locationId,
-                        locationName: item.locationName,
-                        itemId: item.id,
-                        itemName: item.name,
-                        playerName: item.receiver.alias,
-                        gameName: item.game,
-                        itemClass: item.flags,
-                    })
+                    data.push(itemData(item))
                 }
-                app.ports.receiveScoutedItems.send(data)
+                app.ports.receiveHints.send(data)
             })
     } catch (error) {
         console.error('Scout location error:', error)
@@ -127,6 +135,10 @@ app.ports.scoutLocations?.subscribe(ids => {
 
 app.ports.sendMessage?.subscribe(text => {
     client.messages.say(text)
+})
+
+app.ports.sendPlayingStatus?.subscribe(() => {
+    client.updateStatus(Archipelago.clientStatuses.playing)
 })
 
 app.ports.setLocalStorage?.subscribe(kv => {
@@ -298,6 +310,11 @@ client.socket.on('disconnected', () => {
 
 client.items.on('itemsReceived', items => {
     app.ports.receiveItems.send(items.map(item => item.id))
+    const data = []
+    for (let item of items) {
+        data.push(itemData(item))
+    }
+    app.ports.receiveHints.send(data)
 })
 
 client.room.on('locationsChecked', locations => {
@@ -313,20 +330,9 @@ client.room.on('hintCostUpdated', (oldCost, newCost) => {
 })
 
 client.items.on('hintsInitialized', hints => {
-    let data = []
+    const data = []
     for (let hint of hints) {
-        if (hint.item.receiver.name != client.name) {
-            continue
-        }
-        data.push({
-            locationId: hint.item.locationId,
-            locationName: hint.item.locationName,
-            itemId: hint.item.id,
-            itemName: hint.item.name,
-            playerName: hint.item.sender.alias,
-            gameName: hint.item.game,
-            itemClass: hint.item.flags,
-        })
+        data.push(itemData(hint.item))
     }
     app.ports.receiveHints.send(data)
 })
@@ -334,18 +340,7 @@ client.items.on('hintsInitialized', hints => {
 client.items.on('hintReceived', _ => {
     let data = []
     for (let hint of client.items.hints) {
-        if (hint.item.receiver.name != client.name) {
-            continue
-        }
-        data.push({
-            locationId: hint.item.locationId,
-            locationName: hint.item.locationName,
-            itemId: hint.item.id,
-            itemName: hint.item.name,
-            playerName: hint.item.sender.alias,
-            gameName: hint.item.game,
-            itemClass: hint.item.flags,
-        })
+        data.push(itemData(hint.item))
     }
     app.ports.receiveHints.send(data)
 })

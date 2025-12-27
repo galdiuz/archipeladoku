@@ -75,12 +75,12 @@ class ArchipeladokuWorld(World):
             self.multiworld.regions.append(region)
             connection = menu.connect(region)
 
-            match self.options.block_unlocks:
-                case options.BlockUnlocks.option_fixed:
+            match self.options.progression:
+                case options.Progression.option_fixed:
                     connection.access_rule = lambda state, unlock_req=cluster_unlock_requirements[cluster.id]: \
                         state.has("Progressive Block", self.player, unlock_req) if unlock_req > 0 else True
 
-                case options.BlockUnlocks.option_shuffled:
+                case options.Progression.option_shuffled:
                     cluster_blocks = cluster.blocks.difference(initial_blocks)
                     block_names = [utils.block_item_name(row, col) for (row, col) in cluster_blocks]
 
@@ -163,13 +163,13 @@ class ArchipeladokuWorld(World):
 
         menu.locations.append(victory_location)
 
-        match self.options.block_unlocks:
-            case options.BlockUnlocks.option_fixed:
+        match self.options.progression:
+            case options.Progression.option_fixed:
                 last_cluster_requirement = max(cluster_unlock_requirements.values())
                 victory_location.access_rule = lambda state: \
                     state.has("Progressive Block", self.player, last_cluster_requirement)
 
-            case options.BlockUnlocks.option_shuffled:
+            case options.Progression.option_shuffled:
                 victory_location.access_rule = lambda state: \
                     state.has_all(
                         [utils.block_item_name(row, col) for (row, col) in self.block_unlock_order[self.player][initial_unlock_count:] if row > 0],
@@ -192,12 +192,12 @@ class ArchipeladokuWorld(World):
         )
 
         for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
-            match self.options.block_unlocks:
-                case options.BlockUnlocks.option_fixed:
+            match self.options.progression:
+                case options.Progression.option_fixed:
                     item = self.create_item("Progressive Block")
                     self.multiworld.itempool.append(item)
 
-                case options.BlockUnlocks.option_shuffled:
+                case options.Progression.option_shuffled:
                     item = ArchipeladokuItem(
                         utils.block_item_name(row, col),
                         ItemClassification.progression,
@@ -219,9 +219,10 @@ class ArchipeladokuWorld(World):
         return {
             "blockSize": self.options.block_size.value,
             "blockUnlockOrder": self.block_unlock_order[self.player],
-            "blockUnlocks": self.options.block_unlocks.value,
             "clusters": [cluster.positions for cluster in self.clusters[self.player].values()],
             "difficulty": self.options.difficulty.value,
+            "locationScouting": self.options.location_scouting.value,
+            "progression": self.options.progression.value,
             "seed": self.random.getrandbits(32),
         }
 

@@ -32,7 +32,7 @@ class Difficulty(Choice):
     default = 2
 
 
-class BlockUnlocks(Choice):
+class Progression(Choice):
     """The type of progression for unlocking blocks.
     - Fixed: Each block is unlocked in a predetermined order. Smoother progression.
     - Shuffled: Each block is unlocked by a specific check. More chaotic progression.
@@ -41,6 +41,19 @@ class BlockUnlocks(Choice):
     option_fixed = "fixed"
     option_shuffled = "shuffled"
     default = "shuffled"
+
+
+class LocationScouting(Choice):
+    """How scouting of locations is handled.
+    - Auto: Locations are scouted automatically when fully revealed.
+    - Manual: Locations can be scouted manually.
+    - Disabled: Locations cannot be scouted.
+    """
+    display_name = "Location Scouting"
+    option_auto = "auto"
+    option_manual = "manual"
+    option_disabled = "disabled"
+    default = "manual"
 
 
 class SolveSelectedCellWeight(Range):
@@ -80,7 +93,8 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     block_size: BlockSize
     number_of_boards: NumberOfBoards
     difficulty: Difficulty
-    block_unlocks: BlockUnlocks
+    progression: Progression
+    location_scouting: LocationScouting
     solve_selected_cell_weight: SolveSelectedCellWeight
     solve_random_cell_weight: SolveRandomCellWeight
     remove_random_candidate_weight: RemoveRandomCandidateWeight

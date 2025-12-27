@@ -14,6 +14,7 @@ import Html.Attributes.Extra as HAE
 import Html.Events as HE
 import Json.Decode as Decode
 import Json.Encode as Encode
+import Json.Decode.Field as Field
 import Maybe.Extra
 import List.Extra
 import Process
@@ -32,6 +33,7 @@ port log : String -> Cmd msg
 port moveCellIntoView : String -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
+port sendPlayingStatus : () -> Cmd msg
 port setLocalStorage : (String, String) -> Cmd msg
 port triggerAnimation : Encode.Value -> Cmd msg
 port zoom : Encode.Value -> Cmd msg
@@ -47,6 +49,7 @@ port receiveHints : (Decode.Value -> msg) -> Sub msg
 port receiveItems : (List Int -> msg) -> Sub msg
 port receiveMessage : (Decode.Value -> msg) -> Sub msg
 port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
+port receiveSlotData : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
@@ -74,6 +77,7 @@ type alias Model =
     , hintCost : Int
     , hintPoints : Int
     , host : String
+    , locationScouting : LocationScouting
     , lockedBlocks : List ( Int, Int )
     , messageInput : String
     , messages : List Message
@@ -86,6 +90,7 @@ type alias Model =
     , pendingSolvedCols : Set ( Int, Int )
     , pendingSolvedRows : Set ( Int, Int )
     , player : String
+    , progression : Progression
     , puzzleAreas : Data.PuzzleAreas
     , removeRandomCandidateUses : Int
     , scoutedItems : Dict Int Hint
@@ -127,7 +132,7 @@ type Msg
     | GotHints Decode.Value
     | GotItems (List Int)
     | GotMessage Decode.Value
-    | GotScoutedItems Decode.Value
+    | GotSlotData Decode.Value
     | HighlightModeChanged HighlightMode
     | HintItemPressed String
     | HostInputChanged String
@@ -140,6 +145,7 @@ type Msg
     | PlayerInputChanged String
     | RemoveInvalidCandidatesPressed
     | RemoveRandomCandidatePressed
+    | ScoutLocationPressed Int
     | SeedInputChanged String
     | SelectSingleCandidateCellPressed
     | SendMessagePressed
@@ -239,21 +245,32 @@ type alias Hint =
     , itemId : Int
     , itemName : String
     , itemClass : ItemClass
-    , playerName : String
+    , senderAlias : String
+    , senderName : String
+    , receiverAlias : String
+    , receiverName : String
     , gameName : String
     }
 
 
-decodeHint : Decode.Decoder Hint
-decodeHint =
-    Decode.map7 Hint
-        (Decode.field "locationId" Decode.int)
-        (Decode.field "locationName" Decode.string)
-        (Decode.field "itemId" Decode.int)
-        (Decode.field "itemName" Decode.string)
-        (Decode.field "itemClass" itemClassDecoder)
-        (Decode.field "playerName" Decode.string)
-        (Decode.field "gameName" Decode.string)
+hintDecoder : Decode.Decoder Hint
+hintDecoder =
+    Decode.succeed Hint
+        |> andMap (Decode.field "locationId" Decode.int)
+        |> andMap (Decode.field "locationName" Decode.string)
+        |> andMap (Decode.field "itemId" Decode.int)
+        |> andMap (Decode.field "itemName" Decode.string)
+        |> andMap (Decode.field "itemClass" itemClassDecoder)
+        |> andMap (Decode.field "senderAlias" Decode.string)
+        |> andMap (Decode.field "senderName" Decode.string)
+        |> andMap (Decode.field "receiverAlias" Decode.string)
+        |> andMap (Decode.field "receiverName" Decode.string)
+        |> andMap (Decode.field "gameName" Decode.string)
+
+
+andMap : Decode.Decoder a -> Decode.Decoder (a -> b) -> Decode.Decoder b
+andMap =
+    Decode.map2 (|>)
 
 
 itemClassDecoder : Decode.Decoder ItemClass
@@ -427,6 +444,70 @@ messageNodeDecoder =
             )
 
 
+type alias SlotData =
+    { locationScouting : LocationScouting
+    , progression : Progression
+    }
+
+
+slotDataDecoder : Decode.Decoder SlotData
+slotDataDecoder =
+    Field.optional "locationScouting" locationScoutingDecoder <| \locationScouting ->
+    Field.optional "progression" progressionDecoder <| \progression ->
+    Decode.succeed
+        { locationScouting = Maybe.withDefault ScoutingManual locationScouting
+        , progression = Maybe.withDefault Shuffled progression
+        }
+
+
+type Progression
+    = Fixed
+    | Shuffled
+
+
+progressionDecoder : Decode.Decoder Progression
+progressionDecoder =
+    Decode.string
+        |> Decode.andThen
+            (\value ->
+                case value of
+                    "fixed" ->
+                        Decode.succeed Fixed
+
+                    "shuffled" ->
+                        Decode.succeed Shuffled
+
+                    _ ->
+                        Decode.fail ("Unknown progression: " ++ value)
+            )
+
+
+type LocationScouting
+    = ScoutingAuto
+    | ScoutingManual
+    | ScoutingDisabled
+
+
+locationScoutingDecoder : Decode.Decoder LocationScouting
+locationScoutingDecoder =
+    Decode.string
+        |> Decode.andThen
+            (\value ->
+                case value of
+                    "auto" ->
+                        Decode.succeed ScoutingAuto
+
+                    "manual" ->
+                        Decode.succeed ScoutingManual
+
+                    "disabled" ->
+                        Decode.succeed ScoutingDisabled
+
+                    _ ->
+                        Decode.fail ("Unknown location scouting: " ++ value)
+            )
+
+
 decodeGenerationProgress : Decode.Decoder ( String, Float )
 decodeGenerationProgress =
     Decode.map2 Tuple.pair
@@ -484,6 +565,7 @@ init flagsValue =
       , hintCost = 0
       , hintPoints = 0
       , host = "localhost:8123"
+      , locationScouting = ScoutingManual
       , lockedBlocks = []
       , messageInput = ""
       , messages = []
@@ -496,6 +578,7 @@ init flagsValue =
       , pendingSolvedCols = Set.empty
       , pendingSolvedRows = Set.empty
       , player = "Player1"
+      , progression = Shuffled
       , puzzleAreas =
             { blocks = []
             , boards = []
@@ -533,7 +616,7 @@ subscriptions model =
         , receiveHints GotHints
         , receiveItems GotItems
         , receiveMessage GotMessage
-        , receiveScoutedItems GotScoutedItems
+        , receiveSlotData GotSlotData
         ]
 
 
@@ -814,7 +897,11 @@ update msg model =
                             , unlockedBlocks = Set.empty
                             , pendingItems = model.pendingItems
                           }
-                        , Cmd.none
+                        , if model.gameIsLocal then
+                            Cmd.none
+
+                          else
+                            sendPlayingStatus ()
                         )
                         (List.range 1 board.blockSize)
                         |> andThen updateState
@@ -886,11 +973,11 @@ update msg model =
                         _ ->
                             model.gameState
                 , messages =
-                    if status then
-                        model.messages
+                    if not status && model.gameState == Playing then
+                        addLocalMessage "Disconnected from server, reload page." model.messages
 
                     else
-                        addLocalMessage "Disconnected from server, reload page." model.messages
+                        model.messages
               }
             , Cmd.none
             )
@@ -916,15 +1003,30 @@ update msg model =
             )
 
         GotHints value ->
-            case Decode.decodeValue (Decode.list decodeHint) value of
+            case Decode.decodeValue (Decode.list hintDecoder) value of
                 Ok hints ->
                     ( { model
                         | hints =
                             List.foldl
                                 (\item acc ->
-                                    Dict.insert item.itemId item acc
+                                    if item.receiverName == model.player then
+                                        Dict.insert item.itemId item acc
+
+                                    else
+                                        acc
                                 )
                                 model.hints
+                                hints
+                        , scoutedItems =
+                            List.foldl
+                                (\item acc ->
+                                    if item.senderName == model.player then
+                                        Dict.insert item.locationId item acc
+
+                                    else
+                                        acc
+                                )
+                                model.scoutedItems
                                 hints
                       }
                     , Cmd.none
@@ -965,17 +1067,12 @@ update msg model =
                     , log (Decode.errorToString err)
                     )
 
-        GotScoutedItems value ->
-            case Decode.decodeValue (Decode.list decodeHint) value of
-                Ok scoutedItems ->
+        GotSlotData value ->
+            case Decode.decodeValue slotDataDecoder value of
+                Ok slotData ->
                     ( { model
-                        | scoutedItems =
-                            List.foldl
-                                (\item acc ->
-                                    Dict.insert item.locationId item acc
-                                )
-                                model.scoutedItems
-                                scoutedItems
+                        | locationScouting = slotData.locationScouting
+                        , progression = slotData.progression
                       }
                     , Cmd.none
                     )
@@ -1172,6 +1269,11 @@ update msg model =
                       }
                     , Cmd.none
                     )
+
+        ScoutLocationPressed id ->
+            ( model
+            , scoutLocations [ id ]
+            )
 
         SeedInputChanged value ->
             ( { model
@@ -1781,11 +1883,11 @@ updateStateCheckLocations model =
 updateStateScoutLocations : Model -> ( Model, Cmd Msg )
 updateStateScoutLocations model =
     ( { model | pendingScoutLocations = Set.empty }
-    , if model.gameIsLocal then
-        Cmd.none
+    , if not model.gameIsLocal && model.locationScouting == ScoutingAuto then
+        scoutLocations (Set.toList model.pendingScoutLocations)
 
       else
-        scoutLocations (Set.toList model.pendingScoutLocations)
+        Cmd.none
     )
 
 
@@ -3446,50 +3548,44 @@ viewBlockInfo model block =
         [ HA.class "column"
         ]
         [ viewCellLabel "Block" block.startRow block.startCol
+        , viewReward model (cellToBlockId ( block.startRow, block.startCol )) block
+        , viewBlockUnlockInfo model block
+        ]
 
-        , if model.gameIsLocal then
-            Html.text ""
 
-          else
-            case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.scoutedItems of
-                Just item ->
-                    viewRewardLabel item
+viewBlockUnlockInfo : Model -> Data.Area -> Html Msg
+viewBlockUnlockInfo model block =
+    if model.gameIsLocal
+        || Set.member ( block.startRow, block.startCol ) model.unlockedBlocks
+        || model.progression /= Shuffled
+    then
+        Html.text ""
 
-                Nothing ->
-                    Html.div
-                        []
-                        [ Html.text "Reward: ???" ]
+    else
+        case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.hints of
+            Just item ->
+                Html.div
+                    []
+                    [ Html.text
+                        (String.concat
+                            [ "Unlock: "
+                            , item.locationName
+                            , " ("
+                            , item.senderAlias
+                            , ", "
+                            , item.gameName
+                            , ")"
+                            ]
+                        )
+                    ]
 
-        -- TODO: Only if unlock method is fixed
-        , if model.gameIsLocal
-            || Set.member ( block.startRow, block.startCol ) model.unlockedBlocks
-          then
-            Html.text ""
-
-          else
-            case Dict.get (cellToBlockId ( block.startRow, block.startCol )) model.hints of
-                Just item ->
-                    Html.div
-                        []
-                        [ Html.text
-                            (String.concat
-                                [ "Unlock: "
-                                , item.locationName
-                                , " ("
-                                , item.playerName
-                                , ", "
-                                , item.gameName
-                                , ")"
-                                ]
-                            )
-                        ]
-
-                Nothing ->
-                    Html.div
-                        [ HA.class "row gap-m"
-                        ]
-                        [ Html.text "Unlock: ???"
-                        , Html.button
+            Nothing ->
+                Html.div
+                    [ HA.class "row gap-m"
+                    ]
+                    [ Html.text "Unlock: ???"
+                    , if model.progression == Shuffled then
+                        Html.button
                             [ HE.onClick
                                 (HintItemPressed
                                     (String.concat
@@ -3502,8 +3598,10 @@ viewBlockInfo model block =
                             , HA.disabled (model.hintPoints < model.hintCost)
                             ]
                             [ Html.text "Hint" ]
-                        ]
-        ]
+
+                      else
+                        Html.text ""
+                    ]
 
 
 viewRowInfo : Model -> Data.Area -> Html Msg
@@ -3512,19 +3610,7 @@ viewRowInfo model row =
         [ HA.class "column"
         ]
         [ viewCellLabel "Row" row.startRow row.startCol
-
-        , if model.gameIsLocal then
-            Html.text ""
-
-          else
-            case Dict.get (cellToRowId ( row.startRow, row.startCol )) model.scoutedItems of
-                Just item ->
-                    viewRewardLabel item
-
-                Nothing ->
-                    Html.div
-                        []
-                        [ Html.text "Reward: ???" ]
+        , viewReward model (cellToRowId ( row.startRow, row.startCol )) row
         ]
 
 
@@ -3534,19 +3620,7 @@ viewColInfo model col =
         [ HA.class "column"
         ]
         [ viewCellLabel "Column" col.startRow col.startCol
-
-        , if model.gameIsLocal then
-            Html.text ""
-
-          else
-            case Dict.get (cellToColId ( col.startRow, col.startCol )) model.scoutedItems of
-                Just item ->
-                    viewRewardLabel item
-
-                Nothing ->
-                    Html.div
-                        []
-                        [ Html.text "Reward: ???" ]
+        , viewReward model (cellToColId ( col.startRow, col.startCol )) col
         ]
 
 
@@ -3556,19 +3630,7 @@ viewBoardInfo model board =
         [ HA.class "column"
         ]
         [ viewCellLabel "Board" board.startRow board.startCol
-
-        , if model.gameIsLocal then
-            Html.text ""
-
-          else
-            case Dict.get (cellToBoardId ( board.startRow, board.startCol )) model.scoutedItems of
-                Just item ->
-                    viewRewardLabel item
-
-                Nothing ->
-                    Html.div
-                        []
-                        [ Html.text "Reward: ???" ]
+        , viewReward model (cellToBoardId ( board.startRow, board.startCol )) board
         ]
 
 
@@ -3601,25 +3663,56 @@ viewCellLabel label row col =
         ]
 
 
-viewRewardLabel : Hint -> Html Msg
-viewRewardLabel hint =
-    -- TODO: Strikethrough if obtained
-    Html.div
-        []
-        [ Html.text
-            (String.concat
-                [ "Reward: "
-                , hint.itemName
-                , " ("
-                , itemClassToString hint.itemClass
-                , ", "
-                , hint.playerName
-                , ", "
-                , hint.gameName
-                , ")"
-                ]
-            )
-        ]
+viewReward : Model -> Int -> Data.Area -> Html Msg
+viewReward model id area =
+    if model.gameIsLocal then
+        Html.text ""
+
+    else
+        case Dict.get id model.scoutedItems of
+            Just hint ->
+                -- TODO: Strikethrough if obtained
+                Html.div
+                    []
+                    [ Html.text
+                        (String.concat
+                            [ "Reward: "
+                            , hint.itemName
+                            , " ("
+                            , itemClassToString hint.itemClass
+                            , ", "
+                            , hint.receiverAlias
+                            , ", "
+                            , hint.gameName
+                            , ")"
+                            ]
+                        )
+                    , if Set.member id model.solvedLocations then
+                        Html.text " ✅"
+
+                      else
+                        Html.text ""
+                    ]
+
+            Nothing ->
+                Html.div
+                    [ HA.class "row gap-m"
+                    ]
+                    [ Html.text "Reward: ???"
+                    , if model.locationScouting == ScoutingManual then
+                        Html.button
+                            [ HE.onClick (ScoutLocationPressed id)
+                            , HA.disabled
+                                (List.any
+                                    (not << cellIsVisible model)
+                                    (Data.getAreaCells area)
+                                )
+                            ]
+                            [ Html.text "Scout" ]
+
+                      else
+                        Html.text ""
+                    ]
 
 
 viewMessage : Message -> Html Msg

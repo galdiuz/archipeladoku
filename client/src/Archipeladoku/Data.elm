@@ -32,6 +32,7 @@ type alias PuzzleAreas =
 
 type alias GenerateArgs =
     { blockSize : Int
+    , boardsPerCluster : Int
     , difficulty : Int
     , numberOfBoards : Int
     , seed : Int
@@ -142,6 +143,7 @@ encodeGenerateArgs : GenerateArgs -> Encode.Value
 encodeGenerateArgs args =
     Encode.object
         [ ( "blockSize", Encode.int args.blockSize )
+        , ( "boardsPerCluster", Encode.int args.boardsPerCluster )
         , ( "difficulty", Encode.int args.difficulty )
         , ( "numberOfBoards", Encode.int args.numberOfBoards )
         , ( "seed", Encode.int args.seed )

@@ -37,6 +37,24 @@ def block_size_to_overlap(block_size: int) -> (int, int):
         case _: raise ValueError("Unsupported block size")
 
 
+def get_number_of_boards(block_size: int, number_of_boards: int) -> int:
+    """Determine the number of boards to use based on block size."""
+
+    return min(number_of_boards, get_max_number_of_boards(block_size))
+
+
+def get_max_number_of_boards(block_size: int) -> int:
+    """Calculate the maximum number of boards."""
+
+    match block_size:
+        case 4: return 100
+        case 6: return 100
+        case 8: return 100
+        case 9: return 100
+        case 12: return 64
+        case 16: return 36
+
+
 def get_filler_count(block_size: int, number_of_boards: int) -> int:
     """Calculate the number of filler items needed."""
 
@@ -47,8 +65,93 @@ def get_filler_count(block_size: int, number_of_boards: int) -> int:
     ])
 
 
-def position_boards(block_size: int, number_of_boards: int) -> list[tuple[int, int]]:
+def position_boards(block_size: int, boards_per_cluster: int, number_of_boards: int) -> list[tuple[int, int]]:
     """Calculate positions for each board in the puzzle."""
+
+    full_clusters = number_of_boards // boards_per_cluster
+    remaining_boards = number_of_boards % boards_per_cluster
+    total_clusters = full_clusters + (1 if remaining_boards > 0 else 0)
+    grid_size = math.ceil(math.sqrt(total_clusters))
+
+    [ cluster_rows, cluster_cols ] = get_cluster_dimensions(block_size, boards_per_cluster)
+    cluster_positions = position_clusters(total_clusters, grid_size, cluster_rows, cluster_cols)
+
+    positions = []
+
+    for i in range(full_clusters):
+        cluster_position = cluster_positions[i]
+        cluster_board_positions = position_boards_in_cluster(block_size, boards_per_cluster)
+        for (row_offset, col_offset) in cluster_board_positions:
+            positions.append((
+                cluster_position[0] + row_offset - 1,
+                cluster_position[1] + col_offset - 1,
+            ))
+
+    if remaining_boards > 0:
+        cluster_position = cluster_positions[full_clusters]
+        cluster_board_positions = position_boards_in_cluster(block_size, remaining_boards)
+        for (row_offset, col_offset) in cluster_board_positions:
+            positions.append((
+                cluster_position[0] + row_offset - 1,
+                cluster_position[1] + col_offset - 1,
+            ))
+
+    return positions
+
+
+def get_cluster_dimensions(block_size: int, number_of_boards: int) -> (int, int):
+    """Calculate the dimensions of a cluster based on block size and number of boards."""
+
+    size_cluster = position_boards_in_cluster(block_size, number_of_boards)
+    max_row = 0
+    max_col = 0
+
+    for (row, col) in size_cluster:
+        if row + block_size - 1 > max_row:
+            max_row = row + block_size - 1
+        if col + block_size - 1 > max_col:
+            max_col = col + block_size - 1
+
+    return (max_row, max_col)
+
+
+def position_clusters(
+    total_clusters: int,
+    grid_size: int,
+    cluster_rows: int,
+    cluster_cols: int,
+) -> list[tuple[int, int]]:
+    """Calculate positions for each cluster."""
+
+    padding = 1
+    positions = []
+
+    for i in range(total_clusters):
+        ring = math.floor(math.sqrt(i))
+        ring_start = ring * ring
+        offset = i - ring_start
+
+        if offset < ring:
+            row = offset
+            col = ring
+            positions.append((
+                row * (cluster_rows + padding) + 1,
+                col * (cluster_cols + padding) + 1,
+            ))
+        else:
+            row = ring
+            col = i - ring_start - ring
+
+            positions.append((
+                row * (cluster_rows + padding) + 1,
+                col * (cluster_cols + padding) + 1,
+            ))
+
+    return positions
+
+
+def position_boards_in_cluster(block_size: int, number_of_boards: int) -> list[tuple[int, int]]:
+    """Calculate positions for each board in a cluster."""
 
     [ overlap_rows, overlap_cols ] = block_size_to_overlap(block_size)
 
@@ -279,7 +382,7 @@ location_name_to_id = {
     # 1xxxyyy: Solve Column Locations, row xxx, col yyy, added below
     # 4xxxyyy: Solve Board Locations, row xxx, col yyy, added below
 }
-max_width = 180 # Supports up to 98 blocks of size 16x16 with overlaps
+max_width = 150
 for row in range(1, max_width):
     for col in range(1, max_width):
         item_name_to_id[block_item_name(row, col)] = block_id(row, col)

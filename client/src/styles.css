@@ -65,6 +65,10 @@ body {
     flex-direction: column;
 }
 
+.wrap {
+    flex-wrap: wrap;
+}
+
 .gap-s {
     gap: var(--spacing-s);
 }

@@ -34,6 +34,7 @@ type GenerateArgs = GenerateLocalArgs | GenerateServerArgs
 
 interface GenerateLocalArgs {
     blockSize: number
+    boardsPerCluster?: number
     difficulty: number
     numberOfBoards: number
     seed: number
@@ -42,6 +43,7 @@ interface GenerateLocalArgs {
 
 interface GenerateServerArgs {
     blockSize: number
+    boardsPerCluster?: number
     blockUnlockOrder: Cell[]
     clusters: Cell[][]
     difficulty: number
@@ -133,7 +135,7 @@ interface SolutionHistory {
 }
 
 
-const maxWidth: number = 180 // Supports up to 98 blocks of size 16x16 with overlaps
+const maxWidth: number = 150 // Enough to cover all supported configurations
 const totalArraySize: number = maxWidth * maxWidth
 
 
@@ -145,12 +147,17 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
         }
     }
 
+    if (args.boardsPerCluster === undefined || args.boardsPerCluster <= 0) {
+        args.boardsPerCluster = 100
+    }
+
+    const maxBoards = getMaxNumberOfBoards(args.blockSize, args.boardsPerCluster)
     const numberOfBoards = "numberOfBoards" in args
-        ? Math.min(Math.max(1, args.numberOfBoards), 98)
+        ? Math.min(Math.max(1, args.numberOfBoards), maxBoards)
         : 1
     const positions: Cell[] = "clusters" in args
         ? args.clusters.reduce((acc, cluster) => acc.concat(cluster), [])
-        : positionBoards(args.blockSize, numberOfBoards)
+        : positionBoards(args.blockSize, args.boardsPerCluster, numberOfBoards)
 
     const boardPuzzleAreas: PuzzleAreas[] = []
     for (const [startRow, startCol] of positions) {
@@ -215,7 +222,97 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
 }
 
 
-function positionBoards(blockSize: number, numberOfBoards: number): Cell[] {
+function positionBoards(blockSize: number, boardsPerCluster: number, numberOfBoards: number): Cell[] {
+    const fullClusters = Math.floor(numberOfBoards / boardsPerCluster)
+    const remainingBoards = numberOfBoards % boardsPerCluster
+    const totalClusters = fullClusters + (remainingBoards > 0 ? 1 : 0)
+    const gridSize = Math.ceil(Math.sqrt(totalClusters))
+
+    const [clusterRows, clusterCols] = getClusterDimensions(blockSize, boardsPerCluster)
+    const clusterPositions: Cell[] = positionClusters(totalClusters, gridSize, clusterRows, clusterCols)
+
+    let positions: Cell[] = []
+
+    for (let i = 0; i < fullClusters; i++) {
+        const clusterPosition = clusterPositions[i]!
+        const clusterBoardPositions = positionBoardsInCluster(blockSize, boardsPerCluster)
+        for (const [rowOffset, colOffset] of clusterBoardPositions) {
+            positions.push([
+                clusterPosition[0] + rowOffset - 1,
+                clusterPosition[1] + colOffset - 1,
+            ])
+        }
+    }
+    if (remainingBoards > 0) {
+        const clusterPosition = clusterPositions[fullClusters]!
+        const clusterBoardPositions = positionBoardsInCluster(blockSize, remainingBoards)
+        for (const [rowOffset, colOffset] of clusterBoardPositions) {
+            positions.push([
+                clusterPosition[0] + rowOffset - 1,
+                clusterPosition[1] + colOffset - 1,
+            ])
+        }
+    }
+
+    return positions
+}
+
+
+function getClusterDimensions(blockSize: number, numberOfBoards: number): [number, number] {
+    const sizeCluster: Cell[] = positionBoardsInCluster(blockSize, numberOfBoards)
+    let maxRow = 0
+    let maxCol = 0
+
+    for (const [row, col] of sizeCluster) {
+        if (row + blockSize - 1 > maxRow) {
+            maxRow = row + blockSize - 1
+        }
+        if (col + blockSize - 1 > maxCol) {
+            maxCol = col + blockSize - 1
+        }
+    }
+
+    return [maxRow, maxCol]
+}
+
+
+function positionClusters(
+    totalClusters: number,
+    gridSize: number,
+    clusterRows: number,
+    clusterCols: number,
+): Cell[] {
+    const padding = 1
+    const positions: Cell[] = []
+
+    for (let i = 0; i < totalClusters; i++) {
+        const ring = Math.floor(Math.sqrt(i))
+        const ringStart = ring * ring
+        const offset = i - ringStart
+
+        if (offset < ring) {
+            const row = offset
+            const col = ring
+            positions.push([
+                row * (clusterRows + padding) + 1,
+                col * (clusterCols + padding) + 1,
+            ])
+        } else {
+            const row = ring
+            const col = i - ringStart - ring
+
+            positions.push([
+                row * (clusterRows + padding) + 1,
+                col * (clusterCols + padding) + 1,
+            ])
+        }
+    }
+
+    return positions
+}
+
+
+function positionBoardsInCluster(blockSize: number, numberOfBoards: number): Cell[] {
     const [overlapRows, overlapCols] = blockSizeToOverlap(blockSize)
 
     const spotsInGrid = function(side: number): number {
@@ -1653,6 +1750,26 @@ function shuffleArray<T>(array: T[], rng: () => number): void {
 
 function getCellIndex(row: number, col: number): CellIndex {
     return (row - 1) * maxWidth + (col - 1)
+}
+
+
+function getMaxNumberOfBoards(blockSize: number, boardsPerCluster: number): number {
+    switch (blockSize) {
+        case 4:
+            return 100
+        case 6:
+            return 100
+        case 8:
+            return 100
+        case 9:
+            return 100
+        case 12:
+            return 64
+        case 16:
+            return 36
+        default:
+            throw new Error('Unsupported block size')
+    }
 }
 
 

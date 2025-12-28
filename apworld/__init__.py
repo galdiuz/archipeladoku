@@ -24,7 +24,11 @@ class ArchipeladokuWorld(World):
 
         board_positions = utils.position_boards(
             self.options.block_size.value,
-            self.options.number_of_boards.value,
+            self.options.boards_per_cluster.value,
+            utils.get_number_of_boards(
+                self.options.block_size.value,
+                self.options.number_of_boards.value,
+            ),
         )
 
         grouped_positions = utils.group_positions(
@@ -44,7 +48,10 @@ class ArchipeladokuWorld(World):
 
         self.block_unlock_order[self.player] = utils.build_block_unlock_order(
             self.options.block_size.value,
-            self.options.number_of_boards.value,
+            utils.get_number_of_boards(
+                self.options.block_size.value,
+                self.options.number_of_boards.value,
+            ),
             self.clusters[self.player],
             self.random,
         )
@@ -188,7 +195,10 @@ class ArchipeladokuWorld(World):
         initial_unlock_count = self.options.block_size.value
         fillers = utils.get_filler_count(
             self.options.block_size.value,
-            self.options.number_of_boards.value,
+            utils.get_number_of_boards(
+                self.options.block_size.value,
+                self.options.number_of_boards.value,
+            ),
         )
 
         for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:

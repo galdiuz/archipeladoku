@@ -57,6 +57,7 @@ type alias Model =
     , autoFillCandidatesOnUnlock : Bool
     , autoRemoveInvalidCandidates : Bool
     , blockSize : Int
+    , boardsPerCluster : Int
     , candidateMode : Bool
     , cellBlocks : Dict ( Int, Int ) (List Data.Area)
     , cellBoards : Dict ( Int, Int ) (List Data.Area)
@@ -113,6 +114,7 @@ type Msg
     | AutoFillCandidatesOnUnlockChanged Bool
     | AutoRemoveInvalidCandidatesChanged Bool
     | BlockSizeChanged Int
+    | BoardsPerClusterChanged Int
     | CandidateModeChanged Bool
     | CellSelected ( Int, Int )
     | ClearBoardPressed
@@ -545,6 +547,7 @@ init flagsValue =
       , autoFillCandidatesOnUnlock = False
       , autoRemoveInvalidCandidates = False
       , blockSize = 9
+      , boardsPerCluster = 5
       , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
@@ -727,7 +730,15 @@ update msg model =
                 |> andThen updateState
 
         BlockSizeChanged size ->
-            ( { model | blockSize = size }
+            ( { model
+                | blockSize = size
+                , numberOfBoards = min model.numberOfBoards (maxNumberOfBoards size)
+              }
+            , Cmd.none
+            )
+
+        BoardsPerClusterChanged value ->
+            ( { model | boardsPerCluster = value }
             , Cmd.none
             )
 
@@ -1173,6 +1184,7 @@ update msg model =
             , generateBoard
                 (Data.encodeGenerateArgs
                     { blockSize = model.blockSize
+                    , boardsPerCluster = model.boardsPerCluster
                     , difficulty = model.difficulty
                     , numberOfBoards = model.numberOfBoards
                     , seed = model.seedInput
@@ -2649,43 +2661,66 @@ viewMenu model =
                 [ HA.style "margin" "0" ]
                 [ Html.text "Play Local Game" ]
             , Html.div
-                []
+                [ HA.class "column gap-s"
+                ]
                 [ Html.text "Block Size:"
                 , Html.div
-                    [ HA.class "row gap-m"
+                    [ HA.class "row gap-m wrap"
                     ]
-                    [ viewNumberRadioButton 4 model.blockSize "block-size" BlockSizeChanged
-                    , viewNumberRadioButton 6 model.blockSize "block-size" BlockSizeChanged
-                    , viewNumberRadioButton 8 model.blockSize "block-size" BlockSizeChanged
-                    , viewNumberRadioButton 9 model.blockSize "block-size" BlockSizeChanged
-                    , viewNumberRadioButton 12 model.blockSize "block-size" BlockSizeChanged
-                    , viewNumberRadioButton 16 model.blockSize "block-size" BlockSizeChanged
-                    ]
+                    (List.map
+                        (\size ->
+                            viewNumberRadioButton size model.blockSize "block-size" BlockSizeChanged
+                        )
+                        [ 4, 6, 8, 9, 12, 16 ]
+                    )
                 ]
             , Html.div
-                []
-                [ Html.text "Number of Boards:"
+                [ HA.class "column gap-s"
+                ]
+                [ Html.text "Boards per Cluster: "
                 , Html.div
-                    [ HA.class "row gap-m"
+                    [ HA.class "row gap-m wrap"
                     ]
-                    [ viewNumberRadioButton 1 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 3 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 5 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 8 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 13 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 18 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 25 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 32 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 41 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 50 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    , viewNumberRadioButton 98 model.numberOfBoards "number-of-boards" NumberOfBoardsChanged
-                    ]
+                    (List.map
+                        (\number ->
+                            viewNumberRadioButton
+                                number
+                                model.boardsPerCluster
+                                "boards-per-cluster"
+                                BoardsPerClusterChanged
+                        )
+                        [ 1, 5, 8, 13, 100 ]
+                    )
                 ]
             , Html.div
-                []
+                [ HA.class "column gap-s"
+                ]
+                [ Html.text "Number of Boards: "
+                , Html.text (String.fromInt model.numberOfBoards)
+                , viewRangeSlider
+                    model.numberOfBoards
+                    1
+                    (maxNumberOfBoards model.blockSize)
+                    NumberOfBoardsChanged
+                    (Just "number-of-boards-ticks")
+                , Html.datalist
+                    [ HA.id "number-of-boards-ticks"
+                    ]
+                    (List.map
+                        (\tick ->
+                            Html.option
+                                [ HA.value (String.fromInt tick) ]
+                                []
+                        )
+                        (numberOfBoardsTicks model.boardsPerCluster)
+                    )
+                ]
+            , Html.div
+                [ HA.class "column gap-s"
+                ]
                 [ Html.text "Difficulty:"
                 , Html.div
-                    [ HA.class "row gap-m"
+                    [ HA.class "row gap-m wrap"
                     ]
                     [ viewRadioButton 1 model.difficulty "difficulty" DifficultyChanged (\_ -> "Beginner")
                     , viewRadioButton 2 model.difficulty "difficulty" DifficultyChanged (\_ -> "Easy")
@@ -2736,6 +2771,54 @@ viewRadioButton value selected name msg toLabel =
 viewNumberRadioButton : Int -> Int -> String -> (Int -> Msg) -> Html Msg
 viewNumberRadioButton value selected name msg =
     viewRadioButton value selected name msg String.fromInt
+
+
+viewRangeSlider : Int -> Int -> Int -> (Int -> Msg) -> Maybe String -> Html Msg
+viewRangeSlider value min max msg list =
+    Html.input
+        [ HA.type_ "range"
+        , HA.min (String.fromInt min)
+        , HA.max (String.fromInt max)
+        , HA.value (String.fromInt value)
+        , HAE.attributeMaybe HA.list list
+        , HA.style "width" "250px"
+        , HE.onInput (String.toInt >> Maybe.withDefault value >> msg)
+        ]
+        []
+
+
+maxNumberOfBoards : Int -> Int
+maxNumberOfBoards blockSize =
+    if blockSize == 16 then
+        36
+
+    else if blockSize == 12 then
+        64
+
+    else
+        100
+
+
+numberOfBoardsTicks : Int -> List Int
+numberOfBoardsTicks boardsPerCluster =
+    case boardsPerCluster of
+        1 ->
+            [ 4, 9, 16, 25, 36, 49, 64, 81, 100 ]
+
+        5 ->
+            [ 5, 10, 20, 45, 80, 100 ]
+
+        8 ->
+            [ 8, 24, 40, 64, 96 ]
+
+        13 ->
+            [ 13, 26, 39, 65, 91 ]
+
+        100 ->
+            [ 3, 5, 8, 13, 18, 25, 32, 41, 50, 72, 98 ]
+
+        _ ->
+            []
 
 
 viewBoard : Model -> Html Msg

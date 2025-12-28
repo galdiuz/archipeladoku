@@ -135,7 +135,7 @@ interface SolutionHistory {
 }
 
 
-const maxWidth: number = 150 // Enough to cover all supported configurations
+const maxWidth: number = 180 // Enough to cover all supported configurations
 const totalArraySize: number = maxWidth * maxWidth
 
 

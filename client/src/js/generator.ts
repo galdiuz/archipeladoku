@@ -37,24 +37,47 @@ interface GenerateLocalArgs {
     boardsPerCluster?: number
     difficulty: number
     numberOfBoards: number
+    progression: Progression
     seed: number
 }
+
+
+type Progression = 'fixed' | 'shuffled'
 
 
 interface GenerateServerArgs {
     blockSize: number
     boardsPerCluster?: number
-    blockUnlockOrder: Cell[]
+    blockUnlockOrder: number[]
     clusters: Cell[][]
     difficulty: number
     seed: number
 }
 
 
-interface BlockOrderCluster {
+interface Weighted {
+    weight: number
+}
+
+
+interface UnlockOrderCluster extends Weighted {
     id: number
     blocks: Map<number, Cell>
     reward: number
+    weight: number
+}
+
+
+interface UnlockMapCluster extends Weighted {
+    id: number
+    blocks: Map<number, Cell>
+    locations: Map<number, UnlockLocation>
+    weight: number
+}
+
+
+interface UnlockLocation extends Weighted {
+    id: number
     weight: number
 }
 
@@ -81,10 +104,11 @@ interface RemovingGivens {
 interface Completed {
     type: 'Completed'
     blockSize: number
+    blockUnlockOrder: number[]
     givens: EncodedCellValue[]
     solution: EncodedCellValue[]
     puzzleAreas: EncodedPuzzleAreas
-    unlockOrder: Cell[]
+    unlockMap: [number, number][]
 }
 
 
@@ -113,7 +137,7 @@ interface ClusterGenerationState {
     allCellIndices: Set<CellIndex>
     allClusters: Cell[][]
     blockSize: number
-    blockUnlockOrder: Cell[]
+    blockUnlockOrder: number[]
     cellBlockIndicesMap: CellIndex[][][]
     cellColIndicesMap: CellIndex[][][]
     cellRowIndicesMap: CellIndex[][][]
@@ -126,6 +150,7 @@ interface ClusterGenerationState {
     remainingClusters: Cell[][]
     solution: Int32Array
     solutionHistory: SolutionHistory[]
+    unlockMap: Map<number, number>
 }
 
 
@@ -137,6 +162,12 @@ interface SolutionHistory {
 
 const maxWidth: number = 180 // Enough to cover all supported configurations
 const totalArraySize: number = maxWidth * maxWidth
+
+const solveRandomCellId = 1
+const removeRandomCandidateId = 2
+const progressiveBlockId = 101
+const solveSelectedCellId = 201
+const nothingId = 99
 
 
 export function initGeneration(args: GenerateArgs): BoardGenerationState {
@@ -187,11 +218,12 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
     const clusters: Cell[][] = "clusters" in args
         ? args.clusters
         : buildClusters(positions, rng)
-    const blockUnlockOrder: Cell[] = "blockUnlockOrder" in args
-        ? args.blockUnlockOrder
-        : buildBlockUnlockOrder(
+    const [ blockUnlockOrder, unlockMap ]: [number[], Map<number, number>] = "blockUnlockOrder" in args
+        ? [args.blockUnlockOrder, new Map()]
+        : buildUnlocks(
             args.blockSize,
-            positions.length,
+            args.numberOfBoards,
+            args.progression,
             puzzleAreas.blocks,
             clusters,
             rng
@@ -204,6 +236,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             allCellIndices: cellIndices,
             allClusters: clusters,
             blockSize: args.blockSize,
+            unlockMap: unlockMap,
             blockUnlockOrder: blockUnlockOrder,
             cellBlockIndicesMap: cellBlockIndicesMap,
             cellColIndicesMap: cellColIndicesMap,
@@ -506,20 +539,19 @@ function buildClusters(positions: Cell[], rng: () => number): Cell[][] {
 }
 
 
-function buildBlockUnlockOrder(
+function buildUnlocks(
     blockSize: number,
     numberOfBoards: number,
+    progression: Progression,
     allBlocks: Area[],
     clusters: Cell[][],
     rng: () => number,
-): Cell[] {
-    const assignedBlocks: Set<number> = new Set()
+): [number[], Map<number, number>] {
+    const unlockMap: Map<number, number> = new Map()
     const remainingBlocks: Map<number, Cell> = new Map()
-    const blockOrderClusters: Map<number, BlockOrderCluster> = new Map()
-    const fillerCount = blockSize // Initial blocks
-        + numberOfBoards // One per board
-        + numberOfBoards * blockSize * 2 // One per row and column
-    let fillersAdded = false
+    const solvableLocations: Map<number, UnlockLocation> = new Map()
+    const lockedClusters: Map<number, UnlockMapCluster> = new Map()
+    const clusterOrder: UnlockMapCluster[] = []
 
     for (const block of allBlocks) {
         const key = getCellIndex(block.startRow, block.startCol)
@@ -528,100 +560,182 @@ function buildBlockUnlockOrder(
 
     for (let i = 0; i < clusters.length; i++) {
         const cluster = clusters[i]!
-        const blockOrderCluster: BlockOrderCluster = {
+        const unlockMapCluster: UnlockMapCluster = {
             id: i,
             blocks: new Map<number, Cell>(),
-            reward: 0,
+            locations: new Map<number, UnlockLocation>(),
             weight: 0,
         }
-        blockOrderClusters.set(i, blockOrderCluster)
+        lockedClusters.set(i, unlockMapCluster)
 
         for (const [startRow, startCol] of cluster) {
-            let boardBlocks = buildPuzzleAreas(blockSize, startRow, startCol).blocks
-            blockOrderCluster.reward += 1 // Reward for solving the board
-            blockOrderCluster.reward += blockSize * 2 // Reward for solving rows and columns
+            let boardAreas = buildPuzzleAreas(blockSize, startRow, startCol)
 
-            for (const block of boardBlocks) {
+            for (const block of boardAreas.blocks) {
                 const blockKey = getCellIndex(block.startRow, block.startCol)
-                blockOrderCluster.blocks.set(blockKey, [block.startRow, block.startCol])
+                unlockMapCluster.blocks.set(blockKey, [block.startRow, block.startCol])
+                const blockId = cellToBlockId(block.startRow, block.startCol)
+                unlockMapCluster.locations.set(blockId, { id: blockId, weight: 1 })
+            }
+
+            for (const row of boardAreas.rows) {
+                const rowId = cellToRowId(row.startRow, row.startCol)
+                unlockMapCluster.locations.set(rowId, { id: rowId, weight: 1 })
+            }
+
+            for (const col of boardAreas.cols) {
+                const colId = cellToColId(col.startRow, col.startCol)
+                unlockMapCluster.locations.set(colId, { id: colId, weight: 1 })
+            }
+
+            const boardId = cellToBoardId(startRow, startCol)
+            unlockMapCluster.locations.set(boardId, { id: boardId, weight: 1 })
+
+            if (startRow === 1 && startCol === 1) {
+                lockedClusters.delete(i)
+                clusterOrder.push(unlockMapCluster)
+
+                for (const location of unlockMapCluster.locations.values()) {
+                    solvableLocations.set(location.id, location)
+                }
+                for (const blockKey of unlockMapCluster.blocks.keys()) {
+                    remainingBlocks.delete(blockKey)
+                }
             }
         }
     }
 
-    let credits: number = blockSize
-    const unlockOrder: Cell[] = []
+    let sphere = 1
 
-    while (blockOrderClusters.size > 0) {
-        for (const cluster of blockOrderClusters.values()) {
+    while (lockedClusters.size > 0) {
+        sphere += 1
+
+        for (const cluster of lockedClusters.values()) {
             const remaining = intersectMaps(cluster.blocks, remainingBlocks).size
-            if (remaining > credits) {
-                cluster.weight = 0
-            } else if (cluster.id === 0) {
-                cluster.weight = 1000000000
-            } else {
-                cluster.weight = credits - remaining + 1
-            }
+            cluster.weight = blockSize - remaining + 1
         }
 
-        const blockOrderClustersArray = Array.from(blockOrderClusters.values())
-        const targetCluster = pickCluster(blockOrderClustersArray, rng)
+        const lockedClustersArray = Array.from(lockedClusters.values())
+        const targetCluster = pickWeighted(lockedClustersArray, rng)
         const targetBlocks = intersectMaps(targetCluster.blocks, remainingBlocks)
-        const remainingBlocksExcludingTarget = diffMaps(remainingBlocks, targetCluster.blocks)
-        const remainingCredits = credits - targetBlocks.size
-        const randomBudgetMax = Math.min(remainingCredits, remainingBlocksExcludingTarget.size)
-        const randomBudget = Math.floor(rng() * randomBudgetMax)
-        const randomBlocks = randomSample(remainingBlocksExcludingTarget, randomBudget, rng)
-        const blocksToAdd: Cell[] = Array.from(targetBlocks.values())
-            .concat(Array.from(randomBlocks.values()))
 
-        shuffleArray(blocksToAdd, rng)
-
-        for (const block of blocksToAdd) {
-            unlockOrder.push(block)
-            const blockKey = block[0] > 0 ? getCellIndex(block[0], block[1]) : block[0]
+        for (const [blockKey, [row, col]] of targetBlocks.entries()) {
+            const solvableLocationsArray = Array.from(solvableLocations.values())
+            const location = pickWeighted(solvableLocationsArray, rng)
+            unlockMap.set(location.id, cellToBlockId(row, col))
             remainingBlocks.delete(blockKey)
+            solvableLocations.delete(location.id)
         }
 
-        appendToSet(assignedBlocks, targetCluster.blocks.keys())
-        blockOrderClusters.delete(targetCluster.id)
-        credits = remainingCredits
-            + targetCluster.blocks.size
-            + targetCluster.reward
-            - randomBlocks.size
-
-        for (const cluster of blockOrderClusters.values()) {
-            for (const assignedBlockKey of assignedBlocks) {
-                cluster.blocks.delete(assignedBlockKey)
+        for (const location of targetCluster.locations.values()) {
+            if (unlockMap.has(location.id)) {
+                continue
             }
+            location.weight = Math.floor(Math.pow(sphere, 1.5))
+            solvableLocations.set(location.id, location)
         }
 
-        if (!fillersAdded) {
-            fillersAdded = true
-            for (let i = -1; i > -fillerCount - 1; i--) {
-                remainingBlocks.set(i, [i, i])
+        lockedClusters.delete(targetCluster.id)
+        clusterOrder.push(targetCluster)
+    }
+
+    const blockUnlockOrder: number[] = []
+
+    for (const cluster of clusterOrder) {
+        const toAdd: number[] = []
+
+        for (const location of cluster.locations.values()) {
+            if (!unlockMap.has(location.id)) {
+                continue
             }
+
+            const id = unlockMap.get(location.id)!
+            toAdd.push(id)
+        }
+
+        shuffleArray(toAdd, rng)
+        blockUnlockOrder.push(...toAdd)
+    }
+
+    if (progression === 'fixed') {
+        for (const locationId of unlockMap.keys()) {
+            unlockMap.set(locationId, progressiveBlockId)
         }
     }
 
-    for (const block of remainingBlocks.values()) {
-        unlockOrder.push(block)
-    }
+    addFillers(numberOfBoards, unlockMap, solvableLocations, rng)
 
-    return unlockOrder
+    return [ blockUnlockOrder, unlockMap ]
 }
 
 
-function pickCluster(clusters: BlockOrderCluster[], rng: () => number): BlockOrderCluster {
-    const totalWeight = clusters.reduce((sum, cluster) => sum + cluster.weight, 0)
-    let r = rng() * totalWeight
-    for (const cluster of clusters) {
-        if (r < cluster.weight) {
-            return cluster
+function addFillers(
+    numberOfBoards: number,
+    unlockMap: Map<number, number>,
+    solvableLocations: Map<number, UnlockLocation>,
+    rng: () => number,
+) {
+    const fillerDefinitions = [
+        {
+            id: solveSelectedCellId,
+            count: Math.floor(numberOfBoards * 1.0),
+        },
+        {
+            id: solveRandomCellId,
+            count: Math.floor(numberOfBoards * 1.5),
+        },
+        {
+            id: removeRandomCandidateId,
+            count: Math.floor(numberOfBoards * 3.0),
+        },
+    ]
+    const desiredTotal = fillerDefinitions.reduce((sum, def) => sum + def.count, 0)
+
+    if (desiredTotal > solvableLocations.size) {
+        const scale = solvableLocations.size / desiredTotal
+        for (const def of fillerDefinitions) {
+            def.count = Math.ceil(def.count * scale)
         }
-        r -= cluster.weight
     }
 
-    return clusters[clusters.length - 1]!
+    const fillers: number[] = []
+
+    for (const def of fillerDefinitions) {
+        for (let i = 0; i < def.count; i++) {
+            fillers.push(def.id)
+        }
+    }
+
+    while (fillers.length < solvableLocations.size) {
+        fillers.push(nothingId)
+    }
+
+    shuffleArray(fillers, rng)
+
+    for (const location of solvableLocations.values()) {
+        if (unlockMap.has(location.id)) {
+            continue
+        }
+        if (fillers.length === 0) {
+            break
+        }
+        const id = fillers.pop()
+        unlockMap.set(location.id, id!)
+    }
+}
+
+
+function pickWeighted<T extends Weighted>(items: T[], rng: () => number): T {
+    const totalWeight = items.reduce((sum, item) => sum + item.weight, 0)
+    let r = rng() * totalWeight
+    for (const item of items) {
+        if (r < item.weight) {
+            return item
+        }
+        r -= item.weight
+    }
+
+    return items[items.length - 1]!
 }
 
 
@@ -1669,12 +1783,13 @@ function applyHiddenTriples(
 
 
 function clusterStateToCompleted(state: ClusterGenerationState): Completed {
-    let givens: [number, number, number][] = []
-    let solution: [number, number, number][] = []
+    const givens: [number, number, number][] = []
+    const solution: [number, number, number][] = []
+    const unlockMap: [number, number][] = []
 
     for (let [row, col] of state.allCells) {
         const cellIndex: CellIndex = getCellIndex(row, col)
-        let number: number = state.solution[cellIndex]!
+        const number: number = state.solution[cellIndex]!
 
         solution.push([row, col, number])
 
@@ -1683,20 +1798,25 @@ function clusterStateToCompleted(state: ClusterGenerationState): Completed {
         }
     }
 
-    let encodedPuzzleAreas: EncodedPuzzleAreas = {
+    const encodedPuzzleAreas: EncodedPuzzleAreas = {
         boards: state.puzzleAreas.boards.map(encodeArea),
         blocks: state.puzzleAreas.blocks.map(encodeArea),
         rows: state.puzzleAreas.rows.map(encodeArea),
         cols: state.puzzleAreas.cols.map(encodeArea),
     }
 
+    for (let [locationId, itemId] of state.unlockMap.entries()) {
+        unlockMap.push([locationId, itemId])
+    }
+
     return {
         type: 'Completed',
         blockSize: state.blockSize,
+        blockUnlockOrder: state.blockUnlockOrder,
         givens: givens,
         puzzleAreas: encodedPuzzleAreas,
         solution: solution,
-        unlockOrder: state.blockUnlockOrder,
+        unlockMap: unlockMap,
     }
 }
 
@@ -1810,6 +1930,26 @@ function blockSizeToOverlap(blockSize: number): [number, number] {
         default:
             throw new Error('Unsupported block size')
     }
+}
+
+
+function cellToBlockId(row: number, col: number): number {
+    return 1000000 + row * 1000 + col
+}
+
+
+function cellToRowId(row: number, col: number): number {
+    return 2000000 + row * 1000 + col
+}
+
+
+function cellToColId(row: number, col: number): number {
+    return 3000000 + row * 1000 + col
+}
+
+
+function cellToBoardId(row: number, col: number): number {
+    return 4000000 + row * 1000 + col
 }
 
 

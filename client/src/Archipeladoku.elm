@@ -1,6 +1,5 @@
 port module Archipeladoku exposing (..)
 
-import Archipeladoku.Data as Data
 import Array exposing (Array)
 import Bitwise
 import Browser
@@ -13,8 +12,9 @@ import Html.Attributes as HA
 import Html.Attributes.Extra as HAE
 import Html.Events as HE
 import Json.Decode as Decode
-import Json.Encode as Encode
+import Json.Decode.Extra as DecodeExtra
 import Json.Decode.Field as Field
+import Json.Encode as Encode
 import Maybe.Extra
 import List.Extra
 import Process
@@ -39,9 +39,9 @@ port triggerAnimation : Encode.Value -> Cmd msg
 port zoom : Encode.Value -> Cmd msg
 port zoomReset : () -> Cmd msg
 
-port receiveBoard : (Decode.Value -> msg) -> Sub msg
 port receiveCheckedLocations : (List Int -> msg) -> Sub msg
 port receiveConnectionStatus : (Bool -> msg) -> Sub msg
+port receiveGeneratedBoard : (Decode.Value -> msg) -> Sub msg
 port receiveGenerationProgress : (Decode.Value -> msg) -> Sub msg
 port receiveHintCost : (Int -> msg) -> Sub msg
 port receiveHintPoints : (Int -> msg) -> Sub msg
@@ -59,10 +59,10 @@ type alias Model =
     , blockSize : Int
     , boardsPerCluster : Int
     , candidateMode : Bool
-    , cellBlocks : Dict ( Int, Int ) (List Data.Area)
-    , cellBoards : Dict ( Int, Int ) (List Data.Area)
-    , cellCols : Dict ( Int, Int ) (List Data.Area)
-    , cellRows : Dict ( Int, Int ) (List Data.Area)
+    , cellBlocks : Dict ( Int, Int ) (List Area)
+    , cellBoards : Dict ( Int, Int ) (List Area)
+    , cellCols : Dict ( Int, Int ) (List Area)
+    , cellRows : Dict ( Int, Int ) (List Area)
     , colorScheme : String
     , current : Dict ( Int, Int ) CellValue
     , difficulty : Int
@@ -93,7 +93,7 @@ type alias Model =
     , pendingSolvedRows : Set ( Int, Int )
     , player : String
     , progression : Progression
-    , puzzleAreas : Data.PuzzleAreas
+    , puzzleAreas : PuzzleAreas
     , removeRandomCandidateUses : Int
     , scoutedItems : Dict Int Hint
     , seed : Random.Seed
@@ -106,6 +106,7 @@ type alias Model =
     , solvedLocations : Set Int
     , undoStack : List (Dict ( Int, Int ) CellValue)
     , unlockedBlocks : Set ( Int, Int )
+    , unlockMap : Dict Int Item
     , visibleCells : Set ( Int, Int )
     }
 
@@ -126,9 +127,9 @@ type Msg
     | EnableAnimationsChanged Bool
     | FillBoardCandidatesPressed
     | FillCellCandidatesPressed
-    | GotBoard Decode.Value
     | GotCheckedLocations (List Int)
     | GotConnectionStatus Bool
+    | GotGeneratedBoard Decode.Value
     | GotGenerationProgress Decode.Value
     | GotHintCost Int
     | GotHintPoints Int
@@ -147,6 +148,7 @@ type Msg
     | PasswordInputChanged String
     | PlayLocalPressed
     | PlayerInputChanged String
+    | ProgressionChanged Progression
     | RemoveInvalidCandidatesPressed
     | RemoveRandomCandidatePressed
     | ScoutLocationPressed Int
@@ -166,365 +168,6 @@ type Msg
     | ZoomInPressed
     | ZoomOutPressed
     | ZoomResetPressed
-
-
-type alias Flags =
-    { localStorage : Dict String String
-    , seed : Int
-    }
-
-
-defaultFlags : Flags
-defaultFlags =
-    { localStorage = Dict.empty
-    , seed = 1
-    }
-
-
-flagsDecoder : Decode.Decoder Flags
-flagsDecoder =
-    Decode.map2 Flags
-        (Decode.field "localStorage" (Decode.dict Decode.string))
-        (Decode.field "seed" Decode.int)
-
-
-type GameState
-    = MainMenu
-    | Connecting
-    | Generating
-    | Playing
-
-
-type CellValue
-    = Given Int
-    | Single Int
-    | Multiple (Set Int)
-
-
-type CellError
-    = CandidateErrors (Set Int)
-    | NumberError
-    | ErrorContext
-
-
-type HighlightMode
-    = HighlightNone
-    | HighlightBoard
-    | HighlightArea
-    | HighlightNumber
-
-
-type Item
-    = ProgressiveBlock
-    | Block ( Int, Int )
-    | SolveSelectedCell
-    | SolveRandomCell
-    | RemoveRandomCandidate
-
-
-itemFromId : Int -> Maybe Item
-itemFromId id =
-    if id >= 1000000 then
-        Just <| Block (cellFromId id)
-
-    else if id == 1 then
-        Just SolveRandomCell
-
-    else if id == 2 then
-        Just RemoveRandomCandidate
-
-    else if id == 101 then
-        Just ProgressiveBlock
-
-    else if id == 201 then
-        Just SolveSelectedCell
-
-    else
-        Nothing
-
-
-type alias Hint =
-    { locationId : Int
-    , locationName : String
-    , itemId : Int
-    , itemName : String
-    , itemClass : ItemClass
-    , senderAlias : String
-    , senderName : String
-    , receiverAlias : String
-    , receiverName : String
-    , gameName : String
-    }
-
-
-hintDecoder : Decode.Decoder Hint
-hintDecoder =
-    Decode.succeed Hint
-        |> andMap (Decode.field "locationId" Decode.int)
-        |> andMap (Decode.field "locationName" Decode.string)
-        |> andMap (Decode.field "itemId" Decode.int)
-        |> andMap (Decode.field "itemName" Decode.string)
-        |> andMap (Decode.field "itemClass" itemClassDecoder)
-        |> andMap (Decode.field "senderAlias" Decode.string)
-        |> andMap (Decode.field "senderName" Decode.string)
-        |> andMap (Decode.field "receiverAlias" Decode.string)
-        |> andMap (Decode.field "receiverName" Decode.string)
-        |> andMap (Decode.field "gameName" Decode.string)
-
-
-andMap : Decode.Decoder a -> Decode.Decoder (a -> b) -> Decode.Decoder b
-andMap =
-    Decode.map2 (|>)
-
-
-itemClassDecoder : Decode.Decoder ItemClass
-itemClassDecoder =
-    Decode.int
-        |> Decode.andThen
-            (\value ->
-                if Bitwise.and 1 value == 1 then
-                    Decode.succeed Progression
-
-                else if Bitwise.and 2 value == 2 then
-                    Decode.succeed Useful
-
-                else if Bitwise.and 4 value == 4 then
-                    Decode.succeed Trap
-
-                else
-                    Decode.succeed Filler
-            )
-
-
-type ItemClass
-    = Progression
-    | Useful
-    | Filler
-    | Trap
-
-
-itemClassToString : ItemClass -> String
-itemClassToString classification =
-    case classification of
-        Progression ->
-            "Progression"
-
-        Useful ->
-            "Useful"
-
-        Filler ->
-            "Filler"
-
-        Trap ->
-            "Trap"
-
-
-type alias Message =
-    { nodes : List MessageNode
-    , extra : MessageExtra
-    }
-
-
-type MessageExtra
-    = AdminCommandMessage
-    | ChatMessage String
-    | CollectedMessage
-    | ConnectedMessage
-    | CountdownMessage
-    | DisconnectedMessage
-    | GoaledMessage
-    | ItemCheatedMessage
-    | ItemHintedMessage
-    | ItemSentMessage
-    | LocalMessage
-    | ReleasedMessage
-    | ServerChatMessage
-    | TagsUpdatedMessage
-    | TutorialMessage
-    | UserCommandMessage
-
-
-messageDecoder : Decode.Decoder Message
-messageDecoder =
-    Decode.map2 Message
-        (Decode.field "nodes" (Decode.list messageNodeDecoder))
-        messageExtraDecoder
-
-
-messageExtraDecoder : Decode.Decoder MessageExtra
-messageExtraDecoder =
-    Decode.field "type" Decode.string
-        |> Decode.andThen
-            (\msgType ->
-                case msgType of
-                    "adminCommand" ->
-                        Decode.succeed AdminCommandMessage
-
-                    "chat" ->
-                        Decode.map ChatMessage
-                            (Decode.at [ "player", "alias" ] Decode.string)
-
-                    "collected" ->
-                        Decode.succeed CollectedMessage
-
-                    "connected" ->
-                        Decode.succeed ConnectedMessage
-
-                    "countdown" ->
-                        Decode.succeed CountdownMessage
-
-                    "disconnected" ->
-                        Decode.succeed DisconnectedMessage
-
-                    "goaled" ->
-                        Decode.succeed GoaledMessage
-
-                    "itemCheated" ->
-                        Decode.succeed ItemCheatedMessage
-
-                    "itemHinted" ->
-                        Decode.succeed ItemHintedMessage
-
-                    "itemSent" ->
-                        Decode.succeed ItemSentMessage
-
-                    "released" ->
-                        Decode.succeed ReleasedMessage
-
-                    "serverChat" ->
-                        Decode.succeed ServerChatMessage
-
-                    "tagsUpdated" ->
-                        Decode.succeed TagsUpdatedMessage
-
-                    "tutorial" ->
-                        Decode.succeed TutorialMessage
-
-                    "userCommand" ->
-                        Decode.succeed UserCommandMessage
-
-                    _ ->
-                        Decode.fail ("Unknown message type: " ++ msgType)
-            )
-
-
-type MessageNode
-    = ItemMessageNode String
-    | LocationMessageNode String
-    | ColorMessageNode String String
-    | TextualMessageNode String
-    | PlayerMessageNode String
-
-
-messageNodeDecoder : Decode.Decoder MessageNode
-messageNodeDecoder =
-    Decode.field "type" Decode.string
-        |> Decode.andThen
-            (\nodeType ->
-                case nodeType of
-                    "item" ->
-                        Decode.map ItemMessageNode
-                            (Decode.field "text" Decode.string)
-
-                    "location" ->
-                        Decode.map LocationMessageNode
-                            (Decode.field "text" Decode.string)
-
-                    "color" ->
-                        Decode.map2 ColorMessageNode
-                            (Decode.field "color" Decode.string)
-                            (Decode.field "text" Decode.string)
-
-                    "text" ->
-                        Decode.map TextualMessageNode
-                            (Decode.field "text" Decode.string)
-
-                    "player" ->
-                        Decode.map PlayerMessageNode
-                            (Decode.field "text" Decode.string)
-
-                    _ ->
-                        Decode.fail ("Unknown message node type: " ++ nodeType)
-            )
-
-
-type alias SlotData =
-    { locationScouting : LocationScouting
-    , progression : Progression
-    }
-
-
-slotDataDecoder : Decode.Decoder SlotData
-slotDataDecoder =
-    Field.optional "locationScouting" locationScoutingDecoder <| \locationScouting ->
-    Field.optional "progression" progressionDecoder <| \progression ->
-    Decode.succeed
-        { locationScouting = Maybe.withDefault ScoutingManual locationScouting
-        , progression = Maybe.withDefault Shuffled progression
-        }
-
-
-type Progression
-    = Fixed
-    | Shuffled
-
-
-progressionDecoder : Decode.Decoder Progression
-progressionDecoder =
-    Decode.string
-        |> Decode.andThen
-            (\value ->
-                case value of
-                    "fixed" ->
-                        Decode.succeed Fixed
-
-                    "shuffled" ->
-                        Decode.succeed Shuffled
-
-                    _ ->
-                        Decode.fail ("Unknown progression: " ++ value)
-            )
-
-
-type LocationScouting
-    = ScoutingAuto
-    | ScoutingManual
-    | ScoutingDisabled
-
-
-locationScoutingDecoder : Decode.Decoder LocationScouting
-locationScoutingDecoder =
-    Decode.string
-        |> Decode.andThen
-            (\value ->
-                case value of
-                    "auto" ->
-                        Decode.succeed ScoutingAuto
-
-                    "manual" ->
-                        Decode.succeed ScoutingManual
-
-                    "disabled" ->
-                        Decode.succeed ScoutingDisabled
-
-                    _ ->
-                        Decode.fail ("Unknown location scouting: " ++ value)
-            )
-
-
-decodeGenerationProgress : Decode.Decoder ( String, Float )
-decodeGenerationProgress =
-    Decode.map2 Tuple.pair
-        (Decode.field "label" Decode.string)
-        (Decode.field "percent" Decode.float)
-
-
-encodeTriggerAnimation : String -> List ( Int, Int ) -> Encode.Value
-encodeTriggerAnimation animationType cells =
-    Encode.object
-        [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
-        , ( "type", Encode.string animationType )
-        ]
 
 
 main : Program Decode.Value Model Msg
@@ -603,6 +246,7 @@ init flagsValue =
       , solvedLocations = Set.empty
       , undoStack = []
       , unlockedBlocks = Set.empty
+      , unlockMap = Dict.empty
       , visibleCells = Set.empty
       }
     , Cmd.none
@@ -613,9 +257,9 @@ init flagsValue =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ receiveBoard GotBoard
-        , receiveCheckedLocations GotCheckedLocations
+        [ receiveCheckedLocations GotCheckedLocations
         , receiveConnectionStatus GotConnectionStatus
+        , receiveGeneratedBoard GotGeneratedBoard
         , receiveGenerationProgress GotGenerationProgress
         , receiveHintCost GotHintCost
         , receiveHintPoints GotHintPoints
@@ -624,89 +268,6 @@ subscriptions model =
         , receiveMessage GotMessage
         , receiveSlotData GotSlotData
         ]
-
-
-keyDownDecoder : Model -> Decode.Decoder ( Msg, Bool )
-keyDownDecoder model =
-    Decode.field "code" Decode.string
-        |> Decode.andThen
-            (\code ->
-                let
-                    keyMap : Dict String Msg
-                    keyMap =
-                        [ ( "ArrowUp", MoveSelectionPressed ( -1, 0 ) )
-                        , ( "ArrowDown", MoveSelectionPressed ( 1, 0 ) )
-                        , ( "ArrowLeft", MoveSelectionPressed ( 0, -1 ) )
-                        , ( "ArrowRight", MoveSelectionPressed ( 0, 1 ) )
-                        , ( "Backspace", DeletePressed )
-                        , ( "Delete", DeletePressed )
-                        , ( "Digit1", NumberPressed 1 )
-                        , ( "Digit2", NumberPressed 2 )
-                        , ( "Digit3", NumberPressed 3 )
-                        , ( "Digit4", NumberPressed 4 )
-                        , ( "Digit5", NumberPressed 5 )
-                        , ( "Digit6", NumberPressed 6 )
-                        , ( "Digit7", NumberPressed 7 )
-                        , ( "Digit8", NumberPressed 8 )
-                        , ( "Digit9", NumberPressed 9 )
-                        , ( "Digit0", NumberPressed 10 )
-                        , ( "KeyA", NumberPressed 11 )
-                        , ( "KeyB", NumberPressed 12 )
-                        , ( "KeyC", NumberPressed 13 )
-                        , ( "KeyD", NumberPressed 14 )
-                        , ( "KeyE", NumberPressed 15 )
-                        , ( "KeyF", NumberPressed 16 )
-                        , ( "KeyH", MoveSelectionPressed ( 0, -1 ) )
-                        , ( "KeyJ", MoveSelectionPressed ( 1, 0 ) )
-                        , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
-                        , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
-                        , ( "KeyQ", FillCellCandidatesPressed )
-                        , ( "KeyW", RemoveInvalidCandidatesPressed )
-                        , ( "KeyS", SelectSingleCandidateCellPressed )
-                        , ( "KeyZ", UndoPressed )
-                        , ( "Numpad1", NumberPressed 1 )
-                        , ( "Numpad2", NumberPressed 2 )
-                        , ( "Numpad3", NumberPressed 3 )
-                        , ( "Numpad4", NumberPressed 4 )
-                        , ( "Numpad5", NumberPressed 5 )
-                        , ( "Numpad6", NumberPressed 6 )
-                        , ( "Numpad7", NumberPressed 7 )
-                        , ( "Numpad8", NumberPressed 8 )
-                        , ( "Numpad9", NumberPressed 9 )
-                        , ( "Numpad0", NumberPressed 10 )
-                        , ( "NumpadAdd", ZoomInPressed )
-                        , ( "NumpadSubtract", ZoomOutPressed )
-                        , ( "ShiftLeft", ShiftHeld )
-                        , ( "ShiftRight", ShiftHeld )
-                        , ( "Space", ToggleCandidateModePressed )
-                        , ( "Tab", ToggleHighlightModePressed )
-                        ]
-                        |> Dict.fromList
-                in
-                case Dict.get code keyMap of
-                    Just msg ->
-                        Decode.succeed ( msg, True )
-
-                    Nothing ->
-                        Decode.fail code
-            )
-
-
-keyUpDecoder : Decode.Decoder Msg
-keyUpDecoder =
-    Decode.field "code" Decode.string
-        |> Decode.andThen
-            (\code ->
-                case code of
-                    "ShiftLeft" ->
-                        Decode.succeed ShiftReleased
-
-                    "ShiftRight" ->
-                        Decode.succeed ShiftReleased
-
-                    _ ->
-                        Decode.fail code
-            )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -762,7 +323,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Data.getAreaCells
+                        |> List.concatMap getAreaCells
                         |> Set.fromList
             in
             ( { model
@@ -834,7 +395,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Data.getAreaCells
+                        |> List.concatMap getAreaCells
                         |> Set.fromList
 
                 cellIsValidTarget : ( Int, Int ) -> Bool
@@ -893,41 +454,6 @@ update msg model =
                 ( model
                 , Cmd.none
                 )
-
-        GotBoard value ->
-            case Decode.decodeValue Data.boardDecoder value of
-                Ok board ->
-                    List.foldl
-                        (\_ ->
-                            andThen unlockNextBlock
-                        )
-                        ( { model
-                            | cellBlocks = Data.buildCellAreasMap board.puzzleAreas.blocks
-                            , cellBoards = Data.buildCellAreasMap board.puzzleAreas.boards
-                            , cellCols = Data.buildCellAreasMap board.puzzleAreas.cols
-                            , cellRows = Data.buildCellAreasMap board.puzzleAreas.rows
-                            , blockSize = board.blockSize
-                            , current = Dict.empty
-                            , errors = Dict.empty
-                            , gameState = Playing
-                            , givens = Set.fromList (Dict.keys board.givens)
-                            , lockedBlocks = board.unlockOrder
-                            , puzzleAreas = board.puzzleAreas
-                            , solution = board.solution
-                            , unlockedBlocks = Set.empty
-                            , pendingItems = model.pendingItems
-                          }
-                        , if model.gameIsLocal then
-                            Cmd.none
-
-                          else
-                            sendPlayingStatus ()
-                        )
-                        (List.range 1 board.blockSize)
-                        |> andThen updateState
-
-                Err err ->
-                    ( model, Cmd.none )
 
         GotCheckedLocations locationIds ->
             ( { model
@@ -1002,8 +528,53 @@ update msg model =
             , Cmd.none
             )
 
+        GotGeneratedBoard value ->
+            case Decode.decodeValue generatedBoardDecoder value of
+                Ok board ->
+                    List.foldl
+                        (\block -> andThen (unlockBlock block))
+                        ( { model
+                            | cellBlocks = buildCellAreasMap board.puzzleAreas.blocks
+                            , cellBoards = buildCellAreasMap board.puzzleAreas.boards
+                            , cellCols = buildCellAreasMap board.puzzleAreas.cols
+                            , cellRows = buildCellAreasMap board.puzzleAreas.rows
+                            , blockSize = board.blockSize
+                            , current = Dict.empty
+                            , errors = Dict.empty
+                            , gameState = Playing
+                            , givens = Set.fromList (Dict.keys board.givens)
+                            , lockedBlocks = board.blockUnlockOrder
+                            , puzzleAreas = board.puzzleAreas
+                            , solution = board.solution
+                            , unlockedBlocks = Set.empty
+                            , unlockMap = board.unlockMap
+                            , pendingItems = model.pendingItems
+                          }
+                        , if model.gameIsLocal then
+                            Cmd.none
+
+                          else
+                            sendPlayingStatus ()
+                        )
+                        (List.filterMap
+                            (\block ->
+                                if block.endRow <= board.blockSize
+                                    && block.endCol <= board.blockSize
+                                then
+                                    Just ( block.startRow, block.startCol )
+
+                                else
+                                    Nothing
+                            )
+                            board.puzzleAreas.blocks
+                        )
+                        |> andThen updateState
+
+                Err err ->
+                    ( model, Cmd.none )
+
         GotGenerationProgress value ->
-            case Decode.decodeValue decodeGenerationProgress value of
+            case Decode.decodeValue generationProgressDecoder value of
                 Ok progress ->
                     ( { model | generationProgress = progress }
                     , Cmd.none
@@ -1063,7 +634,7 @@ update msg model =
                     List.append
                         model.pendingItems
                         (itemIds
-                            |> List.filterMap itemFromId
+                            |> List.map itemFromId
                         )
               }
             , Cmd.none
@@ -1196,11 +767,12 @@ update msg model =
                 , gameState = Generating
               }
             , generateBoard
-                (Data.encodeGenerateArgs
+                (encodeGenerateArgs
                     { blockSize = model.blockSize
                     , boardsPerCluster = model.boardsPerCluster
                     , difficulty = model.difficulty
                     , numberOfBoards = model.numberOfBoards
+                    , progression = model.progression
                     , seed = model.seedInput
                     }
                 )
@@ -1208,6 +780,11 @@ update msg model =
 
         PlayerInputChanged value ->
             ( { model | player = value }
+            , Cmd.none
+            )
+
+        ProgressionChanged value ->
+            ( { model | progression = value }
             , Cmd.none
             )
 
@@ -1223,7 +800,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Data.getAreaCells
+                        |> List.concatMap getAreaCells
                         |> Set.fromList
 
                 targets : List ( ( Int, Int ), Int )
@@ -1297,9 +874,24 @@ update msg model =
                     )
 
         ScoutLocationPressed id ->
-            ( model
-            , scoutLocations [ id ]
-            )
+            if model.gameIsLocal then
+                case Dict.get id model.unlockMap of
+                    Just item ->
+                        ( { model
+                            | scoutedItems = Dict.insert id (createHint id item) model.scoutedItems
+                          }
+                        , Cmd.none
+                        )
+
+                    Nothing ->
+                        ( model
+                        , Cmd.none
+                        )
+
+            else
+                ( model
+                , scoutLocations [ id ]
+                )
 
         SeedInputChanged value ->
             ( { model
@@ -1385,7 +977,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Data.getAreaCells
+                        |> List.concatMap getAreaCells
                         |> Set.fromList
 
                 cellCandidates : List ( Int, Int )
@@ -1500,7 +1092,7 @@ update msg model =
                 boardCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Data.getAreaCells
+                        |> List.concatMap getAreaCells
                         |> Set.fromList
 
                 singleCandidates : Dict ( Int, Int ) Int
@@ -1646,6 +1238,565 @@ update msg model =
             )
 
 
+---
+-- Types
+---
+
+
+type alias Flags =
+    { localStorage : Dict String String
+    , seed : Int
+    }
+
+
+defaultFlags : Flags
+defaultFlags =
+    { localStorage = Dict.empty
+    , seed = 1
+    }
+
+
+type alias GeneratedBoard =
+    { blockSize : Int
+    , blockUnlockOrder : List ( Int, Int )
+    , givens : Dict ( Int, Int ) Int
+    , puzzleAreas : PuzzleAreas
+    , solution : Dict ( Int, Int ) Int
+    , unlockMap : Dict Int Item
+    }
+
+
+type alias Area =
+    { startRow : Int
+    , startCol : Int
+    , endRow : Int
+    , endCol : Int
+    }
+
+
+type alias PuzzleAreas =
+    { blocks : List Area
+    , boards : List Area
+    , rows : List Area
+    , cols : List Area
+    }
+
+
+type alias GenerateArgs =
+    { blockSize : Int
+    , boardsPerCluster : Int
+    , difficulty : Int
+    , numberOfBoards : Int
+    , progression : Progression
+    , seed : Int
+    }
+
+
+
+type Progression
+    = Fixed
+    | Shuffled
+
+
+type GameState
+    = MainMenu
+    | Connecting
+    | Generating
+    | Playing
+
+
+type CellValue
+    = Given Int
+    | Single Int
+    | Multiple (Set Int)
+
+
+type CellError
+    = CandidateErrors (Set Int)
+    | NumberError
+    | ErrorContext
+
+
+type HighlightMode
+    = HighlightNone
+    | HighlightBoard
+    | HighlightArea
+    | HighlightNumber
+
+
+type Item
+    = ProgressiveBlock
+    | Block ( Int, Int )
+    | SolveSelectedCell
+    | SolveRandomCell
+    | RemoveRandomCandidate
+    | NothingItem
+
+
+type alias Hint =
+    { locationId : Int
+    , locationName : String
+    , itemId : Int
+    , itemName : String
+    , itemClass : ItemClass
+    , senderAlias : String
+    , senderName : String
+    , receiverAlias : String
+    , receiverName : String
+    , gameName : String
+    }
+
+
+type ItemClass
+    = Progression
+    | Useful
+    | Filler
+    | Trap
+
+
+type alias Message =
+    { nodes : List MessageNode
+    , extra : MessageExtra
+    }
+
+
+type MessageNode
+    = ItemMessageNode String
+    | LocationMessageNode String
+    | ColorMessageNode String String
+    | TextualMessageNode String
+    | PlayerMessageNode String
+
+
+type MessageExtra
+    = AdminCommandMessage
+    | ChatMessage String
+    | CollectedMessage
+    | ConnectedMessage
+    | CountdownMessage
+    | DisconnectedMessage
+    | GoaledMessage
+    | ItemCheatedMessage
+    | ItemHintedMessage
+    | ItemSentMessage
+    | LocalMessage
+    | ReleasedMessage
+    | ServerChatMessage
+    | TagsUpdatedMessage
+    | TutorialMessage
+    | UserCommandMessage
+
+
+type alias SlotData =
+    { locationScouting : LocationScouting
+    , progression : Progression
+    }
+
+
+type LocationScouting
+    = ScoutingAuto
+    | ScoutingManual
+    | ScoutingDisabled
+
+
+---
+-- JSON encoding/decoding
+---
+
+
+keyDownDecoder : Model -> Decode.Decoder ( Msg, Bool )
+keyDownDecoder model =
+    Decode.field "code" Decode.string
+        |> Decode.andThen
+            (\code ->
+                let
+                    keyMap : Dict String Msg
+                    keyMap =
+                        [ ( "ArrowUp", MoveSelectionPressed ( -1, 0 ) )
+                        , ( "ArrowDown", MoveSelectionPressed ( 1, 0 ) )
+                        , ( "ArrowLeft", MoveSelectionPressed ( 0, -1 ) )
+                        , ( "ArrowRight", MoveSelectionPressed ( 0, 1 ) )
+                        , ( "Backspace", DeletePressed )
+                        , ( "Delete", DeletePressed )
+                        , ( "Digit1", NumberPressed 1 )
+                        , ( "Digit2", NumberPressed 2 )
+                        , ( "Digit3", NumberPressed 3 )
+                        , ( "Digit4", NumberPressed 4 )
+                        , ( "Digit5", NumberPressed 5 )
+                        , ( "Digit6", NumberPressed 6 )
+                        , ( "Digit7", NumberPressed 7 )
+                        , ( "Digit8", NumberPressed 8 )
+                        , ( "Digit9", NumberPressed 9 )
+                        , ( "Digit0", NumberPressed 10 )
+                        , ( "KeyA", NumberPressed 11 )
+                        , ( "KeyB", NumberPressed 12 )
+                        , ( "KeyC", NumberPressed 13 )
+                        , ( "KeyD", NumberPressed 14 )
+                        , ( "KeyE", NumberPressed 15 )
+                        , ( "KeyF", NumberPressed 16 )
+                        , ( "KeyH", MoveSelectionPressed ( 0, -1 ) )
+                        , ( "KeyJ", MoveSelectionPressed ( 1, 0 ) )
+                        , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
+                        , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
+                        , ( "KeyQ", FillCellCandidatesPressed )
+                        , ( "KeyW", RemoveInvalidCandidatesPressed )
+                        , ( "KeyS", SelectSingleCandidateCellPressed )
+                        , ( "KeyZ", UndoPressed )
+                        , ( "Numpad1", NumberPressed 1 )
+                        , ( "Numpad2", NumberPressed 2 )
+                        , ( "Numpad3", NumberPressed 3 )
+                        , ( "Numpad4", NumberPressed 4 )
+                        , ( "Numpad5", NumberPressed 5 )
+                        , ( "Numpad6", NumberPressed 6 )
+                        , ( "Numpad7", NumberPressed 7 )
+                        , ( "Numpad8", NumberPressed 8 )
+                        , ( "Numpad9", NumberPressed 9 )
+                        , ( "Numpad0", NumberPressed 10 )
+                        , ( "NumpadAdd", ZoomInPressed )
+                        , ( "NumpadSubtract", ZoomOutPressed )
+                        , ( "ShiftLeft", ShiftHeld )
+                        , ( "ShiftRight", ShiftHeld )
+                        , ( "Space", ToggleCandidateModePressed )
+                        , ( "Tab", ToggleHighlightModePressed )
+                        ]
+                        |> Dict.fromList
+                in
+                case Dict.get code keyMap of
+                    Just msg ->
+                        Decode.succeed ( msg, True )
+
+                    Nothing ->
+                        Decode.fail code
+            )
+
+
+keyUpDecoder : Decode.Decoder Msg
+keyUpDecoder =
+    Decode.field "code" Decode.string
+        |> Decode.andThen
+            (\code ->
+                case code of
+                    "ShiftLeft" ->
+                        Decode.succeed ShiftReleased
+
+                    "ShiftRight" ->
+                        Decode.succeed ShiftReleased
+
+                    _ ->
+                        Decode.fail code
+            )
+
+
+flagsDecoder : Decode.Decoder Flags
+flagsDecoder =
+    Decode.map2 Flags
+        (Decode.field "localStorage" (Decode.dict Decode.string))
+        (Decode.field "seed" Decode.int)
+
+
+generatedBoardDecoder : Decode.Decoder GeneratedBoard
+generatedBoardDecoder =
+    Decode.map6 GeneratedBoard
+        (Decode.field "blockSize" Decode.int)
+        (Decode.field "blockUnlockOrder" (Decode.list blockUnlockOrderDecoder))
+        (Decode.field "givens" (cellsDictDecoder Decode.int))
+        (Decode.field "puzzleAreas" puzzleAreasDecoder)
+        (Decode.field "solution" (cellsDictDecoder Decode.int))
+        (Decode.field "unlockMap" unlockMapDecoder)
+
+
+blockUnlockOrderDecoder : Decode.Decoder ( Int, Int )
+blockUnlockOrderDecoder =
+    Decode.oneOf
+        [ tupleDecoder Decode.int Decode.int
+        , Decode.andThen
+            (\id ->
+                case itemFromId id of
+                    Block ( row, col ) ->
+                        Decode.succeed ( row, col )
+
+                    _ ->
+                        Decode.fail ("Invalid block id: " ++ String.fromInt id)
+            )
+            Decode.int
+        ]
+
+
+cellsDictDecoder : Decode.Decoder a -> Decode.Decoder (Dict ( Int, Int ) a)
+cellsDictDecoder valueDecoder =
+    Decode.list
+        (Decode.map3
+            (\row col value ->
+                ( ( row, col ), value )
+            )
+            (Decode.index 0 Decode.int)
+            (Decode.index 1 Decode.int)
+            (Decode.index 2 valueDecoder)
+        )
+        |> Decode.map Dict.fromList
+
+
+unlockMapDecoder : Decode.Decoder (Dict Int Item)
+unlockMapDecoder =
+    Decode.list
+        (Decode.map2
+            Tuple.pair
+            (Decode.index 0 Decode.int)
+            (Decode.index 1 itemDecoder)
+        )
+        |> Decode.map Dict.fromList
+
+
+areaDecoder : Decode.Decoder Area
+areaDecoder =
+    Decode.map4 Area
+        (Decode.index 0 Decode.int)
+        (Decode.index 1 Decode.int)
+        (Decode.index 2 Decode.int)
+        (Decode.index 3 Decode.int)
+
+
+puzzleAreasDecoder : Decode.Decoder PuzzleAreas
+puzzleAreasDecoder =
+    Decode.map4 PuzzleAreas
+        (Decode.field "blocks" (Decode.list areaDecoder))
+        (Decode.field "boards" (Decode.list areaDecoder))
+        (Decode.field "rows" (Decode.list areaDecoder))
+        (Decode.field "cols" (Decode.list areaDecoder))
+
+
+tupleDecoder : Decode.Decoder a -> Decode.Decoder b -> Decode.Decoder ( a, b )
+tupleDecoder decodeA decodeB =
+    Decode.map2 Tuple.pair
+        (Decode.index 0 decodeA)
+        (Decode.index 1 decodeB)
+
+
+encodeGenerateArgs : GenerateArgs -> Encode.Value
+encodeGenerateArgs args =
+    Encode.object
+        [ ( "blockSize", Encode.int args.blockSize )
+        , ( "boardsPerCluster", Encode.int args.boardsPerCluster )
+        , ( "difficulty", Encode.int args.difficulty )
+        , ( "numberOfBoards", Encode.int args.numberOfBoards )
+        , ( "progression", encodeProgression args.progression )
+        , ( "seed", Encode.int args.seed )
+        ]
+
+
+encodeProgression : Progression -> Encode.Value
+encodeProgression progression =
+    case progression of
+        Fixed ->
+            Encode.string "fixed"
+
+        Shuffled ->
+            Encode.string "shuffled"
+
+
+progressionDecoder : Decode.Decoder Progression
+progressionDecoder =
+    Decode.string
+        |> Decode.andThen
+            (\value ->
+                case value of
+                    "fixed" ->
+                        Decode.succeed Fixed
+
+                    "shuffled" ->
+                        Decode.succeed Shuffled
+
+                    _ ->
+                        Decode.fail ("Unknown progression: " ++ value)
+            )
+
+
+itemDecoder : Decode.Decoder Item
+itemDecoder =
+    Decode.int
+        |> Decode.map itemFromId
+
+
+itemClassDecoder : Decode.Decoder ItemClass
+itemClassDecoder =
+    Decode.int
+        |> Decode.andThen
+            (\value ->
+                if Bitwise.and 1 value == 1 then
+                    Decode.succeed Progression
+
+                else if Bitwise.and 2 value == 2 then
+                    Decode.succeed Useful
+
+                else if Bitwise.and 4 value == 4 then
+                    Decode.succeed Trap
+
+                else
+                    Decode.succeed Filler
+            )
+
+
+messageDecoder : Decode.Decoder Message
+messageDecoder =
+    Decode.map2 Message
+        (Decode.field "nodes" (Decode.list messageNodeDecoder))
+        messageExtraDecoder
+
+
+messageExtraDecoder : Decode.Decoder MessageExtra
+messageExtraDecoder =
+    Decode.field "type" Decode.string
+        |> Decode.andThen
+            (\msgType ->
+                case msgType of
+                    "adminCommand" ->
+                        Decode.succeed AdminCommandMessage
+
+                    "chat" ->
+                        Decode.map ChatMessage
+                            (Decode.at [ "player", "alias" ] Decode.string)
+
+                    "collected" ->
+                        Decode.succeed CollectedMessage
+
+                    "connected" ->
+                        Decode.succeed ConnectedMessage
+
+                    "countdown" ->
+                        Decode.succeed CountdownMessage
+
+                    "disconnected" ->
+                        Decode.succeed DisconnectedMessage
+
+                    "goaled" ->
+                        Decode.succeed GoaledMessage
+
+                    "itemCheated" ->
+                        Decode.succeed ItemCheatedMessage
+
+                    "itemHinted" ->
+                        Decode.succeed ItemHintedMessage
+
+                    "itemSent" ->
+                        Decode.succeed ItemSentMessage
+
+                    "released" ->
+                        Decode.succeed ReleasedMessage
+
+                    "serverChat" ->
+                        Decode.succeed ServerChatMessage
+
+                    "tagsUpdated" ->
+                        Decode.succeed TagsUpdatedMessage
+
+                    "tutorial" ->
+                        Decode.succeed TutorialMessage
+
+                    "userCommand" ->
+                        Decode.succeed UserCommandMessage
+
+                    _ ->
+                        Decode.fail ("Unknown message type: " ++ msgType)
+            )
+
+
+messageNodeDecoder : Decode.Decoder MessageNode
+messageNodeDecoder =
+    Decode.field "type" Decode.string
+        |> Decode.andThen
+            (\nodeType ->
+                case nodeType of
+                    "item" ->
+                        Decode.map ItemMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    "location" ->
+                        Decode.map LocationMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    "color" ->
+                        Decode.map2 ColorMessageNode
+                            (Decode.field "color" Decode.string)
+                            (Decode.field "text" Decode.string)
+
+                    "text" ->
+                        Decode.map TextualMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    "player" ->
+                        Decode.map PlayerMessageNode
+                            (Decode.field "text" Decode.string)
+
+                    _ ->
+                        Decode.fail ("Unknown message node type: " ++ nodeType)
+            )
+
+
+slotDataDecoder : Decode.Decoder SlotData
+slotDataDecoder =
+    Field.optional "locationScouting" locationScoutingDecoder <| \locationScouting ->
+    Field.optional "progression" progressionDecoder <| \progression ->
+    Decode.succeed
+        { locationScouting = Maybe.withDefault ScoutingManual locationScouting
+        , progression = Maybe.withDefault Shuffled progression
+        }
+
+
+locationScoutingDecoder : Decode.Decoder LocationScouting
+locationScoutingDecoder =
+    Decode.string
+        |> Decode.andThen
+            (\value ->
+                case value of
+                    "auto" ->
+                        Decode.succeed ScoutingAuto
+
+                    "manual" ->
+                        Decode.succeed ScoutingManual
+
+                    "disabled" ->
+                        Decode.succeed ScoutingDisabled
+
+                    _ ->
+                        Decode.fail ("Unknown location scouting: " ++ value)
+            )
+
+
+generationProgressDecoder : Decode.Decoder ( String, Float )
+generationProgressDecoder =
+    Decode.map2 Tuple.pair
+        (Decode.field "label" Decode.string)
+        (Decode.field "percent" Decode.float)
+
+
+encodeTriggerAnimation : String -> List ( Int, Int ) -> Encode.Value
+encodeTriggerAnimation animationType cells =
+    Encode.object
+        [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
+        , ( "type", Encode.string animationType )
+        ]
+
+
+hintDecoder : Decode.Decoder Hint
+hintDecoder =
+    Decode.succeed Hint
+        |> DecodeExtra.andMap (Decode.field "locationId" Decode.int)
+        |> DecodeExtra.andMap (Decode.field "locationName" Decode.string)
+        |> DecodeExtra.andMap (Decode.field "itemId" Decode.int)
+        |> DecodeExtra.andMap (Decode.field "itemName" Decode.string)
+        |> DecodeExtra.andMap (Decode.field "itemClass" itemClassDecoder)
+        |> DecodeExtra.andMap (Decode.field "senderAlias" Decode.string)
+        |> DecodeExtra.andMap (Decode.field "senderName" Decode.string)
+        |> DecodeExtra.andMap (Decode.field "receiverAlias" Decode.string)
+        |> DecodeExtra.andMap (Decode.field "receiverName" Decode.string)
+        |> DecodeExtra.andMap (Decode.field "gameName" Decode.string)
+
+
+---
+-- Update helpers & utility functions
+---
+
+
 updateFromLocalStorage : Dict String String -> Model -> ( Model, Cmd Msg )
 updateFromLocalStorage storage model =
     Dict.foldl
@@ -1726,7 +1877,7 @@ updateHighlightedCells model =
                 | highlightedCells =
                     Dict.get model.selectedCell model.cellBoards
                         |> Maybe.withDefault []
-                        |> List.concatMap Data.getAreaCells
+                        |> List.concatMap getAreaCells
                         |> Set.fromList
             }
 
@@ -1738,15 +1889,15 @@ updateHighlightedCells model =
                         Set.empty
                         [ Dict.get model.selectedCell model.cellBlocks
                             |> Maybe.withDefault []
-                            |> List.concatMap Data.getAreaCells
+                            |> List.concatMap getAreaCells
                             |> Set.fromList
                         , Dict.get model.selectedCell model.cellRows
                             |> Maybe.withDefault []
-                            |> List.concatMap Data.getAreaCells
+                            |> List.concatMap getAreaCells
                             |> Set.fromList
                         , Dict.get model.selectedCell model.cellCols
                             |> Maybe.withDefault []
-                            |> List.concatMap Data.getAreaCells
+                            |> List.concatMap getAreaCells
                             |> Set.fromList
                         ]
             }
@@ -1810,12 +1961,10 @@ updateState model =
     case model.gameState of
         Playing ->
             ( model, Cmd.none )
-                |> andThen updateStateItems
                 |> andThen updateStateCellChangesLoop
                 |> andThen updateStateErrors
                 |> andThenIf model.autoRemoveInvalidCandidates updateStateRemoveInvalidCandidates
                 |> andThenIf model.autoRemoveInvalidCandidates updateStateErrors
-                |> andThen updateStateCheckLocations
                 |> andThen updateStateScoutLocations
 
         _ ->
@@ -1835,11 +1984,13 @@ updateStateItems model =
 updateStateCellChangesLoop : Model -> ( Model, Cmd Msg )
 updateStateCellChangesLoop initialModel =
     ( initialModel, Cmd.none )
+        |> andThen updateStateItems
         |> andThen updateStateCellChanges
         |> andThen updateStateSolvedBlocks
+        |> andThen updateStateCheckLocations
         |> andThen
             (\updatedModel ->
-                if Set.isEmpty updatedModel.pendingCellChanges then
+                if Set.isEmpty updatedModel.pendingCellChanges && List.isEmpty updatedModel.pendingItems then
                     ( updatedModel, Cmd.none )
 
                 else
@@ -1893,22 +2044,35 @@ updateStateRemoveInvalidCandidates model =
 
 updateStateCheckLocations : Model -> ( Model, Cmd Msg )
 updateStateCheckLocations model =
-    ( { model | pendingCheckLocations = Set.empty }
-    , if model.gameIsLocal then
-        Cmd.none
-
-      else
-        Cmd.batch
-            (List.map
-                checkLocation
-                (Set.toList model.pendingCheckLocations)
-            )
-    )
+    Set.foldl
+        (andThen << updateStateCheckLocation)
+        ( { model | pendingCheckLocations = Set.empty }
+        , Cmd.none
+        )
+        model.pendingCheckLocations
 
 
 updateStateScoutLocations : Model -> ( Model, Cmd Msg )
 updateStateScoutLocations model =
-    ( { model | pendingScoutLocations = Set.empty }
+    ( { model
+        | pendingScoutLocations = Set.empty
+        , scoutedItems =
+            if model.gameIsLocal && model.locationScouting == ScoutingAuto then
+                Set.foldl
+                    (\id scoutedItems ->
+                        case Dict.get id model.unlockMap of
+                            Just item ->
+                                Dict.insert id (createHint id item) scoutedItems
+
+                            Nothing ->
+                                scoutedItems
+                    )
+                    model.scoutedItems
+                    model.pendingScoutLocations
+
+            else
+                model.scoutedItems
+      }
     , if not model.gameIsLocal && model.locationScouting == ScoutingAuto then
         scoutLocations (Set.toList model.pendingScoutLocations)
 
@@ -1942,8 +2106,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToBlockId ( block.startRow, block.startCol )
                         in
                         if (not <| Set.member blockId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Data.getAreaCells block)
-                            && List.all (cellIsVisible model) (Data.getAreaCells block)
+                            && List.all (cellIsSolved model) (getAreaCells block)
+                            && List.all (cellIsVisible model) (getAreaCells block)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -1957,7 +2121,6 @@ updateStateCellChange updatedCell initialModel =
                               }
                             , Cmd.none
                             )
-                                |> andThenIf model.gameIsLocal unlockNextBlock
 
                         else
                             ( model
@@ -1978,8 +2141,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToRowId ( row.startRow, row.startCol )
                         in
                         if (not <| Set.member rowId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Data.getAreaCells row)
-                            && List.all (cellIsVisible model) (Data.getAreaCells row)
+                            && List.all (cellIsSolved model) (getAreaCells row)
+                            && List.all (cellIsVisible model) (getAreaCells row)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -1993,7 +2156,6 @@ updateStateCellChange updatedCell initialModel =
                               }
                             , Cmd.none
                             )
-                                |> andThenIf model.gameIsLocal unlockNextBlock
 
                         else
                             ( model
@@ -2014,8 +2176,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToColId ( col.startRow, col.startCol )
                         in
                         if (not <| Set.member colId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Data.getAreaCells col)
-                            && List.all (cellIsVisible model) (Data.getAreaCells col)
+                            && List.all (cellIsSolved model) (getAreaCells col)
+                            && List.all (cellIsVisible model) (getAreaCells col)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -2029,7 +2191,6 @@ updateStateCellChange updatedCell initialModel =
                               }
                             , Cmd.none
                             )
-                                |> andThenIf model.gameIsLocal unlockNextBlock
 
                         else
                             ( model
@@ -2050,8 +2211,8 @@ updateStateCellChange updatedCell initialModel =
                                 cellToBoardId ( board.startRow, board.startCol )
                         in
                         if (not <| Set.member boardId model.solvedLocations)
-                            && List.all (cellIsSolved model) (Data.getAreaCells board)
-                            && List.all (cellIsVisible model) (Data.getAreaCells board)
+                            && List.all (cellIsSolved model) (getAreaCells board)
+                            && List.all (cellIsVisible model) (getAreaCells board)
                         then
                             ( { model
                                 | pendingCheckLocations =
@@ -2061,8 +2222,6 @@ updateStateCellChange updatedCell initialModel =
                               }
                             , Cmd.none
                             )
-                                |> andThenIf model.gameIsLocal unlockNextBlock
-
 
                         else
                             ( model
@@ -2095,71 +2254,7 @@ unlockNextBlock : Model -> ( Model, Cmd Msg )
 unlockNextBlock model =
     case model.lockedBlocks of
         block :: remainingBlocks ->
-            if Tuple.first block > 0 then
-                unlockBlock block model
-
-            else
-                let
-                    ( rand, newSeed ) =
-                        Random.step (Random.int 0 99) model.seed
-
-                    item : Maybe Item
-                    item =
-                        if rand < 5 then
-                            Just SolveSelectedCell
-
-                        else if rand < 15 then
-                            Just SolveRandomCell
-
-                        else if rand < 40 then
-                            Just RemoveRandomCandidate
-
-                        else
-                            Nothing
-                in
-                ( { model
-                    | lockedBlocks = remainingBlocks
-                    , removeRandomCandidateUses =
-                        if item == Just RemoveRandomCandidate then
-                            model.removeRandomCandidateUses + 1
-
-                        else
-                            model.removeRandomCandidateUses
-                    , solveRandomCellUses =
-                        if item == Just SolveRandomCell then
-                            model.solveRandomCellUses + 1
-
-                        else
-                            model.solveRandomCellUses
-                    , solveSelectedCellUses =
-                        if item == Just SolveSelectedCell then
-                            model.solveSelectedCellUses + 1
-
-                        else
-                            model.solveSelectedCellUses
-                    , seed = newSeed
-                    , messages =
-                        if model.gameIsLocal then
-                            addLocalMessage
-                                (if item == Just SolveRandomCell then
-                                    "Unlocked a Solve Random Cell."
-
-                                 else if item == Just SolveSelectedCell then
-                                    "Unlocked a Solve Selected Cell."
-
-                                 else if item == Just RemoveRandomCandidate then
-                                    "Unlocked a Remove Random Candidate."
-
-                                 else
-                                    "Unlocked Nothing"
-                                )
-                                model.messages
-
-                        else
-                            model.messages
-                  }
-                , Cmd.none
-                )
+            unlockBlock block model
 
         [] ->
             ( model
@@ -2179,7 +2274,7 @@ unlockBlock block model =
                         area.startRow == Tuple.first block
                             && area.startCol == Tuple.second block
                     )
-                |> Maybe.map Data.getAreaCells
+                |> Maybe.map getAreaCells
                 |> Maybe.withDefault []
                 |> Set.fromList
 
@@ -2188,7 +2283,7 @@ unlockBlock block model =
             Set.union blockCells model.visibleCells
 
         unlockedAreas :
-            Dict ( Int, Int ) (List Data.Area)
+            Dict ( Int, Int ) (List Area)
             -> (( Int, Int ) -> Int)
             -> Set Int
         unlockedAreas areaDict toId =
@@ -2202,7 +2297,7 @@ unlockBlock block model =
                 |> List.filterMap
                     (\area ->
                         if
-                            Data.getAreaCells area
+                            getAreaCells area
                                 |> Set.fromList
                                 |> Set.Extra.isSubsetOf newVisibleCells
                         then
@@ -2232,7 +2327,7 @@ unlockBlock block model =
             if model.gameIsLocal then
                 addLocalMessage
                     (String.concat
-                        [ "Unlocked Block at "
+                        [ "Unlocked Block "
                         , rowToLabel (Tuple.first block)
                         , String.fromInt (Tuple.second block)
                         ]
@@ -2297,7 +2392,7 @@ getBoardErrors model =
             let
                 areaCells : List ( Int, Int )
                 areaCells =
-                    Data.getAreaCells area
+                    getAreaCells area
             in
             List.foldl
                 (\cell acc ->
@@ -2413,6 +2508,12 @@ updateStateItem item model =
         SolveSelectedCell ->
             ( { model
                 | solveSelectedCellUses = model.solveSelectedCellUses + 1
+                , messages =
+                    if model.gameIsLocal then
+                        addLocalMessage "Unlocked a Solve Selected Cell." model.messages
+
+                    else
+                        model.messages
               }
             , Cmd.none
             )
@@ -2420,6 +2521,12 @@ updateStateItem item model =
         SolveRandomCell ->
             ( { model
                 | solveRandomCellUses = model.solveRandomCellUses + 1
+                , messages =
+                    if model.gameIsLocal then
+                        addLocalMessage "Unlocked a Solve Random Cell." model.messages
+
+                    else
+                        model.messages
               }
             , Cmd.none
             )
@@ -2427,13 +2534,24 @@ updateStateItem item model =
         RemoveRandomCandidate ->
             ( { model
                 | removeRandomCandidateUses = model.removeRandomCandidateUses + 1
+                , messages =
+                    if model.gameIsLocal then
+                        addLocalMessage "Unlocked a Remove Random Candidate." model.messages
+
+                    else
+                        model.messages
               }
+            , Cmd.none
+            )
+
+        NothingItem ->
+            ( model
             , Cmd.none
             )
 
 
 updateStateSolvedArea :
-    Dict ( Int, Int ) (List Data.Area)
+    Dict ( Int, Int ) (List Area)
     -> (( Int, Int ) -> Int)
     -> ( Int, Int )
     -> Model
@@ -2445,7 +2563,7 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
             Dict.get ( row, col ) cellAreas
                 |> Maybe.withDefault []
                 |> List.Extra.find (\area -> area.startRow == row && area.startCol == col)
-                |> Maybe.map Data.getAreaCells
+                |> Maybe.map getAreaCells
                 |> Maybe.withDefault []
     in
     ( { model
@@ -2463,6 +2581,29 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
       else
         Cmd.none
     )
+
+
+updateStateCheckLocation : Int -> Model -> ( Model, Cmd Msg )
+updateStateCheckLocation id model =
+    if model.gameIsLocal then
+        case Dict.get id model.unlockMap of
+            Just item ->
+                ( { model
+                    | pendingItems = item :: model.pendingItems
+                    , scoutedItems = Dict.insert id (createHint id item) model.scoutedItems
+                  }
+                , Cmd.none
+                )
+
+            Nothing ->
+                ( model
+                , Cmd.none
+                )
+
+    else
+        ( model
+        , checkLocation id
+        )
 
 
 insertDictSetValue : ( Int, Int ) -> Int -> Dict ( Int, Int ) (Set Int) -> Dict ( Int, Int ) (Set Int)
@@ -2544,7 +2685,7 @@ getValidCellCandidates model cell =
             let
                 numbersInArea : Set Int
                 numbersInArea =
-                    Data.getAreaCells area
+                    getAreaCells area
                         |> List.filter ((/=) cell)
                         |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
                         |> List.filterMap (getCellValue model)
@@ -2565,6 +2706,348 @@ getValidCellCandidates model cell =
                 |> Maybe.withDefault []
             ]
         )
+
+
+cellValueToInt : CellValue -> Maybe Int
+cellValueToInt cellValue =
+    case cellValue of
+        Given v ->
+            Just v
+
+        Single v ->
+            Just v
+
+        Multiple _ ->
+            Nothing
+
+
+cellValueToInts : CellValue -> Set Int
+cellValueToInts cellValue =
+    case cellValue of
+        Given v ->
+            Set.fromList [ v ]
+
+        Single v ->
+            Set.fromList [ v ]
+
+        Multiple numbers ->
+            numbers
+
+
+isGiven : CellValue -> Bool
+isGiven cellValue =
+    case cellValue of
+        Given _ ->
+            True
+
+        _ ->
+            False
+
+
+isMultiple : CellValue -> Bool
+isMultiple cellValue =
+    case cellValue of
+        Multiple _ ->
+            True
+
+        _ ->
+            False
+
+
+numberToString : Int -> String
+numberToString number =
+    if number < 10 then
+        String.fromInt (number)
+
+    else if number == 10 then
+        "0"
+
+    else
+        Char.fromCode (number - 11 + Char.toCode 'A')
+            |> String.fromChar
+
+
+rowToLabel : Int -> String
+rowToLabel row =
+    rowToLabelHelper row ""
+
+
+rowToLabelHelper : Int -> String -> String
+rowToLabelHelper row label =
+    if row <= 0 then
+        label
+
+    else
+        let
+            chars : Array String
+            chars =
+                Array.fromList
+                    [ "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M"
+                    , "N", "P", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
+                    ]
+
+            base : Int
+            base =
+                Array.length chars
+
+            rem : Int
+            rem =
+                modBy base (row - 1)
+
+            next : Int
+            next =
+                (row - 1) // base
+
+            char =
+                Array.get rem chars
+                    |> Maybe.withDefault ""
+        in
+        rowToLabelHelper next (char ++ label)
+
+
+cellHtmlId : ( Int, Int ) -> String
+cellHtmlId ( row, col ) =
+    "cell-" ++ String.fromInt row ++ "-" ++ String.fromInt col
+
+
+cellToBlockId : ( Int, Int ) -> Int
+cellToBlockId ( row, col ) =
+    1000000 + row * 1000 + col
+
+
+cellToRowId : ( Int, Int ) -> Int
+cellToRowId ( row, col ) =
+    2000000 + row * 1000 + col
+
+
+cellToColId : ( Int, Int ) -> Int
+cellToColId ( row, col ) =
+    3000000 + row * 1000 + col
+
+
+cellToBoardId : ( Int, Int ) -> Int
+cellToBoardId ( row, col ) =
+    4000000 + row * 1000 + col
+
+
+cellFromId : Int -> ( Int, Int )
+cellFromId id =
+    ( (modBy 1000000 id) // 1000, modBy 1000 id )
+
+
+addLocalMessage : String -> List Message -> List Message
+addLocalMessage text messages =
+    let
+        newMessage : Message
+        newMessage =
+            { nodes = [ TextualMessageNode text ]
+            , extra = LocalMessage
+            }
+    in
+    (newMessage :: messages)
+        |> List.take maxMessages
+
+
+maxMessages : Int
+maxMessages =
+    500
+
+
+blockSizeToDimensions : Int -> ( Int, Int )
+blockSizeToDimensions blockSize =
+    case blockSize of
+        4 ->
+            ( 2, 2 )
+
+        6 ->
+            ( 2, 3 )
+
+        8 ->
+            ( 2, 4 )
+
+        9 ->
+            ( 3, 3 )
+
+        12 ->
+            ( 3, 4 )
+
+        16 ->
+            ( 4, 4 )
+
+        _ ->
+            ( 1, 1 )
+
+
+buildCellAreasMap : List Area -> Dict ( Int, Int ) (List Area)
+buildCellAreasMap areas =
+    List.foldl
+        (\area acc ->
+            let
+                areaCells : List ( Int, Int )
+                areaCells =
+                    getAreaCells area
+            in
+            List.foldl
+                (\cell acc2 ->
+                    let
+                        existingAreas : List Area
+                        existingAreas =
+                            Dict.get cell acc2
+                                |> Maybe.withDefault []
+                    in
+                    Dict.insert cell (area :: existingAreas) acc2
+                )
+                acc
+                areaCells
+        )
+        Dict.empty
+        areas
+
+
+getAreaCells : Area -> List ( Int, Int )
+getAreaCells area =
+    List.concatMap
+        (\row ->
+            List.map
+                (Tuple.pair row)
+                (List.range area.startCol area.endCol)
+        )
+        (List.range area.startRow area.endRow)
+
+
+maxNumberOfBoards : Int -> Int
+maxNumberOfBoards blockSize =
+    if blockSize == 16 then
+        36
+
+    else if blockSize == 12 then
+        64
+
+    else
+        100
+
+
+numberOfBoardsTicks : Int -> List Int
+numberOfBoardsTicks boardsPerCluster =
+    case boardsPerCluster of
+        1 ->
+            [ 4, 9, 16, 25, 36, 49, 64, 81, 100 ]
+
+        5 ->
+            [ 5, 10, 20, 45, 80, 100 ]
+
+        8 ->
+            [ 8, 24, 40, 64, 96 ]
+
+        13 ->
+            [ 13, 26, 39, 65, 91 ]
+
+        100 ->
+            [ 3, 5, 8, 13, 18, 25, 32, 41, 50, 72, 98 ]
+
+        _ ->
+            []
+
+
+itemFromId : Int -> Item
+itemFromId id =
+    if id >= 1000000 then
+        Block (cellFromId id)
+
+    else if id == 1 then
+        SolveRandomCell
+
+    else if id == 2 then
+        RemoveRandomCandidate
+
+    else if id == 101 then
+        ProgressiveBlock
+
+    else if id == 201 then
+        SolveSelectedCell
+
+    else
+        NothingItem
+
+
+itemClassToString : ItemClass -> String
+itemClassToString classification =
+    case classification of
+        Progression ->
+            "Progression"
+
+        Useful ->
+            "Useful"
+
+        Filler ->
+            "Filler"
+
+        Trap ->
+            "Trap"
+
+
+createHint : Int -> Item -> Hint
+createHint locationId item =
+    { locationId = locationId
+    , locationName = ""
+    , itemId = 0
+    , itemName = itemName item
+    , itemClass = itemClassification item
+    , senderAlias = ""
+    , senderName = ""
+    , receiverAlias = ""
+    , receiverName = ""
+    , gameName = ""
+    }
+
+
+itemName : Item -> String
+itemName item =
+    case item of
+        ProgressiveBlock ->
+            "Progressive Block"
+
+        Block ( row, col ) ->
+            "Block " ++ rowToLabel row ++ String.fromInt col
+
+        SolveSelectedCell ->
+            "Solve Selected Cell"
+
+        SolveRandomCell ->
+            "Solve Random Cell"
+
+        RemoveRandomCandidate ->
+            "Remove Random Candidate"
+
+        NothingItem ->
+            "Nothing"
+
+
+itemClassification : Item -> ItemClass
+itemClassification item =
+    case item of
+        ProgressiveBlock ->
+            Progression
+
+        Block _ ->
+            Progression
+
+        SolveSelectedCell ->
+            Useful
+
+        SolveRandomCell ->
+            Filler
+
+        RemoveRandomCandidate ->
+            Filler
+
+        NothingItem ->
+            Filler
+
+
+---
+-- View functions
+---
 
 
 view : Model -> Html Msg
@@ -2755,6 +3238,17 @@ viewMenu model =
                     ]
                 ]
             , Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.text "Progression:"
+                , Html.div
+                    [ HA.class "row gap-m wrap"
+                    ]
+                    [ viewRadioButton Shuffled model.progression "progression" ProgressionChanged (\_ -> "Shuffled")
+                    , viewRadioButton Fixed model.progression "progression" ProgressionChanged (\_ -> "Fixed")
+                    ]
+                ]
+            , Html.div
                 [ HA.class "row gap-s"
                 , HA.style "align-items" "baseline"
                 , HA.min "0"
@@ -2811,40 +3305,6 @@ viewRangeSlider value min max msg list =
         , HE.onInput (String.toInt >> Maybe.withDefault value >> msg)
         ]
         []
-
-
-maxNumberOfBoards : Int -> Int
-maxNumberOfBoards blockSize =
-    if blockSize == 16 then
-        36
-
-    else if blockSize == 12 then
-        64
-
-    else
-        100
-
-
-numberOfBoardsTicks : Int -> List Int
-numberOfBoardsTicks boardsPerCluster =
-    case boardsPerCluster of
-        1 ->
-            [ 4, 9, 16, 25, 36, 49, 64, 81, 100 ]
-
-        5 ->
-            [ 5, 10, 20, 45, 80, 100 ]
-
-        8 ->
-            [ 8, 24, 40, 64, 96 ]
-
-        13 ->
-            [ 13, 26, 39, 65, 91 ]
-
-        100 ->
-            [ 3, 5, 8, 13, 18, 25, 32, 41, 50, 72, 98 ]
-
-        _ ->
-            []
 
 
 viewBoard : Model -> Html Msg
@@ -3111,7 +3571,7 @@ viewMultipleNumbers blockSize cellError highlightNumbers numbers =
             let
                 blockWidth : Int
                 blockWidth =
-                    Tuple.second (Data.blockSizeToDimensions blockSize)
+                    Tuple.second (blockSizeToDimensions blockSize)
 
                 row : Int
                 row =
@@ -3651,7 +4111,7 @@ viewCellInfo model ( row, col ) =
         ]
 
 
-viewBlockInfo : Model -> Data.Area -> Html Msg
+viewBlockInfo : Model -> Area -> Html Msg
 viewBlockInfo model block =
     Html.div
         [ HA.class "column"
@@ -3662,7 +4122,7 @@ viewBlockInfo model block =
         ]
 
 
-viewBlockUnlockInfo : Model -> Data.Area -> Html Msg
+viewBlockUnlockInfo : Model -> Area -> Html Msg
 viewBlockUnlockInfo model block =
     if model.gameIsLocal
         || Set.member ( block.startRow, block.startCol ) model.unlockedBlocks
@@ -3713,7 +4173,7 @@ viewBlockUnlockInfo model block =
                     ]
 
 
-viewRowInfo : Model -> Data.Area -> Html Msg
+viewRowInfo : Model -> Area -> Html Msg
 viewRowInfo model row =
     Html.div
         [ HA.class "column"
@@ -3723,7 +4183,7 @@ viewRowInfo model row =
         ]
 
 
-viewColInfo : Model -> Data.Area -> Html Msg
+viewColInfo : Model -> Area -> Html Msg
 viewColInfo model col =
     Html.div
         [ HA.class "column"
@@ -3733,7 +4193,7 @@ viewColInfo model col =
         ]
 
 
-viewBoardInfo : Model -> Data.Area -> Html Msg
+viewBoardInfo : Model -> Area -> Html Msg
 viewBoardInfo model board =
     Html.div
         [ HA.class "column"
@@ -3772,58 +4232,56 @@ viewCellLabel label row col =
         ]
 
 
-viewReward : Model -> Int -> Data.Area -> Html Msg
+viewReward : Model -> Int -> Area -> Html Msg
 viewReward model id area =
-    if model.gameIsLocal then
-        Html.text ""
+    case Dict.get id model.scoutedItems of
+        Just hint ->
+            Html.div
+                []
+                [ Html.text
+                    (String.concat
+                        [ "Reward: "
+                        , hint.itemName
+                        , " ("
+                        , String.join
+                            ", "
+                            (List.filter (not << String.isEmpty)
+                                [ itemClassToString hint.itemClass
+                                , hint.receiverAlias
+                                , hint.gameName
+                                ]
+                            )
+                        , ")"
+                        ]
+                    )
+                , if Set.member id model.solvedLocations then
+                    Html.text " ✅"
 
-    else
-        case Dict.get id model.scoutedItems of
-            Just hint ->
-                -- TODO: Strikethrough if obtained
-                Html.div
-                    []
-                    [ Html.text
-                        (String.concat
-                            [ "Reward: "
-                            , hint.itemName
-                            , " ("
-                            , itemClassToString hint.itemClass
-                            , ", "
-                            , hint.receiverAlias
-                            , ", "
-                            , hint.gameName
-                            , ")"
-                            ]
-                        )
-                    , if Set.member id model.solvedLocations then
-                        Html.text " ✅"
+                  else
+                    Html.text ""
+                ]
 
-                      else
-                        Html.text ""
-                    ]
+        Nothing ->
+            Html.div
+                [ HA.class "row gap-m"
+                , HA.style "align-items" "center"
+                ]
+                [ Html.text "Reward: ???"
+                , if model.locationScouting == ScoutingManual then
+                    Html.button
+                        [ HA.class "button"
+                        , HE.onClick (ScoutLocationPressed id)
+                        , HA.disabled
+                            (List.any
+                                (not << cellIsVisible model)
+                                (getAreaCells area)
+                            )
+                        ]
+                        [ Html.text "Scout" ]
 
-            Nothing ->
-                Html.div
-                    [ HA.class "row gap-m"
-                    , HA.style "align-items" "center"
-                    ]
-                    [ Html.text "Reward: ???"
-                    , if model.locationScouting == ScoutingManual then
-                        Html.button
-                            [ HA.class "button"
-                            , HE.onClick (ScoutLocationPressed id)
-                            , HA.disabled
-                                (List.any
-                                    (not << cellIsVisible model)
-                                    (Data.getAreaCells area)
-                                )
-                            ]
-                            [ Html.text "Scout" ]
-
-                      else
-                        Html.text ""
-                    ]
+                  else
+                    Html.text ""
+                ]
 
 
 viewMessage : Message -> Html Msg
@@ -3857,148 +4315,3 @@ viewMessage message =
             )
             message.nodes
         )
-
-
-cellValueToInt : CellValue -> Maybe Int
-cellValueToInt cellValue =
-    case cellValue of
-        Given v ->
-            Just v
-
-        Single v ->
-            Just v
-
-        Multiple _ ->
-            Nothing
-
-
-cellValueToInts : CellValue -> Set Int
-cellValueToInts cellValue =
-    case cellValue of
-        Given v ->
-            Set.fromList [ v ]
-
-        Single v ->
-            Set.fromList [ v ]
-
-        Multiple numbers ->
-            numbers
-
-
-isGiven : CellValue -> Bool
-isGiven cellValue =
-    case cellValue of
-        Given _ ->
-            True
-
-        _ ->
-            False
-
-
-isMultiple : CellValue -> Bool
-isMultiple cellValue =
-    case cellValue of
-        Multiple _ ->
-            True
-
-        _ ->
-            False
-
-
-numberToString : Int -> String
-numberToString number =
-    if number < 10 then
-        String.fromInt (number)
-
-    else if number == 10 then
-        "0"
-
-    else
-        Char.fromCode (number - 11 + Char.toCode 'A')
-            |> String.fromChar
-
-
-rowToLabel : Int -> String
-rowToLabel row =
-    rowToLabelHelper row ""
-
-
-rowToLabelHelper : Int -> String -> String
-rowToLabelHelper row label =
-    if row <= 0 then
-        label
-
-    else
-        let
-            chars : Array String
-            chars =
-                Array.fromList
-                    [ "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M"
-                    , "N", "P", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
-                    ]
-
-            base : Int
-            base =
-                Array.length chars
-
-            rem : Int
-            rem =
-                modBy base (row - 1)
-
-            next : Int
-            next =
-                (row - 1) // base
-
-            char =
-                Array.get rem chars
-                    |> Maybe.withDefault ""
-        in
-        rowToLabelHelper next (char ++ label)
-
-
-cellHtmlId : ( Int, Int ) -> String
-cellHtmlId ( row, col ) =
-    "cell-" ++ String.fromInt row ++ "-" ++ String.fromInt col
-
-
-cellToBlockId : ( Int, Int ) -> Int
-cellToBlockId ( row, col ) =
-    1000000 + row * 1000 + col
-
-
-cellToRowId : ( Int, Int ) -> Int
-cellToRowId ( row, col ) =
-    2000000 + row * 1000 + col
-
-
-cellToColId : ( Int, Int ) -> Int
-cellToColId ( row, col ) =
-    3000000 + row * 1000 + col
-
-
-cellToBoardId : ( Int, Int ) -> Int
-cellToBoardId ( row, col ) =
-    4000000 + row * 1000 + col
-
-
-cellFromId : Int -> ( Int, Int )
-cellFromId id =
-    ( (modBy 1000000 id) // 1000, modBy 1000 id )
-
-
-addLocalMessage : String -> List Message -> List Message
-addLocalMessage text messages =
-    let
-        newMessage : Message
-        newMessage =
-            { nodes = [ TextualMessageNode text ]
-            , extra = LocalMessage
-            }
-    in
-    (newMessage :: messages)
-        |> List.take maxMessages
-
-
-maxMessages : Int
-maxMessages =
-    500

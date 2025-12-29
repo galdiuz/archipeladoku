@@ -19,7 +19,7 @@ let worker = new Worker(Worker)
 worker.onmessage = function(event) {
     switch(event.data.type) {
         case 'sendBoard':
-            app.ports.receiveBoard.send(event.data.data)
+            app.ports.receiveGeneratedBoard.send(event.data.data)
 
             break
 

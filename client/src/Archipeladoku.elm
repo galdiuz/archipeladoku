@@ -3780,11 +3780,13 @@ viewReward model id area =
             Nothing ->
                 Html.div
                     [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
                     ]
                     [ Html.text "Reward: ???"
                     , if model.locationScouting == ScoutingManual then
                         Html.button
-                            [ HE.onClick (ScoutLocationPressed id)
+                            [ HA.class "button"
+                            , HE.onClick (ScoutLocationPressed id)
                             , HA.disabled
                                 (List.any
                                     (not << cellIsVisible model)

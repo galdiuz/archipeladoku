@@ -284,12 +284,12 @@ update msg model =
 
         AutoFillCandidatesOnUnlockChanged value ->
             ( { model | autoFillCandidatesOnUnlock = value }
-            , Cmd.none
+            , setLocalStorage ( "apdk-auto-fill-candidates-on-unlock", if value then "1" else "0" )
             )
 
         AutoRemoveInvalidCandidatesChanged value ->
             ( { model | autoRemoveInvalidCandidates = value }
-            , Cmd.none
+            , setLocalStorage ( "apdk-auto-remove-invalid-candidates", if value then "1" else "0" )
             )
                 |> andThen updateState
 
@@ -1815,6 +1815,16 @@ updateFromLocalStorageValue key value model =
             , Cmd.none
             )
 
+        "apdk-auto-fill-candidates-on-unlock" ->
+            ( { model | autoFillCandidatesOnUnlock = value == "1" }
+            , Cmd.none
+            )
+
+        "apdk-auto-remove-invalid-candidates" ->
+            ( { model | autoRemoveInvalidCandidates = value == "1" }
+            , Cmd.none
+            )
+
         "apdk-color-scheme" ->
             ( { model | colorScheme = value }
             , Cmd.none
@@ -1832,16 +1842,6 @@ updateFromLocalStorageValue key value model =
 
         "apdk-player" ->
             ( { model | player = value }
-            , Cmd.none
-            )
-
-        "apdk-auto-fill-candidates-on-unlock" ->
-            ( { model | autoFillCandidatesOnUnlock = value == "1" }
-            , Cmd.none
-            )
-
-        "apdk-auto-remove-invalid-candidates" ->
-            ( { model | autoRemoveInvalidCandidates = value == "1" }
             , Cmd.none
             )
 

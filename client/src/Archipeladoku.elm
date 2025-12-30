@@ -212,7 +212,7 @@ init flagsValue =
       , hints = Dict.empty
       , hintCost = 0
       , hintPoints = 0
-      , host = "localhost:8123"
+      , host = ""
       , locationScouting = ScoutingManual
       , lockedBlocks = []
       , messageInput = ""
@@ -226,7 +226,7 @@ init flagsValue =
       , pendingSolvedBlocks = Set.empty
       , pendingSolvedCols = Set.empty
       , pendingSolvedRows = Set.empty
-      , player = "Player1"
+      , player = ""
       , progression = Shuffled
       , puzzleAreas =
             { blocks = []
@@ -686,7 +686,7 @@ update msg model =
 
         HostInputChanged value ->
             ( { model | host = value }
-            , Cmd.none
+            , setLocalStorage ( "apdk-host", value )
             )
 
         MessageInputChanged value ->
@@ -758,7 +758,7 @@ update msg model =
 
         PasswordInputChanged value ->
             ( { model | password = value }
-            , Cmd.none
+            , setLocalStorage ( "apdk-password", value )
             )
 
         PlayLocalPressed ->
@@ -780,7 +780,7 @@ update msg model =
 
         PlayerInputChanged value ->
             ( { model | player = value }
-            , Cmd.none
+            , setLocalStorage ( "apdk-player", value )
             )
 
         ProgressionChanged value ->
@@ -1817,6 +1817,21 @@ updateFromLocalStorageValue key value model =
 
         "apdk-color-scheme" ->
             ( { model | colorScheme = value }
+            , Cmd.none
+            )
+
+        "apdk-host" ->
+            ( { model | host = value }
+            , Cmd.none
+            )
+
+        "apdk-password" ->
+            ( { model | password = value }
+            , Cmd.none
+            )
+
+        "apdk-player" ->
+            ( { model | player = value }
             , Cmd.none
             )
 
@@ -3149,7 +3164,7 @@ viewMenu model =
                     [ Html.text "Password:"
                     , Html.input
                         [ HA.type_ "text"
-                        , HA.placeholder ""
+                        , HA.placeholder "Leave blank if no password"
                         , HA.value model.password
                         , HE.onInput PasswordInputChanged
                         ]

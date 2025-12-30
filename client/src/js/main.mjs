@@ -48,6 +48,30 @@ function itemData(item) {
     }
 }
 
+app.ports.centerViewOnCell?.subscribe(cellId => {
+    const cellElement = document.getElementById(cellId)
+    const viewport = document.querySelector('panzoom-board-wrapper')
+    const panzoom = viewport?.panzoomInstance
+
+    if (!panzoom || !cellElement) {
+        return
+    }
+
+    const containerRect = viewport.getBoundingClientRect()
+    const { scale } = panzoom.getTransform()
+
+    const viewCenterX = containerRect.width / 2
+    const viewCenterY = containerRect.height / 2
+
+    const cellCenterX = cellElement.offsetLeft + (cellElement.offsetWidth / 2)
+    const cellCenterY = cellElement.offsetTop + (cellElement.offsetHeight / 2)
+
+    const targetX = viewCenterX - (cellCenterX * scale)
+    const targetY = viewCenterY - (cellCenterY * scale)
+
+    panzoom.smoothMoveTo(targetX, targetY)
+})
+
 app.ports.connect?.subscribe(data => {
     client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
         .then(slotData => {
@@ -110,7 +134,6 @@ app.ports.moveCellIntoView?.subscribe(cellId => {
     }
 
     if (Math.abs(deltaX) > 0 || Math.abs(deltaY) > 0) {
-
         const newX = currentTransform.x + deltaX
         const newY = currentTransform.y + deltaY
 

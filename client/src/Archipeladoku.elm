@@ -24,6 +24,7 @@ import Set.Extra
 import Task
 
 
+port centerViewOnCell : String -> Cmd msg
 port checkLocation : Int -> Cmd msg
 port connect : Encode.Value -> Cmd msg
 port generateBoard : Encode.Value -> Cmd msg
@@ -154,6 +155,7 @@ type Msg
     | ScoutLocationPressed Int
     | SeedInputChanged String
     | SelectSingleCandidateCellPressed
+    | SelectSolvableBoardPressed
     | SendMessagePressed
     | ShiftDebouncePassed Int
     | ShiftHeld
@@ -906,32 +908,75 @@ update msg model =
 
         SelectSingleCandidateCellPressed ->
             let
-                targetCell : Maybe ( Int, Int )
-                targetCell =
+                targetCells : List ( Int, Int )
+                targetCells =
                     Dict.foldl
                         (\cell cellValue acc ->
-                            case ( acc, cellValue ) of
-                                ( Nothing, Multiple candidates ) ->
+                            case cellValue of
+                                Multiple candidates ->
                                     if Set.size candidates == 1
                                         && Set.member cell model.visibleCells
                                         && not (Set.member cell model.givens)
                                     then
-                                        Just cell
+                                        cell :: acc
 
                                     else
-                                        Nothing
+                                        acc
 
                                 _ ->
                                     acc
                         )
-                        Nothing
+                        []
                         model.current
+
+                targetCell : Maybe ( Int, Int )
+                targetCell =
+                    targetCells
+                        |> List.sortBy (distanceBetweenCells model.selectedCell)
+                        |> List.head
             in
             case targetCell of
                 Just cell ->
                     ( { model | selectedCell = cell }
                         |> updateHighlightedCells
                     , moveCellIntoView (cellHtmlId cell)
+                    )
+
+                Nothing ->
+                    ( model
+                    , Cmd.none
+                    )
+
+        SelectSolvableBoardPressed ->
+            let
+                targetCell : Maybe ( Int, Int )
+                targetCell =
+                    model.puzzleAreas.boards
+                        |> List.filter
+                            (\board ->
+                                (&&)
+                                    (List.any
+                                        (\cell -> not (Set.member cell model.givens))
+                                        (getAreaCells board)
+                                    )
+                                    (List.all
+                                        (cellIsVisible model)
+                                        (getAreaCells board)
+                                    )
+                            )
+                        |> List.head
+                        |> Maybe.map
+                            (\board ->
+                                ( board.startRow + (board.endRow - board.startRow) // 2
+                                , board.startCol + (board.endCol - board.startCol) // 2
+                                )
+                            )
+            in
+            case targetCell of
+                Just cell ->
+                    ( { model | selectedCell = cell }
+                        |> updateHighlightedCells
+                    , centerViewOnCell (cellHtmlId cell)
                     )
 
                 Nothing ->
@@ -1434,6 +1479,7 @@ keyDownDecoder model =
                         , ( "KeyD", NumberPressed 14 )
                         , ( "KeyE", NumberPressed 15 )
                         , ( "KeyF", NumberPressed 16 )
+                        , ( "KeyG", SelectSolvableBoardPressed )
                         , ( "KeyH", MoveSelectionPressed ( 0, -1 ) )
                         , ( "KeyJ", MoveSelectionPressed ( 1, 0 ) )
                         , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
@@ -2850,6 +2896,16 @@ cellFromId id =
     ( (modBy 1000000 id) // 1000, modBy 1000 id )
 
 
+distanceBetweenCells : ( Int, Int ) -> ( Int, Int ) -> Float
+distanceBetweenCells ( row1, col1 ) ( row2, col2 ) =
+    List.sum
+        [ abs (row1 - row2) ^ 2
+        , abs (col1 - col2) ^ 2
+        ]
+        |> toFloat
+        |> sqrt
+
+
 addLocalMessage : String -> List Message -> List Message
 addLocalMessage text messages =
     let
@@ -3852,8 +3908,20 @@ viewInfoPanelHelpers model =
                     [ HA.class "button"
                     , HE.onClick SelectSingleCandidateCellPressed
                     ]
-                    [ Html.text "Select first single-candidate cell" ]
+                    [ Html.text "Select single-candidate cell" ]
                 , Html.text "[S]"
+                ]
+            , Html.div
+                [ HA.class "row gap-m"
+                , HA.style "align-items" "center"
+                ]
+                [ Html.button
+                    [ HA.class "button"
+                    , HE.onClick SelectSolvableBoardPressed
+                    ]
+                    [ Html.text "Select solvable board"
+                    ]
+                , Html.text "[G]"
                 ]
             , Html.div
                 [ HA.class "row gap-m"

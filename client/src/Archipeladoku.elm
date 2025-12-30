@@ -83,6 +83,7 @@ type alias Model =
     , messageInput : String
     , messages : List Message
     , numberOfBoards : Int
+    , password : String
     , pendingCellChanges : Set ( Int, Int )
     , pendingCheckLocations : Set Int
     , pendingItems : List Item
@@ -143,6 +144,7 @@ type Msg
     | NoOp
     | NumberOfBoardsChanged Int
     | NumberPressed Int
+    | PasswordInputChanged String
     | PlayLocalPressed
     | PlayerInputChanged String
     | RemoveInvalidCandidatesPressed
@@ -573,6 +575,7 @@ init flagsValue =
       , messageInput = ""
       , messages = []
       , numberOfBoards = 5
+      , password = ""
       , pendingCellChanges = Set.empty
       , pendingCheckLocations = Set.empty
       , pendingItems = []
@@ -786,7 +789,13 @@ update msg model =
                 (Encode.object
                     [ ( "host", Encode.string model.host )
                     , ( "player", Encode.string model.player )
-                    , ( "password", Encode.null )
+                    , ( "password"
+                      , if model.password == "" then
+                            Encode.null
+
+                        else
+                            Encode.string model.password
+                      )
                     ]
                 )
             )
@@ -1175,6 +1184,11 @@ update msg model =
                 ( model
                 , Cmd.none
                 )
+
+        PasswordInputChanged value ->
+            ( { model | password = value }
+            , Cmd.none
+            )
 
         PlayLocalPressed ->
             ( { model
@@ -2619,7 +2633,7 @@ viewMenu model =
                 [ HA.style "margin" "0" ]
                 [ Html.text "Connect to Archipelago" ]
             , Html.form
-                [ HA.class "row gap-m"
+                [ HA.class "row gap-m wrap"
                 , HE.onSubmit ConnectPressed
                 ]
                 [ Html.label
@@ -2643,6 +2657,18 @@ viewMenu model =
                         , HA.placeholder "Player1"
                         , HA.value model.player
                         , HE.onInput PlayerInputChanged
+                        ]
+                        []
+                    ]
+                , Html.label
+                    [ HA.class "column"
+                    ]
+                    [ Html.text "Password:"
+                    , Html.input
+                        [ HA.type_ "text"
+                        , HA.placeholder ""
+                        , HA.value model.password
+                        , HE.onInput PasswordInputChanged
                         ]
                         []
                     ]

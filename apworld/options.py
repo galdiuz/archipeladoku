@@ -106,6 +106,17 @@ class RemoveRandomCandidateRatio(Range):
     default = 300
 
 
+class PreFillNothingsPercent(Range):
+    """Percentage of Nothing items that should be pre-filled, forcing them to be placed in
+    an Archipeladoku game and thus excluding them from other games.
+    Caution: This increases generation time, especially for higher percentages.
+    """
+    display_name = "Pre-fill Nothings Percentage"
+    range_start = 0
+    range_end = 100
+    default = 50
+
+
 @dataclass
 class ArchipeladokuOptions(PerGameCommonOptions):
     block_size: BlockSize
@@ -117,3 +128,4 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     solve_selected_cell_ratio: SolveSelectedCellRatio
     solve_random_cell_ratio: SolveRandomCellRatio
     remove_random_candidate_ratio: RemoveRandomCandidateRatio
+    pre_fill_nothings_percent: PreFillNothingsPercent

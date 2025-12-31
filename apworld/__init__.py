@@ -1,10 +1,11 @@
-from typing import Any, Dict
+from typing import Any
 
 from . import options, utils
-from BaseClasses import Region, Location, Item, Tutorial, ItemClassification
+from BaseClasses import CollectionState, Item, ItemClassification, Location, Region
 from Options import OptionError
 from collections import defaultdict
 from worlds.AutoWorld import World
+import Fill
 
 
 class ArchipeladokuWorld(World):
@@ -18,6 +19,9 @@ class ArchipeladokuWorld(World):
 
     block_unlock_order = defaultdict(list)
     clusters = defaultdict(dict)
+    pre_fill_items = []
+    filler_counts = defaultdict(dict)
+    target_pre_fill_nothing_count = defaultdict(int)
 
 
     def generate_early(self):
@@ -55,6 +59,13 @@ class ArchipeladokuWorld(World):
             self.clusters[self.player],
             self.random,
         )
+
+        filler_counts = utils.get_filler_counts(self.options)
+        self.filler_counts[self.player] = filler_counts
+        pre_fill_nothings = filler_counts.get("Nothing", 0) * self.options.pre_fill_nothings_percent // 100
+
+        if pre_fill_nothings > 0 and self.multiworld.players > 1:
+            self.target_pre_fill_nothing_count[self.player] = pre_fill_nothings
 
 
     def create_regions(self) -> None:
@@ -193,29 +204,90 @@ class ArchipeladokuWorld(World):
     def create_items(self) -> None:
 
         initial_unlock_count = self.options.block_size.value
+        items = []
 
         for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
             match self.options.progression:
                 case options.Progression.option_fixed:
                     item = self.create_item("Progressive Block")
-                    self.multiworld.itempool.append(item)
+                    items.append(item)
 
                 case options.Progression.option_shuffled:
                     item = self.create_item(utils.block_item_name(row, col))
-                    self.multiworld.itempool.append(item)
+                    items.append(item)
 
                 case _:
                     raise ValueError("Invalid progression option")
 
-        fillers = utils.get_filler_counts(self.options)
+        fillers = self.filler_counts[self.player]
+        target_pre_fill_nothings = self.target_pre_fill_nothing_count[self.player]
+        added_pre_fill_nothings = 0
 
         for item_name, count in fillers.items():
             for _ in range(count):
                 item = self.create_item(item_name)
-                self.multiworld.itempool.append(item)
+
+                if item_name == "Nothing" and added_pre_fill_nothings < target_pre_fill_nothings:
+                    self.pre_fill_items.append(item)
+                    added_pre_fill_nothings += 1
+
+                else:
+                    items.append(item)
+
+        self.multiworld.itempool += items
 
 
-    def fill_slot_data(self) -> Dict[str, Any]:
+    def get_pre_fill_items(self) -> list["Item"]:
+
+        return self.pre_fill_items
+
+
+    def pre_fill(self) -> None:
+
+        if not self.pre_fill_items:
+            return
+
+        # Set up state, copied from ladx
+        partial_all_state = CollectionState(self.multiworld)
+        # Collect every item from the item pool and every pre-fill item like MultiWorld.get_all_state, except our own pre-fill items.
+        for item in self.multiworld.itempool:
+            partial_all_state.collect(item, prevent_sweep=True)
+        for player in self.multiworld.player_ids:
+            if player == self.player:
+                # Don't collect the items we're about to place.
+                continue
+            world = self.multiworld.worlds[player]
+            for item in world.get_pre_fill_items():
+                partial_all_state.collect(item, prevent_sweep=True)
+        partial_all_state.sweep_for_advancements()
+
+        sphere_zero_locs = self.multiworld.get_reachable_locations(
+            CollectionState(self.multiworld),
+            self.player
+        )
+        locations_to_fill = [
+            loc for loc in self.multiworld.get_unfilled_locations(self.player)
+            if loc not in sphere_zero_locs
+            and loc.name not in self.options.priority_locations.value
+        ]
+        self.random.shuffle(locations_to_fill)
+
+        items_to_fill = self.pre_fill_items
+        self.random.shuffle(items_to_fill)
+
+        Fill.fill_restrictive(
+            self.multiworld,
+            partial_all_state,
+            locations_to_fill,
+            items_to_fill,
+            lock=True,
+            single_player_placement=True,
+            allow_partial=True,
+            name=f"Archipeladoku Pre-Fill for Player {self.player}"
+        )
+
+
+    def fill_slot_data(self) -> dict[str, Any]:
 
         return {
             "blockSize": self.options.block_size.value,
@@ -264,7 +336,7 @@ class ArchipeladokuWorld(World):
         return filler
 
 
-    def get_filler_weights(self) -> Dict[str, int]:
+    def get_filler_weights(self) -> dict[str, int]:
 
         weights = {
             "Solve Selected Cell": self.options.solve_selected_cell_ratio.value,

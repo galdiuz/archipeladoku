@@ -82,36 +82,28 @@ class LocationScouting(Choice):
     default = "manual"
 
 
-class SolveSelectedCellWeight(Range):
-    """Weight (chance) that Solve Selected Cell is selected for a filler item."""
-    display_name = "Filler Weight: Solve Selected Cell"
+class SolveSelectedCellRatio(Range):
+    """Ratio of Solve Selected Cell filler items in relation to number of boards, in percent."""
+    display_name = "Filler Ratio: Solve Selected Cell"
     range_start = 0
-    range_end = 100
-    default = 5
+    range_end = 1000
+    default = 100
 
 
-class SolveRandomCellWeight(Range):
-    """Weight (chance) that Solve Random Cell is selected for a filler item."""
-    display_name = "Filler Weight: Solve Random Cell"
+class SolveRandomCellRatio(Range):
+    """Ratio of Solve Random Cell filler items in relation to number of boards, in percent."""
+    display_name = "Filler Ratio: Solve Random Cell"
     range_start = 0
-    range_end = 100
-    default = 10
+    range_end = 1000
+    default = 150
 
 
-class RemoveRandomCandidateWeight(Range):
-    """Weight (chance) that Remove Random Candidate is selected for a filler item."""
-    display_name = "Filler Weight: Remove Random Candidate"
+class RemoveRandomCandidateRatio(Range):
+    """Ratio of Remove Random Candidate filler items in relation to number of boards, in percent."""
+    display_name = "Filler Ratio: Remove Random Candidate"
     range_start = 0
-    range_end = 100
-    default = 25
-
-
-class NothingWeight(Range):
-    """Weight (chance) that Nothing is selected for a filler item."""
-    display_name = "Filler Weight: Nothing"
-    range_start = 0
-    range_end = 100
-    default = 60
+    range_end = 1000
+    default = 300
 
 
 @dataclass
@@ -122,7 +114,6 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     difficulty: Difficulty
     progression: Progression
     location_scouting: LocationScouting
-    solve_selected_cell_weight: SolveSelectedCellWeight
-    solve_random_cell_weight: SolveRandomCellWeight
-    remove_random_candidate_weight: RemoveRandomCandidateWeight
-    nothing_weight: NothingWeight
+    solve_selected_cell_ratio: SolveSelectedCellRatio
+    solve_random_cell_ratio: SolveRandomCellRatio
+    remove_random_candidate_ratio: RemoveRandomCandidateRatio

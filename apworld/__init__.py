@@ -95,7 +95,7 @@ class ArchipeladokuWorld(World):
                         state.has_all(block_names, self.player)
 
                 case _:
-                    raise ValueError("Invalid block unlock option")
+                    raise ValueError("Invalid progression option")
 
             # Add board locations
             for (row, col) in cluster.positions:
@@ -184,7 +184,7 @@ class ArchipeladokuWorld(World):
                     )
 
             case _:
-                raise ValueError("Invalid block unlock option")
+                raise ValueError("Invalid progression option")
 
         self.multiworld.completion_condition[self.player] = lambda state: \
             state.has(victory_item.name, self.player)
@@ -193,13 +193,6 @@ class ArchipeladokuWorld(World):
     def create_items(self) -> None:
 
         initial_unlock_count = self.options.block_size.value
-        fillers = utils.get_filler_count(
-            self.options.block_size.value,
-            utils.get_number_of_boards(
-                self.options.block_size.value,
-                self.options.number_of_boards.value,
-            ),
-        )
 
         for ( row, col ) in self.block_unlock_order[self.player][initial_unlock_count:]:
             match self.options.progression:
@@ -208,20 +201,18 @@ class ArchipeladokuWorld(World):
                     self.multiworld.itempool.append(item)
 
                 case options.Progression.option_shuffled:
-                    item = ArchipeladokuItem(
-                        utils.block_item_name(row, col),
-                        ItemClassification.progression,
-                        utils.block_id(row, col),
-                        self.player,
-                    )
+                    item = self.create_item(utils.block_item_name(row, col))
                     self.multiworld.itempool.append(item)
 
                 case _:
-                    raise ValueError("Invalid block unlock option")
+                    raise ValueError("Invalid progression option")
 
-        for _ in range(fillers):
-            item = self.create_filler()
-            self.multiworld.itempool.append(item)
+        fillers = utils.get_filler_counts(self.options)
+
+        for item_name, count in fillers.items():
+            for _ in range(count):
+                item = self.create_item(item_name)
+                self.multiworld.itempool.append(item)
 
 
     def fill_slot_data(self) -> Dict[str, Any]:
@@ -276,16 +267,26 @@ class ArchipeladokuWorld(World):
     def get_filler_weights(self) -> Dict[str, int]:
 
         weights = {
-            "Solve Selected Cell": self.options.solve_selected_cell_weight.value,
-            "Solve Random Cell": self.options.solve_random_cell_weight.value,
-            "Remove Random Candidate": self.options.remove_random_candidate_weight.value,
-            "Nothing": self.options.nothing_weight.value,
+            "Solve Selected Cell": self.options.solve_selected_cell_ratio.value,
+            "Solve Random Cell": self.options.solve_random_cell_ratio.value,
+            "Remove Random Candidate": self.options.remove_random_candidate_ratio.value,
+            "Nothing": self.get_nothing_weight(),
         }
 
         if all(weight == 0 for weight in weights.values()):
             weights["Nothing"] = 1
 
         return weights
+
+
+    def get_nothing_weight(self) -> int:
+
+        weight = self.options.block_size.value * 200 + 100 \
+            - self.options.solve_selected_cell_ratio.value \
+            - self.options.solve_random_cell_ratio.value \
+            - self.options.remove_random_candidate_ratio.value \
+
+        return max(0, weight)
 
 
 class ArchipeladokuLocation(Location):

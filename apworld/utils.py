@@ -55,14 +55,53 @@ def get_max_number_of_boards(block_size: int) -> int:
         case 16: return 36
 
 
-def get_filler_count(block_size: int, number_of_boards: int) -> int:
-    """Calculate the number of filler items needed."""
+def get_total_filler_count(block_size: int, number_of_boards: int) -> int:
+    """Calculate the total number of filler items needed."""
 
     return sum([
         block_size, # Initial blocks
         number_of_boards, # One per board
         number_of_boards * block_size * 2, # One per row and column
     ])
+
+
+def get_filler_counts(options) -> dict[str, int]:
+    """Calculate the count per filler item."""
+
+    total_fillers = get_total_filler_count(options.block_size.value, options.number_of_boards.value)
+
+    ratios = {
+        "Solve Random Cell": options.solve_random_cell_ratio.value,
+        "Remove Random Candidate": options.remove_random_candidate_ratio.value,
+        "Solve Selected Cell": options.solve_selected_cell_ratio.value,
+    }
+    fillers = {}
+
+    for key, ratio in ratios.items():
+        if ratio > 0:
+            fillers[key] = math.ceil(options.number_of_boards.value * (ratio / 100.0))
+
+    current_total = sum(fillers.values())
+
+    if current_total > total_fillers:
+        scale = total_fillers / current_total
+        for key in fillers:
+            fillers[key] = math.floor(fillers[key] * scale)
+
+        current_total = sum(fillers.values())
+        to_add = total_fillers - current_total
+
+        for _ in range(to_add):
+            best_key = max(
+                fillers.keys(),
+                key=lambda k: (ratios[k] - (fillers[k] * 100.0 / options.number_of_boards.value))
+            )
+            fillers[best_key] += 1
+
+    elif current_total < total_fillers:
+        fillers["Nothing"] = total_fillers - current_total
+
+    return fillers
 
 
 def position_boards(block_size: int, boards_per_cluster: int, number_of_boards: int) -> list[tuple[int, int]]:
@@ -218,7 +257,7 @@ def build_block_unlock_order(
 ) -> list[tuple[int, int]]:
     """Determine the order in which blocks are unlocked."""
 
-    filler_count = get_filler_count(block_size, number_of_boards)
+    filler_count = get_total_filler_count(block_size, number_of_boards)
     fillers = set([(-i, -i) for i in range(1, filler_count + 1)])
     assigned_blocks = set()
     remaining_blocks = set([block for cluster in clusters.values() for block in cluster.blocks])

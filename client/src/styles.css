@@ -4,9 +4,13 @@
     --spacing-l: 1rem;
     --spacing-xl: 2rem;
 
-    --color-bg: light-dark(#eee, #222);
-    --color-bg-hover: light-dark(#ddd, #333);
-    --color-bg-active: light-dark(#ccc, #181818);
+    --hue-primary: 120;
+    --color-main-bg: light-dark(hsl(var(--hue-primary), 20%, 90%), hsl(var(--hue-primary), 20%, 10%));
+    --color-sub-bg: light-dark(hsl(var(--hue-primary), 40%, 90%), hsl(var(--hue-primary), 40%, 10%));
+    --color-sub-bg-hover: light-dark(hsl(var(--hue-primary), 40%, 85%), hsl(var(--hue-primary), 40%, 15%));
+    --color-cell-bg: light-dark(#eee, #222);
+    --color-cell-bg-hover: light-dark(#ddd, #333);
+    --color-cell-bg-active: light-dark(#ccc, #181818);
     --color-border: light-dark(#444, #aaa);
     --color-grid: light-dark(#888, #888);
     --color-text: light-dark(#000, #eee);
@@ -17,10 +21,10 @@
     --color-hidden-cell-bg-active: light-dark(#888, #585858);
     --color-shadow: rgba(0, 0, 0, 0.5);
 
-    --color-button-bg: light-dark(#ddd, #333);
-    --color-button-bg-hover: light-dark(#ccc, #444);
-    --color-button-bg-active: light-dark(#bbb, #555);
-    --color-button-bg-disabled: var(--color-bg);
+    --color-button-bg: light-dark(hsl(var(--hue-primary), 60%, 80%), hsl(var(--hue-primary), 60%, 20%));
+    --color-button-bg-hover: light-dark(hsl(var(--hue-primary), 60%, 70%), hsl(var(--hue-primary), 60%, 25%));
+    --color-button-bg-active: light-dark(hsl(var(--hue-primary), 60%, 60%), hsl(var(--hue-primary), 60%, 15%));
+    --color-button-bg-disabled: transparent;
     --color-button-border: var(--color-border);
     --color-button-text: var(--color-text);
     --color-button-text-disabled: light-dark(#888, #aaa);
@@ -49,7 +53,7 @@
 }
 
 body {
-    background-color: var(--color-bg);
+    background-color: var(--color-main-bg);
     color: var(--color-text);
     padding: 0;
     margin: 0;
@@ -91,6 +95,7 @@ body {
 }
 
 .info-panel {
+    background-color: var(--color-sub-bg);
     padding: var(--spacing-l);
     gap: var(--spacing-m);
     overflow-y: auto;
@@ -156,7 +161,7 @@ body {
 }
 
 .info-panel-details summary:hover {
-    background-color: var(--color-bg-hover);
+    background-color: var(--color-sub-bg-hover);
     cursor: pointer;
 }
 
@@ -248,7 +253,7 @@ body {
 .grid-corner {
     margin: 0px 1px 1px 0px;
     transform-origin: 0 0;
-    background-color: var(--color-bg);
+    background-color: var(--color-cell-bg);
     box-shadow:
         0px 0px 0px 3px var(--color-border),
         0px 0px 4px 3px var(--color-shadow);
@@ -270,7 +275,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: var(--color-bg);
+    background-color: var(--color-cell-bg);
 }
 
 .grid-columns-header {
@@ -313,11 +318,11 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: var(--color-bg);
+    background-color: var(--color-cell-bg);
     color: inherit;
     font-size: inherit;
     font-family: inherit;
-    text-shadow: 0px 0px 3px var(--color-bg);
+    text-shadow: 0px 0px 3px var(--color-cell-bg);
     padding: 0;
     border: none;
     position: relative;
@@ -328,11 +333,11 @@ body {
 }
 
 .cell:hover {
-    background-color: var(--color-bg-hover);
+    background-color: var(--color-cell-bg-hover);
 }
 
 .cell:active {
-    background-color: var(--color-bg-active);
+    background-color: var(--color-cell-bg-active);
 }
 
 .cell.selected {

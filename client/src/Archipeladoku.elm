@@ -6,6 +6,7 @@ import Browser
 import Browser.Dom
 import Browser.Events
 import Dict exposing (Dict)
+import File.Download
 import Html exposing (Html)
 import Html.Extra
 import Html.Attributes as HA
@@ -22,6 +23,7 @@ import Random
 import Set exposing (Set)
 import Set.Extra
 import Task
+import Yaml.Encode
 
 
 port centerViewOnCell : String -> Cmd msg
@@ -84,6 +86,7 @@ type alias Model =
     , messageInput : String
     , messages : List Message
     , numberOfBoards : Int
+    , numberOfBoardsInput : String
     , password : String
     , pendingCellChanges : Set ( Int, Int )
     , pendingCheckLocations : Set Int
@@ -93,8 +96,15 @@ type alias Model =
     , pendingSolvedCols : Set ( Int, Int )
     , pendingSolvedRows : Set ( Int, Int )
     , player : String
+    , playerNameOption : String
+    , preFillNothingsPercent : Int
+    , preFillNothingsPercentInput : String
     , progression : Progression
+    , progressionBalancing : Int
+    , progressionBalancingInput : String
     , puzzleAreas : PuzzleAreas
+    , removeRandomCandidateRatio : Int
+    , removeRandomCandidateRatioInput : String
     , removeRandomCandidateUses : Int
     , scoutedItems : Dict Int Hint
     , seed : Random.Seed
@@ -102,7 +112,11 @@ type alias Model =
     , selectedCell : ( Int, Int )
     , shiftDebounce : Int
     , solution : Dict ( Int, Int ) Int
+    , solveRandomCellRatio : Int
+    , solveRandomCellRatioInput : String
     , solveRandomCellUses : Int
+    , solveSelectedCellRatio : Int
+    , solveSelectedCellRatioInput : String
     , solveSelectedCellUses : Int -- TODO: Need to persist these counts
     , solvedLocations : Set Int
     , undoStack : List (Dict ( Int, Int ) CellValue)
@@ -128,6 +142,7 @@ type Msg
     | EnableAnimationsChanged Bool
     | FillBoardCandidatesPressed
     | FillCellCandidatesPressed
+    | GenerateYamlPressed
     | GotCheckedLocations (List Int)
     | GotConnectionStatus Bool
     | GotGeneratedBoard Decode.Value
@@ -145,13 +160,25 @@ type Msg
     | MoveSelectionPressed ( Int, Int )
     | NoOp
     | NumberOfBoardsChanged Int
+    | NumberOfBoardsInputBlurred
+    | NumberOfBoardsInputChanged String
     | NumberPressed Int
     | PasswordInputChanged String
     | PlayLocalPressed
     | PlayerInputChanged String
+    | PlayerNameOptionChanged String
+    | PreFillNothingsPercentChanged Int
+    | PreFillNothingsPercentInputBlurred
+    | PreFillNothingsPercentInputChanged String
     | ProgressionChanged Progression
+    | ProgressionBalancingChanged Int
+    | ProgressionBalancingInputBlurred
+    | ProgressionBalancingInputChanged String
     | RemoveInvalidCandidatesPressed
     | RemoveRandomCandidatePressed
+    | RemoveRandomCandidateRatioChanged Int
+    | RemoveRandomCandidateRatioInputBlurred
+    | RemoveRandomCandidateRatioInputChanged String
     | ScoutLocationPressed Int
     | SeedInputChanged String
     | SelectSingleCandidateCellPressed
@@ -161,7 +188,13 @@ type Msg
     | ShiftHeld
     | ShiftReleased
     | SolveRandomCellPressed
+    | SolveRandomCellRatioChanged Int
+    | SolveRandomCellRatioInputBlurred
+    | SolveRandomCellRatioInputChanged String
     | SolveSelectedCellPressed
+    | SolveSelectedCellRatioChanged Int
+    | SolveSelectedCellRatioInputBlurred
+    | SolveSelectedCellRatioInputChanged String
     | SolveSingleCandidatesPressed
     | ToggleCandidateModePressed
     | ToggleHighlightModePressed
@@ -220,6 +253,7 @@ init flagsValue =
       , messageInput = ""
       , messages = []
       , numberOfBoards = 5
+      , numberOfBoardsInput = "5"
       , password = ""
       , pendingCellChanges = Set.empty
       , pendingCheckLocations = Set.empty
@@ -229,13 +263,20 @@ init flagsValue =
       , pendingSolvedCols = Set.empty
       , pendingSolvedRows = Set.empty
       , player = ""
+      , playerNameOption = "Player{number}"
+      , preFillNothingsPercent = 50
+      , preFillNothingsPercentInput = "50"
       , progression = Shuffled
+      , progressionBalancing = 50
+      , progressionBalancingInput = "50"
       , puzzleAreas =
             { blocks = []
             , boards = []
             , rows = []
             , cols = []
             }
+      , removeRandomCandidateRatio = 300
+      , removeRandomCandidateRatioInput = "300"
       , removeRandomCandidateUses = 0
       , scoutedItems = Dict.empty
       , seed = Random.initialSeed (flags.seed + 1)
@@ -243,7 +284,11 @@ init flagsValue =
       , selectedCell = ( 1, 1 )
       , shiftDebounce = 0
       , solution = Dict.empty
+      , solveRandomCellRatio = 150
+      , solveRandomCellRatioInput = "150"
       , solveRandomCellUses = 0
+      , solveSelectedCellRatio = 100
+      , solveSelectedCellRatioInput = "100"
       , solveSelectedCellUses = 0
       , solvedLocations = Set.empty
       , undoStack = []
@@ -299,6 +344,7 @@ update msg model =
             ( { model
                 | blockSize = size
                 , numberOfBoards = min model.numberOfBoards (maxNumberOfBoards size)
+                , numberOfBoardsInput = String.fromInt (min model.numberOfBoards (maxNumberOfBoards size))
               }
             , Cmd.none
             )
@@ -456,6 +502,14 @@ update msg model =
                 ( model
                 , Cmd.none
                 )
+
+        GenerateYamlPressed ->
+            ( model
+            , File.Download.string
+                "archipeladoku.yaml"
+                "text/yaml"
+                (buildOptionsYaml model)
+            )
 
         GotCheckedLocations locationIds ->
             ( { model
@@ -708,7 +762,36 @@ update msg model =
             )
 
         NumberOfBoardsChanged value ->
-            ( { model | numberOfBoards = value }
+            ( { model
+                | numberOfBoards = value
+                , numberOfBoardsInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        NumberOfBoardsInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.numberOfBoardsInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.numberOfBoards
+                        |> clamp 0 (maxNumberOfBoards model.blockSize)
+            in
+            ( { model
+                | numberOfBoards = value
+                , numberOfBoardsInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        NumberOfBoardsInputChanged value ->
+            ( { model
+                | numberOfBoards =
+                    String.toInt value
+                        |> Maybe.withDefault model.numberOfBoards
+                , numberOfBoardsInput = value
+              }
             , Cmd.none
             )
 
@@ -775,7 +858,10 @@ update msg model =
                     , difficulty = model.difficulty
                     , numberOfBoards = model.numberOfBoards
                     , progression = model.progression
+                    , removeRandomCandidateRatio = model.removeRandomCandidateRatio
                     , seed = model.seedInput
+                    , solveRandomCellRatio = model.solveRandomCellRatio
+                    , solveSelectedCellRatio = model.solveSelectedCellRatio
                     }
                 )
             )
@@ -785,8 +871,81 @@ update msg model =
             , setLocalStorage ( "apdk-player", value )
             )
 
+        PlayerNameOptionChanged value ->
+            ( { model | playerNameOption = value }
+            , Cmd.none
+            )
+
+        PreFillNothingsPercentChanged value ->
+            ( { model
+                | preFillNothingsPercent = value
+                , preFillNothingsPercentInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        PreFillNothingsPercentInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.preFillNothingsPercentInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.preFillNothingsPercent
+                        |> clamp 0 100
+            in
+            ( { model
+                | preFillNothingsPercent = value
+                , preFillNothingsPercentInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        PreFillNothingsPercentInputChanged value ->
+            ( { model
+                | preFillNothingsPercent =
+                    String.toInt value
+                        |> Maybe.withDefault model.preFillNothingsPercent
+                , preFillNothingsPercentInput = value
+              }
+            , Cmd.none
+            )
+
         ProgressionChanged value ->
             ( { model | progression = value }
+            , Cmd.none
+            )
+
+        ProgressionBalancingChanged value ->
+            ( { model
+                | progressionBalancing = value
+                , progressionBalancingInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        ProgressionBalancingInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.progressionBalancingInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.progressionBalancing
+                        |> clamp 0 99
+            in
+            ( { model
+                | progressionBalancing = value
+                , progressionBalancingInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        ProgressionBalancingInputChanged value ->
+            ( { model
+                | progressionBalancing =
+                    String.toInt value
+                        |> Maybe.withDefault model.progressionBalancing
+                , progressionBalancingInput = value
+              }
             , Cmd.none
             )
 
@@ -874,6 +1033,40 @@ update msg model =
                       }
                     , Cmd.none
                     )
+
+        RemoveRandomCandidateRatioChanged value ->
+            ( { model
+                | removeRandomCandidateRatio = value
+                , removeRandomCandidateRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        RemoveRandomCandidateRatioInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.removeRandomCandidateRatioInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.removeRandomCandidateRatio
+                        |> clamp 0 maxRatio
+            in
+            ( { model
+                | removeRandomCandidateRatio = value
+                , removeRandomCandidateRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        RemoveRandomCandidateRatioInputChanged value ->
+            ( { model
+                | removeRandomCandidateRatio =
+                    String.toInt value
+                        |> Maybe.withDefault model.removeRandomCandidateRatio
+                , removeRandomCandidateRatioInput = value
+              }
+            , Cmd.none
+            )
 
         ScoutLocationPressed id ->
             if model.gameIsLocal then
@@ -1078,6 +1271,40 @@ update msg model =
                     , Cmd.none
                     )
 
+        SolveRandomCellRatioChanged value ->
+            ( { model
+                | solveRandomCellRatio = value
+                , solveRandomCellRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        SolveRandomCellRatioInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.solveRandomCellRatioInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.solveRandomCellRatio
+                        |> clamp 0 maxRatio
+            in
+            ( { model
+                | solveRandomCellRatio = value
+                , solveRandomCellRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        SolveRandomCellRatioInputChanged value ->
+            ( { model
+                | solveRandomCellRatio =
+                    String.toInt value
+                        |> Maybe.withDefault model.solveRandomCellRatio
+                , solveRandomCellRatioInput = value
+              }
+            , Cmd.none
+            )
+
         SolveSelectedCellPressed ->
             if not (Set.member model.selectedCell model.visibleCells) then
                 ( { model
@@ -1130,6 +1357,40 @@ update msg model =
                 , Cmd.none
                 )
                     |> andThen updateState
+
+        SolveSelectedCellRatioChanged value ->
+            ( { model
+                | solveSelectedCellRatio = value
+                , solveSelectedCellRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        SolveSelectedCellRatioInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.solveSelectedCellRatioInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.solveSelectedCellRatio
+                        |> clamp 0 maxRatio
+            in
+            ( { model
+                | solveSelectedCellRatio = value
+                , solveSelectedCellRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        SolveSelectedCellRatioInputChanged value ->
+            ( { model
+                | solveSelectedCellRatio =
+                    String.toInt value
+                        |> Maybe.withDefault model.solveSelectedCellRatio
+                , solveSelectedCellRatioInput = value
+              }
+            , Cmd.none
+            )
 
         SolveSingleCandidatesPressed ->
             let
@@ -1333,7 +1594,10 @@ type alias GenerateArgs =
     , difficulty : Int
     , numberOfBoards : Int
     , progression : Progression
+    , removeRandomCandidateRatio : Int
     , seed : Int
+    , solveRandomCellRatio : Int
+    , solveSelectedCellRatio : Int
     }
 
 
@@ -1445,7 +1709,7 @@ type LocationScouting
 
 
 ---
--- JSON encoding/decoding
+-- Encoding/decoding
 ---
 
 
@@ -1626,7 +1890,10 @@ encodeGenerateArgs args =
         , ( "difficulty", Encode.int args.difficulty )
         , ( "numberOfBoards", Encode.int args.numberOfBoards )
         , ( "progression", encodeProgression args.progression )
+        , ( "removeRandomCandidateRatio", Encode.int args.removeRandomCandidateRatio )
         , ( "seed", Encode.int args.seed )
+        , ( "solveRandomCellRatio", Encode.int args.solveRandomCellRatio )
+        , ( "solveSelectedCellRatio", Encode.int args.solveSelectedCellRatio )
         ]
 
 
@@ -1836,6 +2103,96 @@ hintDecoder =
         |> DecodeExtra.andMap (Decode.field "receiverAlias" Decode.string)
         |> DecodeExtra.andMap (Decode.field "receiverName" Decode.string)
         |> DecodeExtra.andMap (Decode.field "gameName" Decode.string)
+
+
+buildOptionsYaml : Model -> String
+buildOptionsYaml model =
+    Yaml.Encode.toString 4
+        (Yaml.Encode.record
+            [ ( "name", Yaml.Encode.string model.playerNameOption )
+            , ( "description", Yaml.Encode.string "Archipeladoku options generated from client." )
+            , ( "game", Yaml.Encode.string "Archipeladoku" )
+            , ( "requires"
+              , Yaml.Encode.record
+                    [ ( "version", Yaml.Encode.string "0.6.3" )
+                    ]
+              )
+            , ( "Archipeladoku"
+              , Yaml.Encode.record
+                    [ ( "progression_balancing", yamlRecordValue <| String.fromInt model.progressionBalancing )
+                    , ( "accessibility", yamlRecordValue "full" )
+                    , ( "block_size", yamlRecordValue <| String.fromInt model.blockSize )
+                    , ( "boards_per_cluster", yamlRecordValue <| String.fromInt model.boardsPerCluster )
+                    , ( "number_of_boards", yamlRecordValue <| String.fromInt model.numberOfBoards )
+                    , ( "difficulty", yamlRecordValue <| difficultyToString model.difficulty )
+                    , ( "progression", yamlRecordValue <| progressionToString model.progression )
+                    , ( "location_scouting", yamlRecordValue <| locationScoutingToString model.locationScouting )
+                    , ( "solve_selected_cell_ratio", yamlRecordValue <| String.fromInt model.solveSelectedCellRatio )
+                    , ( "solve_random_cell_ratio", yamlRecordValue <| String.fromInt model.solveRandomCellRatio )
+                    , ( "remove_random_candidate_ratio", yamlRecordValue <| String.fromInt model.removeRandomCandidateRatio )
+                    , ( "pre_fill_nothings_percent", yamlRecordValue <| String.fromInt model.preFillNothingsPercent )
+                    , ( "local_items", Yaml.Encode.list Yaml.Encode.string [] )
+                    , ( "non_local_items", Yaml.Encode.list Yaml.Encode.string [] )
+                    , ( "start_inventory", Yaml.Encode.record [] )
+                    , ( "start_hints", Yaml.Encode.list Yaml.Encode.string [] )
+                    , ( "start_location_hints", Yaml.Encode.list Yaml.Encode.string [] )
+                    , ( "exclude_locations", Yaml.Encode.list Yaml.Encode.string [] )
+                    , ( "priority_locations", Yaml.Encode.list Yaml.Encode.string [] )
+                    , ( "item_links", Yaml.Encode.list Yaml.Encode.string [] )
+                    , ( "plando_items", Yaml.Encode.list Yaml.Encode.string [] )
+                    ]
+              )
+            ]
+        )
+
+
+yamlRecordValue : String -> Yaml.Encode.Encoder
+yamlRecordValue value =
+    Yaml.Encode.record
+        [ ( value, Yaml.Encode.int 50 )
+        ]
+
+
+difficultyToString : Int -> String
+difficultyToString difficulty =
+    case difficulty of
+        1 ->
+            "beginner"
+
+        2 ->
+            "easy"
+
+        3 ->
+            "medium"
+
+        4 ->
+            "hard"
+
+        _ ->
+            "unknown"
+
+
+progressionToString : Progression -> String
+progressionToString progression =
+    case progression of
+        Fixed ->
+            "fixed"
+
+        Shuffled ->
+            "shuffled"
+
+
+locationScoutingToString : LocationScouting -> String
+locationScoutingToString locationScouting =
+    case locationScouting of
+        ScoutingAuto ->
+            "auto"
+
+        ScoutingManual ->
+            "manual"
+
+        ScoutingDisabled ->
+            "disabled"
 
 
 ---
@@ -2924,6 +3281,11 @@ maxMessages =
     500
 
 
+maxRatio : Int
+maxRatio =
+    5000
+
+
 blockSizeToDimensions : Int -> ( Int, Int )
 blockSizeToDimensions blockSize =
     case blockSize of
@@ -3176,74 +3538,139 @@ view model =
 viewMenu : Model -> Html Msg
 viewMenu model =
     Html.div
-        [ HA.class "column gap-xl"
-        , HA.style "padding" "var(--spacing-l)"
+        [ HA.class "main-menu"
         ]
-        [ Html.div
-            [ HA.class "column gap-m"
-            , HA.style "align-items" "start"
+        [ Html.h1
+            []
+            [ Html.text "Archipeladoku" ]
+        , viewMenuConnect model
+        , viewMenuOptions model
+        ]
+
+
+viewMenuConnect : Model -> Html Msg
+viewMenuConnect model =
+    Html.div
+        [ HA.class "main-menu-panel"
+        ]
+        [ Html.h2
+            []
+            [ Html.text "Connect to Archipelago" ]
+        , Html.form
+            [ HA.class "row gap-m wrap"
+            , HE.onSubmit ConnectPressed
             ]
-            [ Html.h2
-                [ HA.style "margin" "0" ]
-                [ Html.text "Connect to Archipelago" ]
-            , Html.form
-                [ HA.class "row gap-m wrap"
-                , HE.onSubmit ConnectPressed
+            [ Html.label
+                [ HA.class "column"
                 ]
-                [ Html.label
-                    [ HA.class "column"
+                [ Html.text "Host:"
+                , Html.input
+                    [ HA.class "input"
+                    , HA.type_ "text"
+                    , HA.placeholder "archipelago.gg:12345"
+                    , HA.value model.host
+                    , HE.onInput HostInputChanged
                     ]
-                    [ Html.text "Host:"
-                    , Html.input
-                        [ HA.type_ "text"
-                        , HA.placeholder "archipelago.gg:12345"
-                        , HA.value model.host
-                        , HE.onInput HostInputChanged
-                        ]
-                        []
-                    ]
-                , Html.label
-                    [ HA.class "column"
-                    ]
-                    [ Html.text "Slot Name:"
-                    , Html.input
-                        [ HA.type_ "text"
-                        , HA.placeholder "Player1"
-                        , HA.value model.player
-                        , HE.onInput PlayerInputChanged
-                        ]
-                        []
-                    ]
-                , Html.label
-                    [ HA.class "column"
-                    ]
-                    [ Html.text "Password:"
-                    , Html.input
-                        [ HA.type_ "text"
-                        , HA.placeholder "Leave blank if no password"
-                        , HA.value model.password
-                        , HE.onInput PasswordInputChanged
-                        ]
-                        []
-                    ]
-                , Html.button
-                    [ HA.class "button"
-                    , HA.style "align-self" "end"
-                    ]
-                    [ Html.text "Connect"]
+                    []
                 ]
+            , Html.label
+                [ HA.class "column"
+                ]
+                [ Html.text "Slot Name:"
+                , Html.input
+                    [ HA.class "input"
+                    , HA.type_ "text"
+                    , HA.placeholder "Player1"
+                    , HA.value model.player
+                    , HE.onInput PlayerInputChanged
+                    ]
+                    []
+                ]
+            , Html.label
+                [ HA.class "column"
+                ]
+                [ Html.text "Password:"
+                , Html.input
+                    [ HA.class "input"
+                    , HA.type_ "text"
+                    , HA.placeholder "Leave blank if no password"
+                    , HA.value model.password
+                    , HE.onInput PasswordInputChanged
+                    ]
+                    []
+                ]
+            , Html.button
+                [ HA.class "button"
+                , HA.style "align-self" "end"
+                ]
+                [ Html.text "Connect"]
+            ]
+        ]
+
+
+
+viewMenuOptions : Model -> Html Msg
+viewMenuOptions model =
+    Html.div
+        [ HA.class "main-menu-panel"
+        ]
+        [ Html.h2
+            []
+            [ Html.text "Play Local Game / Generate YAML" ]
+        , Html.div
+            [ HA.style "display" "grid"
+            , HA.style "grid-template-columns" "repeat(auto-fit, minmax(300px, 1fr))"
+            , HA.style "gap" "var(--spacing-l)"
+            ]
+            [ viewMenuOptionsBoard model
+            , viewMenuOptionsFiller model
+            , viewMenuOptionsArchipelago model
+            , viewMenuOptionsLocalPlay model
             ]
         , Html.div
-            [ HA.class "column gap-m"
-            , HA.style "align-items" "start"
+            [ HA.style "display" "grid"
+            , HA.style "grid-template-columns" "repeat(auto-fit, minmax(300px, 1fr))"
+            , HA.style "gap" "var(--spacing-l)"
             ]
-            [ Html.h2
-                [ HA.style "margin" "0" ]
+            [ Html.button
+                [ HA.class "button"
+                , HE.onClick GenerateYamlPressed
+                ]
+                [ Html.text "Generate YAML" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick PlayLocalPressed
+                ]
                 [ Html.text "Play Local Game" ]
-            , Html.div
+            ]
+        ]
+
+
+viewMenuOptionsBoard : Model -> Html Msg
+viewMenuOptionsBoard model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Board Options" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            ]
+            [ Html.div
                 [ HA.class "column gap-s"
                 ]
-                [ Html.text "Block Size:"
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Block Size:"
+                    , viewOptionHint
+                        "block-size-hint"
+                        "The size of each block, and the width/height of each board. A standard Sudoku is 9."
+                    ]
                 , Html.div
                     [ HA.class "row gap-m wrap"
                     ]
@@ -3257,7 +3684,16 @@ viewMenu model =
             , Html.div
                 [ HA.class "column gap-s"
                 ]
-                [ Html.text "Boards per Cluster: "
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Boards per Cluster: "
+                    , viewOptionHint
+                        "boards-per-cluster-hint"
+                        "How many boards to put in each cluster of overlapping boards. 1 disables clustering."
+                    ]
                 , Html.div
                     [ HA.class "row gap-m wrap"
                     ]
@@ -3275,30 +3711,71 @@ viewMenu model =
             , Html.div
                 [ HA.class "column gap-s"
                 ]
-                [ Html.text "Number of Boards: "
-                , Html.text (String.fromInt model.numberOfBoards)
-                , viewRangeSlider
-                    model.numberOfBoards
-                    1
-                    (maxNumberOfBoards model.blockSize)
-                    NumberOfBoardsChanged
-                    (Just "number-of-boards-ticks")
-                , Html.datalist
-                    [ HA.id "number-of-boards-ticks"
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
                     ]
-                    (List.map
-                        (\tick ->
-                            Html.option
-                                [ HA.value (String.fromInt tick) ]
-                                []
+                    [ Html.text "Number of Boards:"
+                    , viewOptionHint
+                        "number-of-boards-hint"
+                        "The total number of boards in the puzzle."
+                    ]
+                , Html.div
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.class "input"
+                        , HA.type_ "number"
+                        , HA.style "width" "3em"
+                        , HA.min "1"
+                        , HA.max (String.fromInt <| maxNumberOfBoards model.blockSize)
+                        , HA.value model.numberOfBoardsInput
+                        , HE.onBlur NumberOfBoardsInputBlurred
+                        , HE.onInput NumberOfBoardsInputChanged
+                        ]
+                        []
+                    , viewRangeSlider
+                        model.numberOfBoards
+                        1
+                        (maxNumberOfBoards model.blockSize)
+                        NumberOfBoardsChanged
+                        (Just "number-of-boards-ticks")
+                    , Html.datalist
+                        [ HA.id "number-of-boards-ticks"
+                        ]
+                        (List.map
+                            (\tick ->
+                                Html.option
+                                    [ HA.value (String.fromInt tick) ]
+                                    []
+                            )
+                            (numberOfBoardsTicks model.boardsPerCluster)
                         )
-                        (numberOfBoardsTicks model.boardsPerCluster)
-                    )
+                    ]
                 ]
             , Html.div
                 [ HA.class "column gap-s"
                 ]
-                [ Html.text "Difficulty:"
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Difficulty:"
+                    , viewOptionHint
+                        "difficulty-hint"
+                        (String.join
+                            "\n"
+                            [ "The overall difficulty level. Potential solving techniques required:"
+                            , " - Beginner: Naked/hidden singles."
+                            , " - Easy: Pointing pairs, box line reduction."
+                            , " - Medium: Naked pairs/triples."
+                            , " - Hard: Hidden pairs/triples."
+                            ]
+                        )
+                    ]
                 , Html.div
                     [ HA.class "row gap-m wrap"
                     ]
@@ -3311,7 +3788,22 @@ viewMenu model =
             , Html.div
                 [ HA.class "column gap-s"
                 ]
-                [ Html.text "Progression:"
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Progression:"
+                    , viewOptionHint
+                        "progression-style-hint"
+                        (String.join
+                            "\n"
+                            [  "How blocks are unlocked during the game:"
+                            ,  " - Fixed: Blocks are unlocked by progressive block items in a fixed order. Smoother progression."
+                            ,  " - Shuffled: Blocks are unlocked by specific block items. More chaotic progression."
+                            ]
+                        )
+                    ]
                 , Html.div
                     [ HA.class "row gap-m wrap"
                     ]
@@ -3319,26 +3811,267 @@ viewMenu model =
                     , viewRadioButton Fixed model.progression "progression" ProgressionChanged (\_ -> "Fixed")
                     ]
                 ]
-            , Html.div
-                [ HA.class "row gap-s"
-                , HA.style "align-items" "baseline"
-                , HA.min "0"
-                , HA.max (String.fromInt Random.maxInt)
+            ]
+        ]
+
+
+viewMenuOptionsFiller : Model -> Html Msg
+viewMenuOptionsFiller model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Filler Options" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            ]
+            [ Html.datalist
+                [ HA.id "filler-ratio-ticks"
                 ]
-                [ Html.text "Seed:"
+                (List.map
+                    (\tick ->
+                        Html.option
+                            [ HA.value (String.fromInt tick) ]
+                            []
+                    )
+                    (List.range 0 10
+                        |> List.map ((*) 50)
+                    )
+                )
+            , viewRatioInputs
+                { label = "Solve Selected Cell Ratio:"
+                , hint = "Ratio of Solve Selected Cell items to number of boards."
+                , hintId = "solve-selected-cell-ratio-hint"
+                , value = model.solveSelectedCellRatio
+                , inputValue = model.solveSelectedCellRatioInput
+                , onBlur = SolveSelectedCellRatioInputBlurred
+                , onInput = SolveSelectedCellRatioInputChanged
+                , onRangeChange = SolveSelectedCellRatioChanged
+                }
+            , viewRatioInputs
+                { label = "Solve Random Cell Ratio:"
+                , hint = "Ratio of Solve Random Cell items to number of boards."
+                , hintId = "solve-random-cell-ratio-hint"
+                , value = model.solveRandomCellRatio
+                , inputValue = model.solveRandomCellRatioInput
+                , onBlur = SolveRandomCellRatioInputBlurred
+                , onInput = SolveRandomCellRatioInputChanged
+                , onRangeChange = SolveRandomCellRatioChanged
+                }
+            , viewRatioInputs
+                { label = "Remove Random Candidate Ratio:"
+                , hint = "Ratio of Remove Random Candidate items to number of boards."
+                , hintId = "remove-random-candidate-ratio-hint"
+                , value = model.removeRandomCandidateRatio
+                , inputValue = model.removeRandomCandidateRatioInput
+                , onBlur = RemoveRandomCandidateRatioInputBlurred
+                , onInput = RemoveRandomCandidateRatioInputChanged
+                , onRangeChange = RemoveRandomCandidateRatioChanged
+                }
+            ]
+        ]
+
+
+viewMenuOptionsLocalPlay : Model -> Html Msg
+viewMenuOptionsLocalPlay model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Local Game Options" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            ]
+            [ Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Seed:"
+                    , viewOptionHint
+                        "seed-hint"
+                        "The seed for the random number generator used to generate the puzzle. A seed will always produce the same puzzle if given the same options."
+                    ]
                 , Html.input
-                    [ HA.type_ "number"
+                    [ HA.class "input"
+                    , HA.type_ "number"
+                    , HA.min "0"
+                    , HA.max (String.fromInt Random.maxInt)
                     , HA.value (String.fromInt model.seedInput)
                     , HE.onInput SeedInputChanged
                     ]
                     []
                 ]
-            , Html.button
-                [ HA.class "button"
-                , HE.onClick PlayLocalPressed
-                ]
-                [ Html.text "Play" ]
             ]
+        ]
+
+
+viewMenuOptionsArchipelago : Model -> Html Msg
+viewMenuOptionsArchipelago model =
+    Html.details
+        [ HA.class "info-panel-details"
+        , HA.attribute "open" "true"
+        ]
+        [ Html.summary
+            []
+            [ Html.text "Archipelago Options" ]
+        , Html.div
+            [ HA.class "column gap-m"
+            ]
+            [ Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Player Name:"
+                    , viewOptionHint
+                        "player-name-hint"
+                        (String.join
+                            "\n"
+                            [ "Your name in-game, limited to 16 characters."
+                            , " - {player} will be replaced with the player's slot number."
+                            , " - {PLAYER} will be replaced with the player's slot number, if that slot number is greater than 1."
+                            , " - {number} will be replaced with the counter value of the name."
+                            , " - {NUMBER} will be replaced with the counter value of the name, if the counter value is greater than 1."
+                            ]
+                        )
+                    ]
+                , Html.input
+                    [ HA.class "input"
+                    , HA.type_ "text"
+                    , HA.value model.playerNameOption
+                    , HE.onInput PlayerNameOptionChanged
+                    ]
+                    []
+                ]
+            , Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Pre-fill Nothings Percent"
+                    , viewOptionHint
+                        "pre-fill-nothings-percent-hint"
+                        (String.join
+                            "\n"
+                            [ "Percentage of Nothing items that should be pre-filled, forcing them to be placed in an Archipeladoku game and thus excluding them from other games."
+                            , "Caution: This reduces the number of filler items in the item pool. Having few fillers can lead to increased generation times or even generation failures."
+                            ]
+                        )
+                    ]
+                , Html.div
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.class "input"
+                        , HA.type_ "number"
+                        , HA.style "width" "3em"
+                        , HA.min "1"
+                        , HA.max "100"
+                        , HA.value model.preFillNothingsPercentInput
+                        , HE.onBlur PreFillNothingsPercentInputBlurred
+                        , HE.onInput PreFillNothingsPercentInputChanged
+                        ]
+                        []
+                    , viewRangeSlider
+                        model.preFillNothingsPercent
+                        0
+                        100
+                        PreFillNothingsPercentChanged
+                        (Just "pre-fill-nothings-percent-ticks")
+                    , Html.datalist
+                        [ HA.id "pre-fill-nothings-percent-ticks"
+                        ]
+                        (List.map
+                            (\tick ->
+                                Html.option
+                                    [ HA.value (String.fromInt tick) ]
+                                    []
+                            )
+                            [ 0, 25, 50, 75, 100 ]
+                        )
+                    ]
+                ]
+            , Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Progression Balancing:"
+                    , viewOptionHint
+                        "progression-balancing-hint"
+                        "A system that can move progression earlier, to try and prevent the player from getting stuck and bored early. A lower setting means more getting stuck. A higher setting means less getting stuck."
+                    ]
+                , Html.div
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.class "input"
+                        , HA.type_ "number"
+                        , HA.style "width" "3em"
+                        , HA.min "0"
+                        , HA.max "99"
+                        , HA.value model.progressionBalancingInput
+                        , HE.onBlur ProgressionBalancingInputBlurred
+                        , HE.onInput ProgressionBalancingInputChanged
+                        ]
+                        []
+                    , viewRangeSlider
+                        model.progressionBalancing
+                        0
+                        99
+                        ProgressionBalancingChanged
+                        (Just "progression-balancing-ticks")
+                    , Html.datalist
+                        [ HA.id "progression-balancing-ticks"
+                        ]
+                        (List.map
+                            (\tick ->
+                                Html.option
+                                    [ HA.value (String.fromInt tick) ]
+                                    []
+                            )
+                            [ 0, 50, 99 ]
+                        )
+                    ]
+                ]
+            ]
+        ]
+
+
+viewOptionHint : String -> String -> Html Msg
+viewOptionHint id text =
+    Html.div
+        []
+        [ Html.button
+            [ HA.class "option-hint-button"
+            , HA.attribute "popovertarget" id
+            ]
+            [ Html.text "?" ]
+        , Html.div
+            [ HA.id id
+            , HA.class "option-hint"
+            , HA.attribute "popover" "auto"
+            ]
+            [ Html.text text ]
         ]
 
 
@@ -3372,10 +4105,59 @@ viewRangeSlider value min max msg list =
         , HA.max (String.fromInt max)
         , HA.value (String.fromInt value)
         , HAE.attributeMaybe HA.list list
-        , HA.style "width" "250px"
+        , HA.style "flex-grow" "1"
         , HE.onInput (String.toInt >> Maybe.withDefault value >> msg)
         ]
         []
+
+
+viewRatioInputs :
+    { label : String
+    , hint : String
+    , hintId : String
+    , value : Int
+    , inputValue : String
+    , onBlur : Msg
+    , onInput : String -> Msg
+    , onRangeChange : Int -> Msg
+    }
+    -> Html Msg
+viewRatioInputs args =
+    Html.div
+        [ HA.class "column gap-s"
+        ]
+        [ Html.div
+            [ HA.class "row gap-m"
+            , HA.style "align-items" "center"
+            , HA.style "justify-content" "space-between"
+            ]
+            [ Html.text args.label
+            , viewOptionHint args.hintId args.hint
+            ]
+        , Html.div
+            [ HA.class "row gap-s"
+            , HA.style "align-items" "center"
+            ]
+            [ Html.input
+                [ HA.class "input"
+                , HA.type_ "number"
+                , HA.style "width" "4em"
+                , HA.min "0"
+                , HA.max (String.fromInt maxRatio)
+                , HA.value args.inputValue
+                , HE.onBlur args.onBlur
+                , HE.onInput args.onInput
+                ]
+                []
+            , Html.text "%"
+            , viewRangeSlider
+                args.value
+                0
+                500
+                args.onRangeChange
+                (Just "filler-ratio-ticks")
+            ]
+        ]
 
 
 viewBoard : Model -> Html Msg

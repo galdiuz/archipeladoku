@@ -59,9 +59,9 @@ class Difficulty(Choice):
 
 
 class Progression(Choice):
-    """The type of progression for unlocking blocks.
-    - Fixed: Each block is unlocked in a predetermined order. Smoother progression.
-    - Shuffled: Each block is unlocked by a specific check. More chaotic progression.
+    """How blocks are unlocked during the game.
+    - Fixed: Blocks are unlocked by progressive block items in a fixed order. Smoother progression.
+    - Shuffled: Blocks are unlocked by specific block items. More chaotic progression.
     """
     display_name = "Block Unlocks"
     option_fixed = "fixed"
@@ -83,33 +83,33 @@ class LocationScouting(Choice):
 
 
 class SolveSelectedCellRatio(Range):
-    """Ratio of Solve Selected Cell filler items in relation to number of boards, in percent."""
+    """Ratio of Solve Selected Cell filler items to number of boards, in percent."""
     display_name = "Filler Ratio: Solve Selected Cell"
     range_start = 0
-    range_end = 1000
+    range_end = 5000
     default = 100
 
 
 class SolveRandomCellRatio(Range):
-    """Ratio of Solve Random Cell filler items in relation to number of boards, in percent."""
+    """Ratio of Solve Random Cell filler items to number of boards, in percent."""
     display_name = "Filler Ratio: Solve Random Cell"
     range_start = 0
-    range_end = 1000
+    range_end = 5000
     default = 150
 
 
 class RemoveRandomCandidateRatio(Range):
-    """Ratio of Remove Random Candidate filler items in relation to number of boards, in percent."""
+    """Ratio of Remove Random Candidate filler items to number of boards, in percent."""
     display_name = "Filler Ratio: Remove Random Candidate"
     range_start = 0
-    range_end = 1000
+    range_end = 5000
     default = 300
 
 
 class PreFillNothingsPercent(Range):
     """Percentage of Nothing items that should be pre-filled, forcing them to be placed in
     an Archipeladoku game and thus excluding them from other games.
-    Caution: This increases generation time, especially for higher percentages.
+    Caution: This reduces the number of filler items in the item pool. Having few fillers can lead to increased generation times or even generation failures.
     """
     display_name = "Pre-fill Nothings Percentage"
     range_start = 0

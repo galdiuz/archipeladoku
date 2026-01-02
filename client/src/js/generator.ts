@@ -38,7 +38,10 @@ interface GenerateLocalArgs {
     difficulty: number
     numberOfBoards: number
     progression: Progression
+    removeRandomCandidateRatio: number
     seed: number
+    solveRandomCellRatio: number
+    solveSelectedCellRatio: number
 }
 
 
@@ -221,9 +224,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
     const [ blockUnlockOrder, unlockMap ]: [number[], Map<number, number>] = "blockUnlockOrder" in args
         ? [args.blockUnlockOrder, new Map()]
         : buildUnlocks(
-            args.blockSize,
-            args.numberOfBoards,
-            args.progression,
+            args,
             puzzleAreas.blocks,
             clusters,
             rng
@@ -540,9 +541,7 @@ function buildClusters(positions: Cell[], rng: () => number): Cell[][] {
 
 
 function buildUnlocks(
-    blockSize: number,
-    numberOfBoards: number,
-    progression: Progression,
+    args: GenerateLocalArgs,
     allBlocks: Area[],
     clusters: Cell[][],
     rng: () => number,
@@ -569,7 +568,7 @@ function buildUnlocks(
         lockedClusters.set(i, unlockMapCluster)
 
         for (const [startRow, startCol] of cluster) {
-            let boardAreas = buildPuzzleAreas(blockSize, startRow, startCol)
+            let boardAreas = buildPuzzleAreas(args.blockSize, startRow, startCol)
 
             for (const block of boardAreas.blocks) {
                 const blockKey = getCellIndex(block.startRow, block.startCol)
@@ -612,7 +611,7 @@ function buildUnlocks(
 
         for (const cluster of lockedClusters.values()) {
             const remaining = intersectMaps(cluster.blocks, remainingBlocks).size
-            cluster.weight = blockSize - remaining + 1
+            cluster.weight = args.blockSize - remaining + 1
         }
 
         const lockedClustersArray = Array.from(lockedClusters.values())
@@ -657,52 +656,63 @@ function buildUnlocks(
         blockUnlockOrder.push(...toAdd)
     }
 
-    if (progression === 'fixed') {
+    if (args.progression === 'fixed') {
         for (const locationId of unlockMap.keys()) {
             unlockMap.set(locationId, progressiveBlockId)
         }
     }
 
-    addFillers(numberOfBoards, unlockMap, solvableLocations, rng)
+    addFillers(args, unlockMap, solvableLocations, rng)
 
     return [ blockUnlockOrder, unlockMap ]
 }
 
 
 function addFillers(
-    numberOfBoards: number,
+    args: GenerateLocalArgs,
     unlockMap: Map<number, number>,
     solvableLocations: Map<number, UnlockLocation>,
     rng: () => number,
 ) {
-    const fillerDefinitions = [
-        {
-            id: solveSelectedCellId,
-            count: Math.floor(numberOfBoards * 1.0),
-        },
-        {
-            id: solveRandomCellId,
-            count: Math.floor(numberOfBoards * 1.5),
-        },
-        {
-            id: removeRandomCandidateId,
-            count: Math.floor(numberOfBoards * 3.0),
-        },
-    ]
-    const desiredTotal = fillerDefinitions.reduce((sum, def) => sum + def.count, 0)
+    const ratios = new Map<number, number>()
 
-    if (desiredTotal > solvableLocations.size) {
-        const scale = solvableLocations.size / desiredTotal
-        for (const def of fillerDefinitions) {
-            def.count = Math.ceil(def.count * scale)
+    ratios.set(removeRandomCandidateId, args.removeRandomCandidateRatio)
+    ratios.set(solveRandomCellId, args.solveRandomCellRatio)
+    ratios.set(solveSelectedCellId, args.solveSelectedCellRatio)
+
+    const fillerCounts = new Map<number, number>()
+
+    for (const [id, ratio] of ratios.entries()) {
+        fillerCounts.set(id, Math.ceil(args.numberOfBoards * (ratio / 100.0)))
+    }
+
+    const initialTotal = Array.from(fillerCounts.values()).reduce((sum, count) => sum + count, 0)
+    const targetTotal = solvableLocations.size
+
+    if (initialTotal > targetTotal) {
+        const scale = targetTotal / currentTotal
+        for (const [id, count] of fillerCounts.entries()) {
+            fillerCounts.set(id, Math.floor(count * scale))
+        }
+
+        const totalAfterScaling = Array.from(fillerCounts.values()).reduce((sum, count) => sum + count, 0)
+        const toAdd = targetTotal - totalAfterScaling
+
+        for (let i = 0; i < toAdd; i++) {
+            const bestKey = Array.from(fillerCounts.keys()).reduce((a, b) => {
+                const ratioA = ratios.get(a)! - (fillerCounts.get(a)! * 100.0 / args.numberOfBoards)
+                const ratioB = ratios.get(b)! - (fillerCounts.get(b)! * 100.0 / args.numberOfBoards)
+                return ratioA > ratioB ? a : b
+            })
+            fillerCounts.set(bestKey, fillerCounts.get(bestKey)! + 1)
         }
     }
 
     const fillers: number[] = []
 
-    for (const def of fillerDefinitions) {
-        for (let i = 0; i < def.count; i++) {
-            fillers.push(def.id)
+    for (const [id, count] of fillerCounts.entries()) {
+        for (let i = 0; i < count; i++) {
+            fillers.push(id)
         }
     }
 

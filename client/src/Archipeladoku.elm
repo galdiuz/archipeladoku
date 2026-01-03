@@ -4375,6 +4375,7 @@ viewCell model ( row, col ) =
             , HA.classList
                 [ ( "selected", model.selectedCell == ( row, col ) )
                 , ( "given", cellIsGiven model ( row, col ) && isVisible )
+                , ( "user-input", Maybe.Extra.isJust cellValue && (not <| cellIsGiven model ( row, col )) )
                 , ( "multi", cellIsMultiple )
                 , ( "hidden", not isVisible )
                 , ( "error", errorIsNumber && (not cellIsMultiple) && isVisible )

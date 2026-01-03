@@ -693,7 +693,7 @@ function addFillers(
     const targetTotal = solvableLocations.size
 
     if (initialTotal > targetTotal) {
-        const scale = targetTotal / currentTotal
+        const scale = targetTotal / initialTotal
         for (const [id, count] of fillerCounts.entries()) {
             fillerCounts.set(id, Math.floor(count * scale))
         }

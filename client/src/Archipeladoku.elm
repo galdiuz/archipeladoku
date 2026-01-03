@@ -156,6 +156,7 @@ type Msg
     | HighlightModeChanged HighlightMode
     | HintItemPressed String
     | HostInputChanged String
+    | LocationScoutingChanged LocationScouting
     | MessageInputChanged String
     | MoveSelectionPressed ( Int, Int )
     | NoOp
@@ -743,6 +744,11 @@ update msg model =
         HostInputChanged value ->
             ( { model | host = value }
             , setLocalStorage ( "apdk-host", value )
+            )
+
+        LocationScoutingChanged value ->
+            ( { model | locationScouting = value }
+            , Cmd.none
             )
 
         MessageInputChanged value ->
@@ -3809,6 +3815,49 @@ viewMenuOptionsBoard model =
                     ]
                     [ viewRadioButton Shuffled model.progression "progression" ProgressionChanged (\_ -> "Shuffled")
                     , viewRadioButton Fixed model.progression "progression" ProgressionChanged (\_ -> "Fixed")
+                    ]
+                ]
+            , Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Location Scouting:"
+                    , viewOptionHint
+                        "location-scouting-hint"
+                        (String.join
+                            "\n"
+                            [  "How scouting of locations (creating a hint) are handled:"
+                            ,  " - Auto: Locations are automatically scouted when fully reavealed."
+                            ,  " - Manual: Locations can be scouted when fully revealed by pressing a button."
+                            ,  " - Disabled: Locations cannot be scouted."
+                            ]
+                        )
+                    ]
+                , Html.div
+                    [ HA.class "row gap-m wrap"
+                    ]
+                    [ viewRadioButton
+                        ScoutingAuto
+                        model.locationScouting
+                        "location-scouting"
+                        LocationScoutingChanged
+                        (\_ -> "Auto")
+                    , viewRadioButton
+                        ScoutingManual
+                        model.locationScouting
+                        "location-scouting"
+                        LocationScoutingChanged
+                        (\_ -> "Manual")
+                    , viewRadioButton
+                        ScoutingDisabled
+                        model.locationScouting
+                        "location-scouting"
+                        LocationScoutingChanged
+                        (\_ -> "Disabled")
                     ]
                 ]
             ]

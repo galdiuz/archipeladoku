@@ -36,6 +36,7 @@ interface GenerateLocalArgs {
     blockSize: number
     boardsPerCluster?: number
     difficulty: number
+    emojiTrapRatio: number
     numberOfBoards: number
     progression: Progression
     removeRandomCandidateRatio: number
@@ -170,6 +171,7 @@ const solveRandomCellId = 1
 const removeRandomCandidateId = 2
 const progressiveBlockId = 101
 const solveSelectedCellId = 201
+const emojiTrapId = 401
 const nothingId = 99
 
 
@@ -679,6 +681,7 @@ function addFillers(
     ratios.set(removeRandomCandidateId, args.removeRandomCandidateRatio)
     ratios.set(solveRandomCellId, args.solveRandomCellRatio)
     ratios.set(solveSelectedCellId, args.solveSelectedCellRatio)
+    ratios.set(emojiTrapId, args.emojiTrapRatio)
 
     const fillerCounts = new Map<number, number>()
 

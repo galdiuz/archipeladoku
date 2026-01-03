@@ -276,7 +276,39 @@ h1, h2 {
     color: inherit;
     background-color: var(--color-button-bg);
     border: 1px solid var(--color-border);
-    box-shadow: 1px 1px 4px 0px var(--color-shadow);
+    box-shadow: 1px 1px 4px 2px var(--color-shadow);
+}
+
+.trap-timer-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-m);
+    position: absolute;
+    bottom: var(--spacing-m);
+    right: var(--spacing-m);
+    z-index: 50;
+    font-size: 0.5em;
+    background-color: var(--color-sub-bg);
+    border: 1px solid var(--color-border);
+    padding: var(--spacing-m);
+    box-shadow: 1px 1px 4px 2px var(--color-shadow);
+}
+
+.trap-timer-track {
+    width: 100%;
+    min-width: 180px;
+    height: 12px;
+    background-color: var(--color-cell-bg);
+    border: 1px solid var(--color-border);
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.trap-timer-fill {
+    height: 100%;
+    background-color: light-dark(hsl(var(--hue-primary), 60%, 50%), hsl(var(--hue-primary), 60%, 30%));
+    transition: width 0.1s linear;
 }
 
 .button:hover:not(:disabled),
@@ -394,7 +426,6 @@ h1, h2 {
     padding: 0;
     border: none;
     position: relative;
-    font-style: italic;
     cursor: pointer;
     content-visibility: auto;
     contain-intrinsic-size: 48px 48px;
@@ -416,12 +447,16 @@ h1, h2 {
 .cell.given {
     font-weight: 700;
     font-family: arial;
-    font-style: normal;
 }
 
 .cell.user-input {
+    font-style: italic;
     background-color: var(--color-cell-bg);
     background-image: none !important;
+}
+
+.emoji-trap .cell.user-input {
+    font-style: normal;
 }
 
 .cell.user-input:hover {

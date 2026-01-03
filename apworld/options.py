@@ -106,6 +106,14 @@ class RemoveRandomCandidateRatio(Range):
     default = 300
 
 
+class EmojiTrapRatio(Range):
+    """Ratio of Emoji Trap filler items to number of boards, in percent."""
+    display_name = "Filler Ratio: Emoji Trap"
+    range_start = 0
+    range_end = 5000
+    default = 40
+
+
 class PreFillNothingsPercent(Range):
     """Percentage of Nothing items that should be pre-filled, forcing them to be placed in
     an Archipeladoku game and thus excluding them from other games.
@@ -128,4 +136,5 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     solve_selected_cell_ratio: SolveSelectedCellRatio
     solve_random_cell_ratio: SolveRandomCellRatio
     remove_random_candidate_ratio: RemoveRandomCandidateRatio
+    emoji_trap_ratio: EmojiTrapRatio
     pre_fill_nothings_percent: PreFillNothingsPercent

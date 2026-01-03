@@ -20,9 +20,11 @@ import Maybe.Extra
 import List.Extra
 import Process
 import Random
+import Random.List
 import Set exposing (Set)
 import Set.Extra
 import Task
+import Time
 import Yaml.Encode
 
 
@@ -69,6 +71,11 @@ type alias Model =
     , colorScheme : String
     , current : Dict ( Int, Int ) CellValue
     , difficulty : Int
+    , emojiTrapMap : Dict Int String
+    , emojiTrapRatio : Int
+    , emojiTrapRatioInput : String
+    , emojiTrapTimer : Int
+    , emojiTrapVariant : EmojiTrapVariant
     , errors : Dict ( Int, Int ) CellError
     , generationProgress : ( String, Float )
     , gameIsLocal : Bool
@@ -139,6 +146,10 @@ type Msg
     | ConnectPressed
     | DeletePressed
     | DifficultyChanged Int
+    | EmojiTrapRatioChanged Int
+    | EmojiTrapRatioInputBlurred
+    | EmojiTrapRatioInputChanged String
+    | EmojiTrapVariantChanged String
     | EnableAnimationsChanged Bool
     | FillBoardCandidatesPressed
     | FillCellCandidatesPressed
@@ -181,6 +192,7 @@ type Msg
     | RemoveRandomCandidateRatioInputBlurred
     | RemoveRandomCandidateRatioInputChanged String
     | ScoutLocationPressed Int
+    | SecondPassed
     | SeedInputChanged String
     | SelectSingleCandidateCellPressed
     | SelectSolvableBoardPressed
@@ -199,6 +211,7 @@ type Msg
     | SolveSingleCandidatesPressed
     | ToggleCandidateModePressed
     | ToggleHighlightModePressed
+    | TriggerEmojiTrapPressed
     | UndoPressed
     | UnlockSelectedBlockPressed
     | ZoomInPressed
@@ -237,6 +250,11 @@ init flagsValue =
       , colorScheme = "light dark"
       , current = Dict.empty
       , difficulty = 2
+      , emojiTrapMap = Dict.empty
+      , emojiTrapRatio = 40
+      , emojiTrapRatioInput = "40"
+      , emojiTrapTimer = 1
+      , emojiTrapVariant = EmojiTrapRandom
       , errors = Dict.empty
       , generationProgress = ( "", 0 )
       , gameIsLocal = False
@@ -315,6 +333,11 @@ subscriptions model =
         , receiveItems GotItems
         , receiveMessage GotMessage
         , receiveSlotData GotSlotData
+        , if model.emojiTrapTimer > 0 then
+            Time.every 1000 (\_ -> SecondPassed)
+
+          else
+            Sub.none
         ]
 
 
@@ -432,6 +455,46 @@ update msg model =
             ( { model | difficulty = value }
             , Cmd.none
             )
+
+        EmojiTrapRatioChanged value ->
+            ( { model
+                | emojiTrapRatio = value
+                , emojiTrapRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        EmojiTrapRatioInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.emojiTrapRatioInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.emojiTrapRatio
+                        |> clamp 0 maxRatio
+            in
+            ( { model
+                | emojiTrapRatio = value
+                , emojiTrapRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        EmojiTrapRatioInputChanged value ->
+            ( { model
+                | emojiTrapRatio =
+                    String.toInt value
+                        |> Maybe.withDefault model.emojiTrapRatio
+                , emojiTrapRatioInput = value
+              }
+            , Cmd.none
+            )
+
+        EmojiTrapVariantChanged value ->
+            ( { model | emojiTrapVariant = emojiTrapVariantFromString value }
+            , setLocalStorage ( "apdk-emoji-trap-variant", value )
+            )
+                |> andThen updateEmojiTrapMap
 
         EnableAnimationsChanged value ->
             ( { model | animationsEnabled = value }
@@ -862,6 +925,7 @@ update msg model =
                     { blockSize = model.blockSize
                     , boardsPerCluster = model.boardsPerCluster
                     , difficulty = model.difficulty
+                    , emojiTrapRatio = model.emojiTrapRatio
                     , numberOfBoards = model.numberOfBoards
                     , progression = model.progression
                     , removeRandomCandidateRatio = model.removeRandomCandidateRatio
@@ -1093,6 +1157,18 @@ update msg model =
                 ( model
                 , scoutLocations [ id ]
                 )
+
+        SecondPassed ->
+            ( { model
+                | emojiTrapTimer =
+                    if model.emojiTrapTimer > 0 then
+                        model.emojiTrapTimer - 1
+
+                    else
+                        0
+              }
+            , Cmd.none
+            )
 
         SeedInputChanged value ->
             ( { model
@@ -1494,6 +1570,12 @@ update msg model =
             , Cmd.none
             )
 
+        TriggerEmojiTrapPressed ->
+            ( model
+            , Cmd.none
+            )
+                |> andThen triggerEmojiTrap
+
         UndoPressed ->
             case model.undoStack of
                 [] ->
@@ -1598,6 +1680,7 @@ type alias GenerateArgs =
     { blockSize : Int
     , boardsPerCluster : Int
     , difficulty : Int
+    , emojiTrapRatio : Int
     , numberOfBoards : Int
     , progression : Progression
     , removeRandomCandidateRatio : Int
@@ -1645,6 +1728,7 @@ type Item
     | SolveSelectedCell
     | SolveRandomCell
     | RemoveRandomCandidate
+    | EmojiTrap
     | NothingItem
 
 
@@ -1712,6 +1796,12 @@ type LocationScouting
     = ScoutingAuto
     | ScoutingManual
     | ScoutingDisabled
+
+
+type EmojiTrapVariant
+    = EmojiTrapAnimals
+    | EmojiTrapFruits
+    | EmojiTrapRandom
 
 
 ---
@@ -1894,6 +1984,7 @@ encodeGenerateArgs args =
         [ ( "blockSize", Encode.int args.blockSize )
         , ( "boardsPerCluster", Encode.int args.boardsPerCluster )
         , ( "difficulty", Encode.int args.difficulty )
+        , ( "emojiTrapRatio", Encode.int args.emojiTrapRatio )
         , ( "numberOfBoards", Encode.int args.numberOfBoards )
         , ( "progression", encodeProgression args.progression )
         , ( "removeRandomCandidateRatio", Encode.int args.removeRandomCandidateRatio )
@@ -2136,6 +2227,7 @@ buildOptionsYaml model =
                     , ( "solve_selected_cell_ratio", yamlRecordValue <| String.fromInt model.solveSelectedCellRatio )
                     , ( "solve_random_cell_ratio", yamlRecordValue <| String.fromInt model.solveRandomCellRatio )
                     , ( "remove_random_candidate_ratio", yamlRecordValue <| String.fromInt model.removeRandomCandidateRatio )
+                    , ( "emoji_trap_ratio", yamlRecordValue <| String.fromInt model.emojiTrapRatio )
                     , ( "pre_fill_nothings_percent", yamlRecordValue <| String.fromInt model.preFillNothingsPercent )
                     , ( "local_items", Yaml.Encode.list Yaml.Encode.string [] )
                     , ( "non_local_items", Yaml.Encode.list Yaml.Encode.string [] )
@@ -2968,6 +3060,19 @@ updateStateItem item model =
             , Cmd.none
             )
 
+        EmojiTrap ->
+            ( { model
+                | messages =
+                    if model.gameIsLocal then
+                        addLocalMessage "Unlocked an Emoji Trap." model.messages
+
+                    else
+                        model.messages
+              }
+            , Cmd.none
+            )
+                |> andThen triggerEmojiTrap
+
         NothingItem ->
             ( model
             , Cmd.none
@@ -3178,9 +3283,13 @@ isMultiple cellValue =
             False
 
 
-numberToString : Int -> String
-numberToString number =
-    if number < 10 then
+numberToString : Model -> Int -> String
+numberToString model number =
+    if model.emojiTrapTimer > 0 && Dict.member number model.emojiTrapMap then
+        Dict.get number model.emojiTrapMap
+            |> Maybe.withDefault ""
+
+    else if number < 10 then
         String.fromInt (number)
 
     else if number == 10 then
@@ -3405,6 +3514,9 @@ itemFromId id =
     else if id == 201 then
         SolveSelectedCell
 
+    else if id == 401 then
+        EmojiTrap
+
     else
         NothingItem
 
@@ -3458,6 +3570,9 @@ itemName item =
         RemoveRandomCandidate ->
             "Remove Random Candidate"
 
+        EmojiTrap ->
+            "Emoji Trap"
+
         NothingItem ->
             "Nothing"
 
@@ -3480,8 +3595,107 @@ itemClassification item =
         RemoveRandomCandidate ->
             Filler
 
+        EmojiTrap ->
+            Trap
+
         NothingItem ->
             Filler
+
+
+trapDuration : Int
+trapDuration =
+    60
+
+
+triggerEmojiTrap : Model -> ( Model, Cmd Msg )
+triggerEmojiTrap model =
+    ( { model
+        | emojiTrapTimer = trapDuration
+      }
+    , Cmd.none
+    )
+        |> andThen updateEmojiTrapMap
+
+
+updateEmojiTrapMap : Model -> ( Model, Cmd Msg )
+updateEmojiTrapMap model =
+    let
+        emojiSetGenerator : Random.Generator (List String)
+        emojiSetGenerator =
+            case model.emojiTrapVariant of
+                EmojiTrapAnimals ->
+                    Random.uniform animalEmojis []
+
+                EmojiTrapFruits ->
+                    Random.uniform fruitEmojis []
+
+                EmojiTrapRandom ->
+                    Random.uniform animalEmojis [ fruitEmojis ]
+
+        ( emojiTrapMap, newSeed ) =
+            Random.step
+                (emojiSetGenerator
+                    |> Random.andThen (Random.List.choices model.blockSize)
+                    |> Random.map
+                        (Tuple.first
+                            >> List.indexedMap
+                                (\idx emoji ->
+                                    ( idx + 1, emoji )
+                                )
+                            >> Dict.fromList
+                        )
+                )
+                model.seed
+    in
+    ( { model
+        | emojiTrapMap = emojiTrapMap
+        , seed = newSeed
+      }
+    , Cmd.none
+    )
+
+
+animalEmojis : List String
+animalEmojis =
+    [ "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯"
+    , "🦁", "🐮", "🐷", "🐸", "🐵", "🦄", "🐔", "🐧", "🐦", "🐤"
+    , "🦉", "🦇", "🐺", "🐗", "🐴", "🦓", "🦍", "🦧", "🐘", "🦛"
+    , "🦏", "🐪", "🦒", "🦘", "🦥", "🦨", "🦡", "🐝", "🪲", "🦎"
+    , "🦋", "🐌", "🐞", "🐢", "🐍", "🐑", "🐊", "🐙", "🦀"
+    ]
+
+
+fruitEmojis : List String
+fruitEmojis =
+    [ "🍎", "🍊", "🍌", "🍉", "🍇", "🍓", "🍒", "🍍", "🥭", "🥝"
+    , "🥑", "🥥", "🍐", "🍋", "🍈", "🍏", "🍑", "🫐", "🍅", "🍆"
+    ]
+
+
+emojiTrapVariantToString : EmojiTrapVariant -> String
+emojiTrapVariantToString variant =
+    case variant of
+        EmojiTrapAnimals ->
+            "animals"
+
+        EmojiTrapFruits ->
+            "fruits"
+
+        EmojiTrapRandom ->
+            "random"
+
+
+emojiTrapVariantFromString : String -> EmojiTrapVariant
+emojiTrapVariantFromString str =
+    case str of
+        "animals" ->
+            EmojiTrapAnimals
+
+        "fruits" ->
+            EmojiTrapFruits
+
+        _ ->
+            EmojiTrapRandom
 
 
 ---
@@ -3919,6 +4133,16 @@ viewMenuOptionsFiller model =
                 , onInput = RemoveRandomCandidateRatioInputChanged
                 , onRangeChange = RemoveRandomCandidateRatioChanged
                 }
+            , viewRatioInputs
+                { label = "Emoji Trap Ratio:"
+                , hint = "Ratio of Emoji Trap items to number of boards."
+                , hintId = "emoji-trap-ratio-hint"
+                , value = model.emojiTrapRatio
+                , inputValue = model.emojiTrapRatioInput
+                , onBlur = EmojiTrapRatioInputBlurred
+                , onInput = EmojiTrapRatioInputChanged
+                , onRangeChange = EmojiTrapRatioChanged
+                }
             ]
         ]
 
@@ -4262,7 +4486,9 @@ viewBoard model =
                 (List.range 1 rows)
             )
         , Html.div
-            [ HA.class "grid-cells" ]
+            [ HA.class "grid-cells"
+            , HAE.attributeIf (model.emojiTrapTimer > 0) (HA.class "emoji-trap")
+            ]
             (List.concat
                 [ List.map
                     (viewCell model)
@@ -4314,8 +4540,8 @@ viewBoard model =
                 ]
             )
         , viewZoomControls
+        , viewTrapTimers model
         ]
-
 
 
 viewCell : Model -> ( Int, Int ) -> Html Msg
@@ -4438,13 +4664,13 @@ viewCell model ( row, col ) =
                     Just value ->
                         case value of
                             Given v ->
-                                [ Html.text (numberToString v) ]
+                                [ Html.text (numberToString model v) ]
 
                             Single v ->
-                                [ Html.text (numberToString v) ]
+                                [ Html.text (numberToString model v) ]
 
                             Multiple numbers ->
-                                viewMultipleNumbers model.blockSize cellError highlightNumbers numbers
+                                viewMultipleNumbers model cellError highlightNumbers numbers
 
                     Nothing ->
                         []
@@ -4457,8 +4683,8 @@ viewCell model ( row, col ) =
         Html.text ""
 
 
-viewMultipleNumbers : Int -> Maybe CellError -> Set Int -> Set Int -> List (Html Msg)
-viewMultipleNumbers blockSize cellError highlightNumbers numbers =
+viewMultipleNumbers : Model -> Maybe CellError -> Set Int -> Set Int -> List (Html Msg)
+viewMultipleNumbers model cellError highlightNumbers numbers =
     let
         errorNumbers : Set Int
         errorNumbers =
@@ -4474,7 +4700,7 @@ viewMultipleNumbers blockSize cellError highlightNumbers numbers =
             let
                 blockWidth : Int
                 blockWidth =
-                    Tuple.second (blockSizeToDimensions blockSize)
+                    Tuple.second (blockSizeToDimensions model.blockSize)
 
                 row : Int
                 row =
@@ -4496,7 +4722,7 @@ viewMultipleNumbers blockSize cellError highlightNumbers numbers =
                     (not (Set.isEmpty highlightNumbers) && not (Set.member number highlightNumbers))
                     (HA.class "dimmed")
                 ]
-                [ Html.text (numberToString number) ]
+                [ Html.text (numberToString model number) ]
         )
         (Set.toList numbers)
 
@@ -4522,6 +4748,49 @@ viewZoomControls =
             ]
             [ Html.text "=" ]
         ]
+
+
+viewTrapTimers : Model -> Html Msg
+viewTrapTimers model =
+    if model.emojiTrapTimer == 0 then
+        Html.text ""
+
+    else
+        Html.div
+            [ HA.class "trap-timer-panel"
+            ]
+            (List.map
+                (\trap ->
+                    Html.div
+                        [ HA.class "column gap-s"
+                        ]
+                        [ Html.text
+                            (String.concat
+                                [ trap.label
+                                , ": "
+                                , String.fromInt trap.timeLeft
+                                , "s"
+                                ]
+                            )
+                        , Html.div
+                            [ HA.class "trap-timer-track" ]
+                            [ Html.div
+                                [ HA.class "trap-timer-fill"
+                                , HA.style "width"
+                                    (String.fromInt
+                                        (trap.timeLeft * 100 // trapDuration)
+                                        ++ "%"
+                                    )
+                                ]
+                                []
+                            ]
+                        ]
+                )
+                [ { label = "Emoji trap"
+                  , timeLeft = model.emojiTrapTimer
+                  }
+                ]
+            )
 
 
 viewInfoPanel : Model -> Html Msg
@@ -4580,27 +4849,46 @@ viewInfoPanelInput model =
             , Html.div
                 [ HA.class "row gap-m"
                 , HA.class <| "block-" ++ String.fromInt model.blockSize
-                , HA.style "font-size" "1.5em"
                 , HA.style "flex-wrap" "wrap"
                 ]
                 (List.append
                     (List.map
                         (\n ->
-                            Html.button
-                                [ HE.onClick (NumberPressed n)
-                                , HA.class "cell"
-                                , HA.class <| "val-" ++ String.fromInt n
-                                , HAE.attributeIf
-                                    (not <| Set.member n validCellCandidates)
-                                    (HA.class "error")
+                            Html.div
+                                [ HA.class "column gap-s"
+                                , HA.style "align-items" "center"
                                 ]
-                                [ Html.text (numberToString n) ]
+                                [ Html.button
+                                    [ HE.onClick (NumberPressed n)
+                                    , HA.class "cell"
+                                    , HA.class <| "val-" ++ String.fromInt n
+                                    , HAE.attributeIf
+                                        (not <| Set.member n validCellCandidates)
+                                        (HA.class "error")
+                                    , HA.style "font-size" "1.5em"
+                                    ]
+                                    [ Html.text (numberToString model n) ]
+                                , if model.emojiTrapTimer > 0 then
+                                    Html.text
+                                        (String.concat
+                                            [ "["
+                                            , numberToString
+                                                { model | emojiTrapTimer = 0 }
+                                                n
+                                            , "]"
+                                            ]
+                                        )
+
+                                  else
+                                    Html.text ""
+                                ]
                         )
                         (List.range 1 model.blockSize)
                     )
                     [ Html.button
                         [ HE.onClick DeletePressed
                         , HA.class "cell"
+                        , HA.style "font-size" "1.5em"
                         , HA.style "width" "1.5em"
                         , HA.style "height" "1.5em"
                         ]
@@ -4932,7 +5220,29 @@ viewInfoPanelSettings model =
                     []
                 , Html.text "Enable animations"
                 ]
-              -- Auto scouting
+            , Html.label
+                [ HA.class "row gap-s" ]
+                [ Html.text "Emoji trap variant:"
+                , Html.select
+                    [ HE.onInput EmojiTrapVariantChanged
+                    ]
+                    [ Html.option
+                        [ HA.value "animals"
+                        , HA.selected (model.emojiTrapVariant == EmojiTrapAnimals)
+                        ]
+                        [ Html.text "Animals" ]
+                    , Html.option
+                        [ HA.value "fruits"
+                        , HA.selected (model.emojiTrapVariant == EmojiTrapFruits)
+                        ]
+                        [ Html.text "Fruits" ]
+                    , Html.option
+                        [ HA.value "random"
+                        , HA.selected (model.emojiTrapVariant == EmojiTrapRandom)
+                        ]
+                        [ Html.text "Random" ]
+                    ]
+                ]
             ]
         ]
 
@@ -4959,16 +5269,16 @@ viewInfoPanelDebug model =
                 , HE.onClick AddDebugItemsPressed
                 ]
                 [ Html.text "Add 1000 of each item" ]
-            , Html.div
-                [ HA.class "row gap-m"
-                , HA.style "align-items" "center"
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick SolveSingleCandidatesPressed
                 ]
-                [ Html.button
-                    [ HA.class "button"
-                    , HE.onClick SolveSingleCandidatesPressed
-                    ]
-                    [ Html.text "Solve single-candidate cells in board" ]
+                [ Html.text "Solve single-candidate cells in board" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick TriggerEmojiTrapPressed
                 ]
+                [ Html.text "Trigger Emoji Trap" ]
             ]
         ]
 
@@ -5070,7 +5380,8 @@ viewBlockUnlockInfo model block =
                     [ Html.text "Unlock: ???"
                     , if model.progression == Shuffled then
                         Html.button
-                            [ HE.onClick
+                            [ HA.class "button"
+                            , HE.onClick
                                 (HintItemPressed
                                     (String.concat
                                         [ "Block "

@@ -2463,25 +2463,83 @@ andThen fun ( model, cmd ) =
     ( newModel, Cmd.batch [ cmd, newCmd ] )
 
 
-andThenIf : Bool -> (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
-andThenIf condition fun ( model, cmd ) =
-    if condition then
-        andThen fun ( model, cmd )
+applySteps : List (Model -> ( Model, Cmd Msg )) -> Model -> ( Model, Cmd Msg )
+applySteps steps initialModel =
+    List.foldl
+        (\step ( currentModel, currentCmd ) ->
+            let
+                ( nextModel, nextCmd ) =
+                    step currentModel
+            in
+            (nextModel, Cmd.batch [ currentCmd, nextCmd ])
+        )
+        ( initialModel, Cmd.none )
+        steps
 
-    else
-        ( model, cmd )
+
+applyList : (a -> Model -> ( Model, Cmd Msg )) -> List a -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+applyList updateFn list ( initialModel, initialCmd ) =
+    let
+        ( finalModel, finalCmds ) =
+            List.foldl
+                (\item ( currentModel, currentCmds ) ->
+                    let
+                        ( nextModel, nextCmd ) =
+                            updateFn item currentModel
+                    in
+                    ( nextModel, nextCmd :: currentCmds )
+                )
+                ( initialModel, [ initialCmd ] )
+                list
+    in
+    ( finalModel
+    , Cmd.batch finalCmds
+    )
+
+
+applySet : (a -> Model -> ( Model, Cmd Msg )) -> Set a -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+applySet updateFn set ( initialModel, initialCmd ) =
+    let
+        ( finalModel, finalCmds ) =
+            Set.foldl
+                (\item ( currentModel, currentCmds ) ->
+                    let
+                        ( nextModel, nextCmd ) =
+                            updateFn item currentModel
+                    in
+                    ( nextModel, nextCmd :: currentCmds )
+                )
+                ( initialModel, [ initialCmd ] )
+                set
+    in
+    ( finalModel
+    , Cmd.batch finalCmds
+    )
 
 
 updateState : Model -> ( Model, Cmd Msg )
 updateState model =
     case model.gameState of
         Playing ->
-            ( model, Cmd.none )
-                |> andThen updateStateCellChangesLoop
-                |> andThen updateStateErrors
-                |> andThenIf model.autoRemoveInvalidCandidates updateStateRemoveInvalidCandidates
-                |> andThenIf model.autoRemoveInvalidCandidates updateStateErrors
-                |> andThen updateStateScoutLocations
+            if model.autoRemoveInvalidCandidates then
+                applySteps
+                    [ updateStateChanges
+                    , updateStateErrors
+                    , updateStateRemoveInvalidCandidates
+                    , updateStateErrors
+                    , updateStateScoutLocations
+                    , updateStateGoal
+                    ]
+                    model
+
+            else
+                applySteps
+                    [ updateStateChanges
+                    , updateStateErrors
+                    , updateStateScoutLocations
+                    , updateStateGoal
+                    ]
+                    model
 
         _ ->
             ( model, Cmd.none )
@@ -2489,39 +2547,45 @@ updateState model =
 
 updateStateItems : Model -> ( Model, Cmd Msg )
 updateStateItems model =
-    List.foldl
-        (andThen << updateStateItem)
-        ( { model | pendingItems = [] }
-        , Cmd.none
-        )
-        model.pendingItems
+    ( { model | pendingItems = [] }
+    , Cmd.none
+    )
+        |> applyList updateStateItem model.pendingItems
 
 
-updateStateCellChangesLoop : Model -> ( Model, Cmd Msg )
-updateStateCellChangesLoop initialModel =
-    ( initialModel, Cmd.none )
-        |> andThen updateStateItems
-        |> andThen updateStateCellChanges
-        |> andThen updateStateSolvedBlocks
-        |> andThen updateStateCheckLocations
-        |> andThen
-            (\updatedModel ->
-                if Set.isEmpty updatedModel.pendingCellChanges && List.isEmpty updatedModel.pendingItems then
-                    ( updatedModel, Cmd.none )
+updateStateChanges : Model -> ( Model, Cmd Msg )
+updateStateChanges model =
+    updateStateChangesLoop ( model, Cmd.none )
 
-                else
-                    updateStateCellChangesLoop updatedModel
+
+updateStateChangesLoop : ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+updateStateChangesLoop ( model, cmd ) =
+    if Set.isEmpty model.pendingCellChanges && List.isEmpty model.pendingItems then
+        ( model, cmd )
+
+    else
+        let
+            ( newModel, newCmd ) =
+                applySteps
+                    [ updateStateItems
+                    , updateStateCellChanges
+                    , updateStateSolvedBlocks
+                    , updateStateCheckLocations
+                    ]
+                    model
+        in
+        updateStateChangesLoop
+            ( newModel
+            , Cmd.batch [ cmd, newCmd ]
             )
 
 
 updateStateCellChanges : Model -> ( Model, Cmd Msg )
 updateStateCellChanges model =
-    Set.foldl
-        (andThen << updateStateCellChange)
-        ( { model | pendingCellChanges = Set.empty }
-        , Cmd.none
-        )
-        model.pendingCellChanges
+    ( { model | pendingCellChanges = Set.empty }
+    , Cmd.none
+    )
+        |> applySet updateStateCellChange model.pendingCellChanges
 
 
 updateStateSolvedBlocks : Model -> ( Model, Cmd Msg )
@@ -2533,15 +2597,9 @@ updateStateSolvedBlocks model =
       }
     , Cmd.none
     )
-        |> setFoldlChain
-            (andThen << (updateStateSolvedArea model.cellBlocks cellToBlockId))
-            model.pendingSolvedBlocks
-        |> setFoldlChain
-            (andThen << (updateStateSolvedArea model.cellRows cellToRowId))
-            model.pendingSolvedRows
-        |> setFoldlChain
-            (andThen << (updateStateSolvedArea model.cellCols cellToColId))
-            model.pendingSolvedCols
+        |> applySet (updateStateSolvedArea model.cellBlocks cellToBlockId) model.pendingSolvedBlocks
+        |> applySet (updateStateSolvedArea model.cellRows cellToRowId) model.pendingSolvedRows
+        |> applySet (updateStateSolvedArea model.cellCols cellToColId) model.pendingSolvedCols
 
 
 updateStateErrors : Model -> ( Model, Cmd Msg )
@@ -2560,12 +2618,10 @@ updateStateRemoveInvalidCandidates model =
 
 updateStateCheckLocations : Model -> ( Model, Cmd Msg )
 updateStateCheckLocations model =
-    Set.foldl
-        (andThen << updateStateCheckLocation)
-        ( { model | pendingCheckLocations = Set.empty }
-        , Cmd.none
-        )
-        model.pendingCheckLocations
+    ( { model | pendingCheckLocations = Set.empty }
+    , Cmd.none
+    )
+        |> applySet updateStateCheckLocation model.pendingCheckLocations
 
 
 updateStateScoutLocations : Model -> ( Model, Cmd Msg )
@@ -2597,14 +2653,21 @@ updateStateScoutLocations model =
     )
 
 
-listFoldlChain : (a -> b -> b) -> List a -> b -> b
-listFoldlChain fun list initial =
-    List.foldl fun initial list
+updateStateGoal : Model -> ( Model, Cmd Msg )
+updateStateGoal model =
+    if List.all (cellIsSolved model) (Dict.keys model.solution) then
+        ( model
+        , if model.gameIsLocal then
+            Cmd.none
 
+        else
+            goal ()
+        )
 
-setFoldlChain : (a -> b -> b) -> Set a -> b -> b
-setFoldlChain fun set initial =
-    Set.foldl fun initial set
+    else
+        ( model
+        , Cmd.none
+        )
 
 
 updateStateCellChange : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
@@ -2612,157 +2675,129 @@ updateStateCellChange updatedCell initialModel =
     ( initialModel
     , Cmd.none
     )
-        |> listFoldlChain
-            (\block ->
-                andThen
-                    (\model ->
-                        let
-                            blockId : Int
-                            blockId =
-                                cellToBlockId ( block.startRow, block.startCol )
-                        in
-                        if (not <| Set.member blockId model.solvedLocations)
-                            && List.all (cellIsSolved model) (getAreaCells block)
-                            && List.all (cellIsVisible model) (getAreaCells block)
-                        then
-                            ( { model
-                                | pendingCheckLocations =
-                                    Set.insert blockId model.pendingCheckLocations
-                                , pendingSolvedBlocks =
-                                    Set.insert
-                                        ( block.startRow, block.startCol )
-                                        model.pendingSolvedBlocks
-                                , solvedLocations =
-                                    Set.insert blockId model.solvedLocations
-                              }
-                            , Cmd.none
-                            )
-
-                        else
-                            ( model
-                            , Cmd.none
-                            )
-                    )
-            )
-            (Dict.get updatedCell initialModel.cellBlocks
-                |> Maybe.withDefault []
-            )
-        |> listFoldlChain
-            (\row ->
-                andThen
-                    (\model ->
-                        let
-                            rowId : Int
-                            rowId =
-                                cellToRowId ( row.startRow, row.startCol )
-                        in
-                        if (not <| Set.member rowId model.solvedLocations)
-                            && List.all (cellIsSolved model) (getAreaCells row)
-                            && List.all (cellIsVisible model) (getAreaCells row)
-                        then
-                            ( { model
-                                | pendingCheckLocations =
-                                    Set.insert rowId model.pendingCheckLocations
-                                , pendingSolvedRows =
-                                    Set.insert
-                                        ( row.startRow, row.startCol )
-                                        model.pendingSolvedRows
-                                , solvedLocations =
-                                    Set.insert rowId model.solvedLocations
-                              }
-                            , Cmd.none
-                            )
-
-                        else
-                            ( model
-                            , Cmd.none
-                            )
-                    )
-            )
-            (Dict.get updatedCell initialModel.cellRows
-                |> Maybe.withDefault []
-            )
-        |> listFoldlChain
-            (\col ->
-                andThen
-                    (\model ->
-                        let
-                            colId : Int
-                            colId =
-                                cellToColId ( col.startRow, col.startCol )
-                        in
-                        if (not <| Set.member colId model.solvedLocations)
-                            && List.all (cellIsSolved model) (getAreaCells col)
-                            && List.all (cellIsVisible model) (getAreaCells col)
-                        then
-                            ( { model
-                                | pendingCheckLocations =
-                                    Set.insert colId model.pendingCheckLocations
-                                , pendingSolvedCols =
-                                    Set.insert
-                                        ( col.startRow, col.startCol )
-                                        model.pendingSolvedCols
-                                , solvedLocations =
-                                    Set.insert colId model.solvedLocations
-                              }
-                            , Cmd.none
-                            )
-
-                        else
-                            ( model
-                            , Cmd.none
-                            )
-                    )
-            )
-            (Dict.get updatedCell initialModel.cellCols
-                |> Maybe.withDefault []
-            )
-        |> listFoldlChain
-            (\board ->
-                andThen
-                    (\model ->
-                        let
-                            boardId : Int
-                            boardId =
-                                cellToBoardId ( board.startRow, board.startCol )
-                        in
-                        if (not <| Set.member boardId model.solvedLocations)
-                            && List.all (cellIsSolved model) (getAreaCells board)
-                            && List.all (cellIsVisible model) (getAreaCells board)
-                        then
-                            ( { model
-                                | pendingCheckLocations =
-                                    Set.insert boardId model.pendingCheckLocations
-                                , solvedLocations =
-                                    Set.insert boardId model.solvedLocations
-                              }
-                            , Cmd.none
-                            )
-
-                        else
-                            ( model
-                            , Cmd.none
-                            )
-                    )
-            )
-            (Dict.get updatedCell initialModel.cellBoards
-                |> Maybe.withDefault []
-            )
-        |> andThen
-            (\model ->
-                if List.all (cellIsSolved model) (Dict.keys model.solution) then
-                    ( model
-                    , if model.gameIsLocal then
-                        Cmd.none
-
-                    else
-                        goal ()
+        |> applyList
+            (\block model ->
+                let
+                    blockId : Int
+                    blockId =
+                        cellToBlockId ( block.startRow, block.startCol )
+                in
+                if (not <| Set.member blockId model.solvedLocations)
+                    && List.all (cellIsSolved model) (getAreaCells block)
+                    && List.all (cellIsVisible model) (getAreaCells block)
+                then
+                    ( { model
+                        | pendingCheckLocations =
+                            Set.insert blockId model.pendingCheckLocations
+                        , pendingSolvedBlocks =
+                            Set.insert
+                                ( block.startRow, block.startCol )
+                                model.pendingSolvedBlocks
+                        , solvedLocations =
+                            Set.insert blockId model.solvedLocations
+                      }
+                    , Cmd.none
                     )
 
                 else
                     ( model
                     , Cmd.none
                     )
+            )
+            (Dict.get updatedCell initialModel.cellBlocks
+                |> Maybe.withDefault []
+            )
+        |> applyList
+            (\row model ->
+                let
+                    rowId : Int
+                    rowId =
+                        cellToRowId ( row.startRow, row.startCol )
+                in
+                if (not <| Set.member rowId model.solvedLocations)
+                    && List.all (cellIsSolved model) (getAreaCells row)
+                    && List.all (cellIsVisible model) (getAreaCells row)
+                then
+                    ( { model
+                        | pendingCheckLocations =
+                            Set.insert rowId model.pendingCheckLocations
+                        , pendingSolvedRows =
+                            Set.insert
+                                ( row.startRow, row.startCol )
+                                model.pendingSolvedRows
+                        , solvedLocations =
+                            Set.insert rowId model.solvedLocations
+                      }
+                    , Cmd.none
+                    )
+
+                else
+                    ( model
+                    , Cmd.none
+                    )
+            )
+            (Dict.get updatedCell initialModel.cellRows
+                |> Maybe.withDefault []
+            )
+        |> applyList
+            (\col model ->
+                let
+                    colId : Int
+                    colId =
+                        cellToColId ( col.startRow, col.startCol )
+                in
+                if (not <| Set.member colId model.solvedLocations)
+                    && List.all (cellIsSolved model) (getAreaCells col)
+                    && List.all (cellIsVisible model) (getAreaCells col)
+                then
+                    ( { model
+                        | pendingCheckLocations =
+                            Set.insert colId model.pendingCheckLocations
+                        , pendingSolvedCols =
+                            Set.insert
+                                ( col.startRow, col.startCol )
+                                model.pendingSolvedCols
+                        , solvedLocations =
+                            Set.insert colId model.solvedLocations
+                      }
+                    , Cmd.none
+                    )
+
+                else
+                    ( model
+                    , Cmd.none
+                    )
+            )
+            (Dict.get updatedCell initialModel.cellCols
+                |> Maybe.withDefault []
+            )
+        |> applyList
+            (\board model ->
+                let
+                    boardId : Int
+                    boardId =
+                        cellToBoardId ( board.startRow, board.startCol )
+                in
+                if (not <| Set.member boardId model.solvedLocations)
+                    && List.all (cellIsSolved model) (getAreaCells board)
+                    && List.all (cellIsVisible model) (getAreaCells board)
+                then
+                    ( { model
+                        | pendingCheckLocations =
+                            Set.insert boardId model.pendingCheckLocations
+                        , solvedLocations =
+                            Set.insert boardId model.solvedLocations
+                      }
+                    , Cmd.none
+                    )
+
+                else
+                    ( model
+                    , Cmd.none
+                    )
+            )
+            (Dict.get updatedCell initialModel.cellBoards
+                |> Maybe.withDefault []
             )
 
 

@@ -139,6 +139,7 @@ type Msg
     | AutoRemoveInvalidCandidatesChanged Bool
     | BlockSizeChanged Int
     | BoardsPerClusterChanged Int
+    | CancelTrapsPressed
     | CandidateModeChanged Bool
     | CellSelected ( Int, Int )
     | ClearBoardPressed
@@ -375,6 +376,11 @@ update msg model =
 
         BoardsPerClusterChanged value ->
             ( { model | boardsPerCluster = value }
+            , Cmd.none
+            )
+
+        CancelTrapsPressed ->
+            ( { model | emojiTrapTimer = 0 }
             , Cmd.none
             )
 
@@ -2331,6 +2337,11 @@ updateFromLocalStorageValue key value model =
             , Cmd.none
             )
 
+        "apdk-emoji-trap-variant" ->
+            ( { model | emojiTrapVariant = emojiTrapVariantFromString value }
+            , Cmd.none
+            )
+
         "apdk-host" ->
             ( { model | host = value }
             , Cmd.none
@@ -3695,15 +3706,15 @@ animalEmojis =
     [ "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯"
     , "🦁", "🐮", "🐷", "🐸", "🐵", "🦄", "🐔", "🐧", "🐦", "🐤"
     , "🦉", "🦇", "🐺", "🐗", "🐴", "🦓", "🦍", "🦧", "🐘", "🦛"
-    , "🦏", "🐪", "🦒", "🦘", "🦥", "🦨", "🦡", "🐝", "🪲", "🦎"
-    , "🦋", "🐌", "🐞", "🐢", "🐍", "🐑", "🐊", "🐙", "🦀"
+    , "🦏", "🐪", "🦒", "🦘", "🦥", "🦨", "🦡", "🐝", "🦎", "🦀"
+    , "🦋", "🐌", "🐞", "🐢", "🐍", "🐑", "🐊", "🐙"
     ]
 
 
 fruitEmojis : List String
 fruitEmojis =
     [ "🍎", "🍊", "🍌", "🍉", "🍇", "🍓", "🍒", "🍍", "🥭", "🥝"
-    , "🥑", "🥥", "🍐", "🍋", "🍈", "🍏", "🍑", "🫐", "🍅", "🍆"
+    , "🥑", "🥥", "🍐", "🍋", "🍈", "🍏", "🍑", "🍅", "🍆"
     ]
 
 
@@ -5314,6 +5325,11 @@ viewInfoPanelDebug model =
                 , HE.onClick TriggerEmojiTrapPressed
                 ]
                 [ Html.text "Trigger Emoji Trap" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick CancelTrapsPressed
+                ]
+                [ Html.text "Cancel Traps" ]
             ]
         ]
 

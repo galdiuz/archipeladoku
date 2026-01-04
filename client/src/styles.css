@@ -541,10 +541,18 @@ h1, h2 {
     font-size: 0.6em;
 }
 
+.block-4 .emoji-trap .cell.multi {
+    font-size: 0.5em;
+}
+
 .block-6 .cell.multi {
     grid-template-rows: repeat(2, 1fr);
     grid-template-columns: repeat(3, 1fr);
     font-size: 0.5em;
+}
+
+.block-6 .emoji-trap .cell.multi {
+    font-size: 0.35em;
 }
 
 .block-8 .cell.multi {
@@ -553,10 +561,18 @@ h1, h2 {
     font-size: 0.45em;
 }
 
+.block-8 .emoji-trap .cell.multi {
+    font-size: 0.3em;
+}
+
 .block-9 .cell.multi {
     grid-template-rows: repeat(3, 1fr);
     grid-template-columns: repeat(3, 1fr);
     font-size: 0.4em;
+}
+
+.block-9 .emoji-trap .cell.multi {
+    font-size: 0.35em;
 }
 
 .block-12 .cell.multi {
@@ -565,10 +581,18 @@ h1, h2 {
     font-size: 0.4em;
 }
 
+.block-12 .emoji-trap .cell.multi {
+    font-size: 0.25em;
+}
+
 .block-16 .cell.multi {
     grid-template-rows: repeat(4, 1fr);
     grid-template-columns: repeat(4, 1fr);
     font-size: 0.3em;
+}
+
+.block-16 .emoji-trap .cell.multi {
+    font-size: 0.25em;
 }
 
 .center {

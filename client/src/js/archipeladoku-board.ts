@@ -1680,7 +1680,7 @@ class ArchipeladokuBoard extends HTMLElement {
                 sourceY,
                 spriteSize * 3,
                 spriteSize * 3,
-                viewportX - this.cellSize,
+                viewportX - this.cellSize - (this.borderWidth - this.cellGap),
                 selY - this.cellSize,
                 this.cellSize * 3,
                 this.cellSize * 3
@@ -1710,7 +1710,7 @@ class ArchipeladokuBoard extends HTMLElement {
                 spriteSize * 3,
                 spriteSize * 3,
                 selX - this.cellSize,
-                viewportY - this.cellSize,
+                viewportY - this.cellSize - (this.borderWidth - this.cellGap),
                 this.cellSize * 3,
                 this.cellSize * 3
             )

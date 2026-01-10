@@ -1021,8 +1021,10 @@ class ArchipeladokuBoard extends HTMLElement {
 
         const { ctx, canvas, viewport } = this
 
-        const width = canvas.width / window.devicePixelRatio
-        const height = canvas.height / window.devicePixelRatio
+        const dpr = window.devicePixelRatio || 1
+        const width = canvas.width / dpr
+        const height = canvas.height / dpr
+        const spriteSize = this.cellSize * this.spriteScale * dpr
 
         ctx.fillStyle = colors.mainBg[this.colorScheme]
         ctx.fillRect(0, 0, width, height)
@@ -1090,14 +1092,14 @@ class ArchipeladokuBoard extends HTMLElement {
 
             const selX = (col - 1) * cellSizeWithGap
             const selY = (row - 1) * cellSizeWithGap
-            const sourceX = getSpriteX(this.cellSize * this.spriteScale, 'selection')
-            const sourceY = getSpriteY(this.cellSize * this.spriteScale, 'selection')
+            const sourceX = getSpriteX(spriteSize, 'selection')
+            const sourceY = getSpriteY(spriteSize, 'selection')
             ctx.drawImage(
                 this.spriteCanvas,
                 sourceX,
                 sourceY,
-                this.cellSize * this.spriteScale * 3,
-                this.cellSize * this.spriteScale * 3,
+                spriteSize * 3,
+                spriteSize * 3,
                 selX - this.cellSize,
                 selY - this.cellSize,
                 this.cellSize * 3,
@@ -1129,9 +1131,10 @@ class ArchipeladokuBoard extends HTMLElement {
             return
         }
 
+        const dpr = window.devicePixelRatio || 1
         const cellType = cell.type
         const cellSizeWithGap = this.cellSize + this.cellGap
-        const spriteSize = this.cellSize * this.spriteScale
+        const spriteSize = this.cellSize * this.spriteScale * dpr
         const x = (col - 1) * cellSizeWithGap
         const y = (row - 1) * cellSizeWithGap
 
@@ -1642,9 +1645,13 @@ class ArchipeladokuBoard extends HTMLElement {
         startCol: number,
         endCol: number,
     ) {
+        const dpr = window.devicePixelRatio || 1
+        const spriteSize = this.cellSize * this.spriteScale * dpr
         const cellSizeWithGap = this.cellSize + this.cellGap
         const viewportX = -this.viewport.x / this.viewport.scale - this.cellGap
         const viewportY = -this.viewport.y / this.viewport.scale - this.cellGap
+        const sourceX = getSpriteX(spriteSize, 'selection')
+        const sourceY = getSpriteY(spriteSize, 'selection')
 
         ctx.drawImage(
             this.rowHeaderCanvas,
@@ -1657,6 +1664,23 @@ class ArchipeladokuBoard extends HTMLElement {
             this.cellSize + this.headerCanvasPadding * 2,
             cellSizeWithGap * this.boardRows - this.cellGap + this.headerCanvasPadding * 2
         )
+        if (this.selectedCell) {
+            const selX = (this.selectedCell.col - 1) * cellSizeWithGap
+            const selY = (this.selectedCell.row - 1) * cellSizeWithGap
+
+            ctx.drawImage(
+                this.spriteCanvas,
+                sourceX,
+                sourceY,
+                spriteSize * 3,
+                spriteSize * 3,
+                viewportX - this.cellSize,
+                selY - this.cellSize,
+                this.cellSize * 3,
+                this.cellSize * 3
+            )
+        }
+
         ctx.drawImage(
             this.colHeaderCanvas,
             0,
@@ -1672,26 +1696,13 @@ class ArchipeladokuBoard extends HTMLElement {
         if (this.selectedCell) {
             const selX = (this.selectedCell.col - 1) * cellSizeWithGap
             const selY = (this.selectedCell.row - 1) * cellSizeWithGap
-            const sourceX = getSpriteX(this.cellSize * this.spriteScale, 'selection')
-            const sourceY = getSpriteY(this.cellSize * this.spriteScale, 'selection')
 
             ctx.drawImage(
                 this.spriteCanvas,
                 sourceX,
                 sourceY,
-                this.cellSize * this.spriteScale * 3,
-                this.cellSize * this.spriteScale * 3,
-                viewportX - this.cellSize,
-                selY - this.cellSize,
-                this.cellSize * 3,
-                this.cellSize * 3
-            )
-            ctx.drawImage(
-                this.spriteCanvas,
-                sourceX,
-                sourceY,
-                this.cellSize * this.spriteScale * 3,
-                this.cellSize * this.spriteScale * 3,
+                spriteSize * 3,
+                spriteSize * 3,
                 selX - this.cellSize,
                 viewportY - this.cellSize,
                 this.cellSize * 3,
@@ -2146,7 +2157,7 @@ class ArchipeladokuBoard extends HTMLElement {
         const cellSizeWithGap = (this.cellSize + this.cellGap) * this.spriteScale
         const padding = this.headerCanvasPadding * this.spriteScale
 
-        const spriteSize = this.cellSize * this.spriteScale
+        const spriteSize = this.cellSize * this.spriteScale * dpr
         const sourceX = getSpriteX(spriteSize, 'background')
         const sourceY = getSpriteY(spriteSize, 'background')
         const fontSize = cellSize * 0.5
@@ -2156,8 +2167,6 @@ class ArchipeladokuBoard extends HTMLElement {
         const colHeight = cellSizeWithGap + padding * 2
         colCanvas.width = colWidth * dpr
         colCanvas.height = colHeight * dpr
-        colCanvas.style.width = `${colWidth}px`
-        colCanvas.style.height = `${colHeight}px`
         colCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
         // Column shadow

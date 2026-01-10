@@ -421,6 +421,7 @@ class ArchipeladokuBoard extends HTMLElement {
     activePointers: Map<number, PointerEvent> = new Map()
     lastPinchDistance: number = 0
     isDragging: boolean = false
+    isPinching: boolean = false
     dragStart: { x: number; y: number } = { x: 0, y: 0 }
     viewStart: { x: number; y: number } = { x: 0, y: 0 }
     minScale: number = 0.1
@@ -609,7 +610,7 @@ class ArchipeladokuBoard extends HTMLElement {
 
         const pointers = Array.from(this.activePointers.values())
 
-        if (pointers.length === 1) {
+        if (pointers.length === 1 && !this.isPinching) {
             const pointer = pointers[0]!
             const deltaX = pointer.clientX - this.dragStart.x
             const deltaY = pointer.clientY - this.dragStart.y
@@ -642,6 +643,7 @@ class ArchipeladokuBoard extends HTMLElement {
                 this.requestRender()
             }
         } else if (pointers.length === 2) {
+            this.isPinching = true
             this.handlePinch(pointers[0]!, pointers[1]!)
         }
     }
@@ -671,6 +673,10 @@ class ArchipeladokuBoard extends HTMLElement {
 
         if (this.activePointers.size < 2) {
             this.lastPinchDistance = 0
+        }
+
+        if (this.activePointers.size === 0) {
+            this.isPinching = false
         }
 
         this.isDragging = false

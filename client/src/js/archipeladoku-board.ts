@@ -4,9 +4,11 @@ interface BoardData {
     boards: Area[]
     blockSize: number
     selectedCell: { row: number; col: number } | null
+    colorMap: [number, number][]
     numberMap: [number, string][]
     errors: CellError[]
     colorScheme: string
+    discoTrap: boolean
 }
 
 
@@ -247,6 +249,7 @@ interface GameAnimation {
     id: string
     startTime: number
     duration?: number
+    loop?: boolean
     onUpdate: (progress: number) => void
     onComplete?: () => void
 }
@@ -267,6 +270,19 @@ const crackPaths = [
     [[0.00, 1.00], [0.25, 1], [0.15, 0.85], [0.40, 0.75], [0.50, 0.50]],
     [[0.00, 0.00], [0.00, 0.55], [0.15, 0.45], [0.35, 0.55], [0.50, 0.50]],
 ]
+
+
+interface Spotlight {
+    originXRatio: number
+    length: number
+    widthAngle: number
+    currentAngle: number
+    initialAngle: number
+    sweepRange: number
+    sweepSpeed: number
+    timeOffset: number
+    hue: number
+}
 
 
 const spriteOffsets = {
@@ -435,7 +451,10 @@ class ArchipeladokuBoard extends HTMLElement {
     isAnimating: boolean = false
     cellShineEffects: Map<string, any> = new Map()
     cellShatterEffects: Map<string, any> = new Map()
+    colorMap: Map<number, number> = new Map()
     numberMap: Map<number, string> = new Map()
+    discoTrap: boolean = false
+    discoTrapSpotlights: Spotlight[] = []
 
 
     constructor() {
@@ -450,6 +469,25 @@ class ArchipeladokuBoard extends HTMLElement {
         this.rowHeaderCanvas = document.createElement('canvas')
         this.rowHeaderCtx = this.rowHeaderCanvas.getContext('2d', { alpha: true } )!
         this.viewport = { x: 60, y: 60, scale: 1 }
+
+        const style = document.createElement('style')
+        style.textContent = `
+            :host {
+                display: block;
+                width: 100%;
+                height: 100%;
+                position: relative;
+                overflow: hidden;
+            }
+
+            canvas {
+                display: block;
+                width: 100%;
+                height: 100%;
+                touch-action: none;
+            }
+        `
+        this.shadowRoot!.appendChild(style)
     }
 
 
@@ -467,7 +505,6 @@ class ArchipeladokuBoard extends HTMLElement {
         window.addEventListener('pointerup', (e: PointerEvent) => this.handlePointerUp(e))
         window.addEventListener('pointercancel', (e: PointerEvent) => this.handlePointerUp(e))
         this.canvas.addEventListener('wheel', (e: WheelEvent) => this.handleWheel(e), { passive: false })
-        this.canvas.style.touchAction = 'none'
 
         this.colorScheme = getSystemColorScheme()
 
@@ -499,12 +536,22 @@ class ArchipeladokuBoard extends HTMLElement {
         }
 
         const numberMap = new Map<number, string>()
-        for (const [num, str] of value.numberMap) {
-            numberMap.set(num, str)
+        for (const [key, val] of value.numberMap) {
+            numberMap.set(key, val)
         }
 
         if (!compareMaps(this.numberMap, numberMap)) {
             this.numberMap = numberMap
+            this.renderedSpriteScale = 0
+        }
+
+        const colorMap = new Map<number, number>()
+        for (const [key, val] of value.colorMap) {
+            colorMap.set(key, val)
+        }
+
+        if (!compareMaps(this.colorMap, colorMap)) {
+            this.colorMap = colorMap
             this.renderedSpriteScale = 0
         }
 
@@ -531,6 +578,14 @@ class ArchipeladokuBoard extends HTMLElement {
 
         if (this.colorScheme !== prevColorScheme) {
             this.renderedSpriteScale = 0
+        }
+
+        if (!this.discoTrap && value.discoTrap) {
+            this.discoTrap = true
+            this.startDiscoTrapAnimation()
+        } else if (this.discoTrap && !value.discoTrap) {
+            this.discoTrap = false
+            this.animations.delete('disco-trap')
         }
 
         this.requestRender()
@@ -961,6 +1016,42 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    startDiscoTrapAnimation() {
+        this.discoTrapSpotlights = []
+        const numSpotlights = Math.floor(this.clientWidth / 100)
+
+        for (let i = 0; i < numSpotlights; i++) {
+            this.discoTrapSpotlights.push({
+                originXRatio: 0.05 + 0.9 * (i / (numSpotlights - 1)),
+                length: Math.random() * 300 + 200,
+                widthAngle: Math.random() * (Math.PI / 8) + (Math.PI / 16),
+                currentAngle: -Math.PI / 2,
+                initialAngle: -Math.PI / 2,
+                sweepRange: Math.PI / 8,
+                sweepSpeed: Math.random() * 0.0002,
+                timeOffset: Math.random(),
+                hue: Math.floor(Math.random() * 360),
+            })
+        }
+
+        this.addAnimation({
+            id: 'disco-trap',
+            startTime: performance.now(),
+            duration: 10000,
+            loop: true,
+            onUpdate: (t: number) => {
+                for (const spotlight of this.discoTrapSpotlights) {
+                    spotlight.timeOffset += spotlight.sweepSpeed
+                    spotlight.currentAngle = Math.sin((t + spotlight.timeOffset) * Math.PI * 2)
+                        * spotlight.sweepRange
+                        + spotlight.initialAngle
+                }
+                // console.log('disco trap progress:', t)
+            }
+        })
+    }
+
+
     requestRender() {
         if (this.renderRequested || this.isAnimating) {
             return
@@ -988,6 +1079,7 @@ class ArchipeladokuBoard extends HTMLElement {
     handleAnimationFrame = (timestamp: number) => {
         if (this.animations.size === 0) {
             this.isAnimating = false
+            this.render()
 
             return
         }
@@ -1013,7 +1105,11 @@ class ArchipeladokuBoard extends HTMLElement {
             animation.onUpdate(progress)
 
             if (progress >= 1) {
-                this.animations.delete(id)
+                if (animation.loop) {
+                    animation.startTime = timestamp
+                } else {
+                    this.animations.delete(id)
+                }
                 if (animation.onComplete) {
                     animation.onComplete()
                 }
@@ -1122,6 +1218,15 @@ class ArchipeladokuBoard extends HTMLElement {
             ) {
                 this.renderCellShatterShards(ctx, effect.row, effect.col)
             }
+        }
+
+        if (this.discoTrap) {
+            ctx.save()
+            ctx.globalCompositeOperation = 'lighter'
+            for (const spotlight of this.discoTrapSpotlights) {
+                this.renderDiscoTrapSpotlight(ctx, spotlight)
+            }
+            ctx.restore()
         }
 
         this.renderGridHeaders(ctx, startRow, endRow, startCol, endCol)
@@ -1644,6 +1749,44 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    renderDiscoTrapSpotlight(
+        ctx: CanvasRenderingContext2D,
+        spotlight: Spotlight,
+    ) {
+        const startX = (this.clientWidth * spotlight.originXRatio - this.viewport.x) / this.viewport.scale
+        const startY = (this.canvas.height - this.viewport.y + 25) / this.viewport.scale
+
+        const length = spotlight.length / this.viewport.scale
+        const leftAngle = spotlight.currentAngle - (spotlight.widthAngle / 2)
+        const rightAngle = spotlight.currentAngle + (spotlight.widthAngle / 2)
+
+        const endLeftX = startX + Math.cos(leftAngle) * length
+        const endLeftY = startY - Math.sin(leftAngle) * length
+        const endRightX = startX + Math.cos(rightAngle) * length
+        const endRightY = startY - Math.sin(rightAngle) * length
+
+        ctx.beginPath()
+        ctx.moveTo(startX, startY)
+        ctx.arc(startX, startY, length, leftAngle, rightAngle, false)
+        ctx.closePath()
+
+        const gradient = ctx.createRadialGradient(
+            startX,
+            startY,
+            0,
+            startX,
+            startY,
+            length
+        )
+        const hue = spotlight.hue
+        gradient.addColorStop(0, `hsl(${hue} 100 60 / 0.6)`)
+        gradient.addColorStop(0.5, `hsl(${hue} 100 60 / 0.2)`)
+        gradient.addColorStop(1, `hsl(${hue} 100 60 / 0)`)
+        ctx.fillStyle = gradient
+        ctx.fill()
+    }
+
+
     renderGridHeaders(
         ctx: CanvasRenderingContext2D,
         startRow: number,
@@ -1749,24 +1892,24 @@ class ArchipeladokuBoard extends HTMLElement {
             stateKey?: keyof typeof spriteOffsets.state,
         ) => getSpriteY(cellSize, baseKey, stateKey)
 
-        for (let i = 1; i <= blockSize; i++) {
-            const x = (i - 1) * cellSize
+        for (let number = 1; number <= blockSize; number++) {
+            const x = (number - 1) * cellSize
 
-            this.renderGiven(ctx, blockSize, x, spriteY('given'), cellSize, i, 'regular')
-            this.renderGiven(ctx, blockSize, x, spriteY('given', 'hover'), cellSize, i, 'hover')
-            this.renderGiven(ctx, blockSize, x, spriteY('given', 'active'), cellSize, i, 'active')
-            this.renderGivenNumber(ctx, blockSize, x, spriteY('givenNumber'), cellSize, i, 'regular')
-            this.renderGivenNumber(ctx, blockSize, x, spriteY('givenNumber', 'error'), cellSize, i, 'error')
-            this.renderUserValue(ctx, blockSize, x, spriteY('userValue'), cellSize, i, 'regular')
-            this.renderUserValue(ctx, blockSize, x, spriteY('userValue', 'hover'), cellSize, i, 'hover')
-            this.renderUserValue(ctx, blockSize, x, spriteY('userValue', 'active'), cellSize, i, 'active')
-            this.renderUserValueNumber(ctx, blockSize, x, spriteY('userValueNumber'), cellSize, i, 'regular')
-            this.renderUserValueNumber(ctx, blockSize, x, spriteY('userValueNumber', 'error'), cellSize, i, 'error')
-            this.renderCandidate(ctx, blockSize, x, spriteY('candidate'), cellSize, i, 'regular')
-            this.renderCandidate(ctx, blockSize, x, spriteY('candidate', 'hover'), cellSize, i, 'hover')
-            this.renderCandidate(ctx, blockSize, x, spriteY('candidate', 'active'), cellSize, i, 'active')
-            this.renderCandidateNumber(ctx, blockSize, x, spriteY('candidateNumber'), cellSize, i, 'regular')
-            this.renderCandidateNumber(ctx, blockSize, x, spriteY('candidateNumber', 'error'), cellSize, i, 'error')
+            this.renderGiven(ctx, blockSize, x, spriteY('given'), cellSize, number, 'regular')
+            this.renderGiven(ctx, blockSize, x, spriteY('given', 'hover'), cellSize, number, 'hover')
+            this.renderGiven(ctx, blockSize, x, spriteY('given', 'active'), cellSize, number, 'active')
+            this.renderGivenNumber(ctx, blockSize, x, spriteY('givenNumber'), cellSize, number, 'regular')
+            this.renderGivenNumber(ctx, blockSize, x, spriteY('givenNumber', 'error'), cellSize, number, 'error')
+            this.renderUserValue(ctx, blockSize, x, spriteY('userValue'), cellSize, number, 'regular')
+            this.renderUserValue(ctx, blockSize, x, spriteY('userValue', 'hover'), cellSize, number, 'hover')
+            this.renderUserValue(ctx, blockSize, x, spriteY('userValue', 'active'), cellSize, number, 'active')
+            this.renderUserValueNumber(ctx, blockSize, x, spriteY('userValueNumber'), cellSize, number, 'regular')
+            this.renderUserValueNumber(ctx, blockSize, x, spriteY('userValueNumber', 'error'), cellSize, number, 'error')
+            this.renderCandidate(ctx, blockSize, x, spriteY('candidate'), cellSize, number, 'regular')
+            this.renderCandidate(ctx, blockSize, x, spriteY('candidate', 'hover'), cellSize, number, 'hover')
+            this.renderCandidate(ctx, blockSize, x, spriteY('candidate', 'active'), cellSize, number, 'active')
+            this.renderCandidateNumber(ctx, blockSize, x, spriteY('candidateNumber'), cellSize, number, 'regular')
+            this.renderCandidateNumber(ctx, blockSize, x, spriteY('candidateNumber', 'error'), cellSize, number, 'error')
         }
 
         this.renderCellBackground(ctx, spriteX('background'), spriteY('background'), cellSize, 'regular')
@@ -1801,11 +1944,12 @@ class ArchipeladokuBoard extends HTMLElement {
         x: number,
         y: number,
         size: number,
-        value: number,
+        number: number,
         state: CellState = 'regular',
     ) {
         const gradient = ctx.createLinearGradient(x, y, x, y + size)
-        const color = getCellColor(blockSize, value, this.colorScheme, state)
+        const bgNumber = this.colorMap.get(number) || number
+        const color = getCellColor(blockSize, bgNumber, this.colorScheme, state)
         gradient.addColorStop(0, color[0])
         gradient.addColorStop(1, color[1])
         ctx.fillStyle = gradient
@@ -1845,7 +1989,7 @@ class ArchipeladokuBoard extends HTMLElement {
         x: number,
         y: number,
         size: number,
-        value: number,
+        number: number,
         state: CellState = 'regular',
     ) {
         // Background
@@ -1853,7 +1997,8 @@ class ArchipeladokuBoard extends HTMLElement {
 
         // Circle background
         const gradient = ctx.createLinearGradient(x, y, x, y + size)
-        const color = getCellColor(blockSize, value, this.colorScheme, state)
+        const bgNumber = this.colorMap.get(number) || number
+        const color = getCellColor(blockSize, bgNumber, this.colorScheme, state)
         gradient.addColorStop(0, color[0])
         gradient.addColorStop(1, color[1])
         ctx.fillStyle = gradient
@@ -1911,16 +2056,17 @@ class ArchipeladokuBoard extends HTMLElement {
         x: number,
         y: number,
         size: number,
-        value: number,
+        number: number,
         state: CellState = 'regular',
     ) {
         const [ rows, columns ] = this.blockSizeToDimensions(blockSize)
-        const subX = x + size / (columns * 2) + (size / columns) * ((value - 1) % columns)
-        const subY = y + size / (rows * 2) + (size / rows) * Math.floor((value - 1) / columns)
+        const subX = x + size / (columns * 2) + (size / columns) * ((number - 1) % columns)
+        const subY = y + size / (rows * 2) + (size / rows) * Math.floor((number - 1) / columns)
         const subSize = size / (columns * 2)
 
         const gradient = ctx.createLinearGradient(subX, subY, subX, subY + subSize)
-        const color = getCellColor(blockSize, value, this.colorScheme, state)
+        const bgNumber = this.colorMap.get(number) || number
+        const color = getCellColor(blockSize, bgNumber, this.colorScheme, state)
         gradient.addColorStop(0, color[0])
         gradient.addColorStop(1, color[1])
         ctx.fillStyle = gradient

@@ -71,6 +71,8 @@ type alias Model =
     , cellRows : Dict ( Int, Int ) (List Area)
     , colorScheme : String
     , current : Dict ( Int, Int ) CellValue
+    , discoTrapMap : Dict Int Int
+    , discoTrapTimer : Int
     , difficulty : Int
     , emojiTrapMap : Dict Int String
     , emojiTrapRatio : Int
@@ -214,6 +216,7 @@ type Msg
     | SolveSingleCandidatesPressed
     | ToggleCandidateModePressed
     | ToggleHighlightModePressed
+    | TriggerDiscoTrapPressed
     | TriggerEmojiTrapPressed
     | UndoPressed
     | UnlockSelectedBlockPressed
@@ -253,6 +256,8 @@ init flagsValue =
       , cellRows = Dict.empty
       , colorScheme = "light dark"
       , current = Dict.empty
+      , discoTrapMap = Dict.empty
+      , discoTrapTimer = 60
       , difficulty = 2
       , emojiTrapMap = Dict.empty
       , emojiTrapRatio = 40
@@ -338,7 +343,7 @@ subscriptions model =
         , receiveItems GotItems
         , receiveMessage GotMessage
         , receiveSlotData GotSlotData
-        , if model.emojiTrapTimer > 0 then
+        , if model.discoTrapTimer > 0 || model.emojiTrapTimer > 0 then
             Time.every 1000 (\_ -> SecondPassed)
 
           else
@@ -384,9 +389,13 @@ update msg model =
             )
 
         CancelTrapsPressed ->
-            ( { model | emojiTrapTimer = 0 }
+            ( { model
+                | discoTrapTimer = 0
+                , emojiTrapTimer = 0
+              }
             , Cmd.none
             )
+                |> andThen updateBoardData
 
         CandidateModeChanged value ->
             ( { model | candidateMode = value }
@@ -1181,7 +1190,13 @@ update msg model =
 
         SecondPassed ->
             ( { model
-                | emojiTrapTimer =
+                | discoTrapTimer =
+                    if model.discoTrapTimer > 0 then
+                        model.discoTrapTimer - 1
+
+                    else
+                        0
+                , emojiTrapTimer =
                     if model.emojiTrapTimer > 0 then
                         model.emojiTrapTimer - 1
 
@@ -1190,7 +1205,14 @@ update msg model =
               }
             , Cmd.none
             )
-                |> andThen updateBoardData
+                |> andThen
+                    (\m ->
+                        if m.discoTrapTimer > 0 && modBy 2 m.discoTrapTimer == 0 then
+                            updateDiscoTrapMap m
+
+                        else
+                            updateBoardData m
+                    )
 
         SeedInputChanged value ->
             ( { model
@@ -1594,6 +1616,12 @@ update msg model =
             , Cmd.none
             )
                 |> andThen updateBoardData
+
+        TriggerDiscoTrapPressed ->
+            ( model
+            , Cmd.none
+            )
+                |> andThen triggerDiscoTrap
 
         TriggerEmojiTrapPressed ->
             ( model
@@ -2377,8 +2405,10 @@ encodeData model =
         , ( "errors", encodeErrors model.errors )
         , ( "selectedCell", encodeSelectedCell model.selectedCell )
         , ( "blockSize", Encode.int model.blockSize )
+        , ( "colorMap", encodeColorMap model )
         , ( "numberMap", encodeNumberMap model)
         , ( "colorScheme", Encode.string model.colorScheme )
+        , ( "discoTrap", Encode.bool (model.discoTrapTimer > 0) )
         ]
 
 
@@ -2587,15 +2617,27 @@ encodeErrors errorsDict =
         (Dict.toList errorsDict)
 
 
+encodeColorMap : Model -> Encode.Value
+encodeColorMap model =
+    if model.discoTrapTimer > 0 then
+        Encode.list
+            (encodeTuple Encode.int Encode.int)
+            (List.map
+                identity
+                (Dict.toList model.discoTrapMap)
+            )
+
+    else
+        Encode.list Encode.int []
+
+
 encodeNumberMap : Model -> Encode.Value
 encodeNumberMap model =
     if model.emojiTrapTimer > 0 then
         Encode.list
             (encodeTuple Encode.int Encode.string)
             (List.map
-                (\( k, v ) ->
-                    ( k, v )
-                )
+                identity
                 (Dict.toList model.emojiTrapMap)
             )
 
@@ -4005,6 +4047,42 @@ trapDuration =
     60
 
 
+triggerDiscoTrap : Model -> ( Model, Cmd Msg )
+triggerDiscoTrap model =
+    ( { model
+        | discoTrapTimer = trapDuration
+      }
+    , Cmd.none
+    )
+        |> andThen updateDiscoTrapMap
+
+
+updateDiscoTrapMap : Model -> ( Model, Cmd Msg )
+updateDiscoTrapMap model =
+    let
+        ( discoTrapMap, newSeed ) =
+            Random.step
+                (List.range 1 model.blockSize
+                    |> Random.List.shuffle
+                    |> Random.map
+                        (List.indexedMap
+                            (\idx number ->
+                                ( idx + 1, number )
+                            )
+                            >> Dict.fromList
+                        )
+                )
+                model.seed
+    in
+    ( { model
+        | discoTrapMap = discoTrapMap
+        , seed = newSeed
+      }
+    , Cmd.none
+    )
+        |> andThen updateBoardData
+
+
 triggerEmojiTrap : Model -> ( Model, Cmd Msg )
 triggerEmojiTrap model =
     ( { model
@@ -4875,7 +4953,7 @@ viewZoomControls =
 
 viewTrapTimers : Model -> Html Msg
 viewTrapTimers model =
-    if model.emojiTrapTimer == 0 then
+    if model.discoTrapTimer == 0 && model.emojiTrapTimer == 0 then
         Html.text ""
 
     else
@@ -4884,32 +4962,39 @@ viewTrapTimers model =
             ]
             (List.map
                 (\trap ->
-                    Html.div
-                        [ HA.class "column gap-s"
-                        ]
-                        [ Html.text
-                            (String.concat
-                                [ trap.label
-                                , ": "
-                                , String.fromInt trap.timeLeft
-                                , "s"
-                                ]
-                            )
-                        , Html.div
-                            [ HA.class "trap-timer-track" ]
-                            [ Html.div
-                                [ HA.class "trap-timer-fill"
-                                , HA.style "width"
-                                    (String.fromInt
-                                        (trap.timeLeft * 100 // trapDuration)
-                                        ++ "%"
-                                    )
-                                ]
-                                []
+                    if trap.timeLeft == 0 then
+                        Html.text ""
+
+                    else
+                        Html.div
+                            [ HA.class "column gap-s"
                             ]
-                        ]
+                            [ Html.text
+                                (String.concat
+                                    [ trap.label
+                                    , ": "
+                                    , String.fromInt trap.timeLeft
+                                    , "s"
+                                    ]
+                                )
+                            , Html.div
+                                [ HA.class "trap-timer-track" ]
+                                [ Html.div
+                                    [ HA.class "trap-timer-fill"
+                                    , HA.style "width"
+                                        (String.fromInt
+                                            (trap.timeLeft * 100 // trapDuration)
+                                            ++ "%"
+                                        )
+                                    ]
+                                    []
+                                ]
+                            ]
                 )
-                [ { label = "Emoji trap"
+                [ { label = "Disco trap"
+                  , timeLeft = model.discoTrapTimer
+                  }
+                , { label = "Emoji trap"
                   , timeLeft = model.emojiTrapTimer
                   }
                 ]
@@ -4977,6 +5062,16 @@ viewInfoPanelInput model =
                 (List.append
                     (List.map
                         (\n ->
+                            let
+                                colorNumber : Int
+                                colorNumber =
+                                    if model.discoTrapTimer > 0 then
+                                        Dict.get n model.discoTrapMap
+                                            |> Maybe.withDefault n
+
+                                    else
+                                        n
+                            in
                             Html.div
                                 [ HA.class "column gap-s"
                                 , HA.style "align-items" "center"
@@ -4984,7 +5079,7 @@ viewInfoPanelInput model =
                                 [ Html.button
                                     [ HE.onClick (NumberPressed n)
                                     , HA.class "cell"
-                                    , HA.class <| "val-" ++ String.fromInt n
+                                    , HA.class <| "val-" ++ String.fromInt colorNumber
                                     , HAE.attributeIf
                                         (not <| Set.member n validCellCandidates)
                                         (HA.class "error")
@@ -5397,6 +5492,11 @@ viewInfoPanelDebug model =
                 , HE.onClick SolveSingleCandidatesPressed
                 ]
                 [ Html.text "Solve single-candidate cells in board" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick TriggerDiscoTrapPressed
+                ]
+                [ Html.text "Trigger Disco Trap" ]
             , Html.button
                 [ HA.class "button"
                 , HE.onClick TriggerEmojiTrapPressed

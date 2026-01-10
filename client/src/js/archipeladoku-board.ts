@@ -2143,9 +2143,10 @@ class ArchipeladokuBoard extends HTMLElement {
         cornerY: number,
         size: number,
     ) {
+        const dpr = window.devicePixelRatio || 1
         const x = cornerX + size
         const y = cornerY + size
-        const padding = 40 * this.spriteScale
+        const padding = 40 * this.spriteScale * dpr
 
         ctx.save()
 
@@ -2155,12 +2156,12 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx.clip()
 
         ctx.shadowColor = colors.selection[this.colorScheme]
-        ctx.shadowBlur = 4 * this.spriteScale
+        ctx.shadowBlur = 4 * this.spriteScale * dpr
         ctx.strokeStyle = colors.selection[this.colorScheme]
         ctx.fillStyle = colors.selection[this.colorScheme]
 
         for (let i = 0; i < 4; i++) {
-            ctx.shadowBlur += 4 * this.spriteScale
+            ctx.shadowBlur += 4 * this.spriteScale * dpr
             ctx.fillRect(x, y, size, size)
         }
 

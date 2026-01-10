@@ -2146,22 +2146,22 @@ class ArchipeladokuBoard extends HTMLElement {
         const dpr = window.devicePixelRatio || 1
         const x = cornerX + size
         const y = cornerY + size
-        const padding = 40 * this.spriteScale * dpr
 
         ctx.save()
 
         ctx.beginPath()
-        ctx.rect(x - padding, y - padding, size + padding * 2, size + padding * 2)
-        ctx.rect(x, y + size, size, -size)
-        ctx.clip()
+        ctx.rect(cornerX, cornerY, size * 3, size * 3)
+        ctx.rect(x, y, size, size)
+        ctx.clip('evenodd')
 
+        const blurAmount = 4 * this.spriteScale * dpr
         ctx.shadowColor = colors.selection[this.colorScheme]
-        ctx.shadowBlur = 4 * this.spriteScale * dpr
+        ctx.shadowBlur = blurAmount
         ctx.strokeStyle = colors.selection[this.colorScheme]
         ctx.fillStyle = colors.selection[this.colorScheme]
 
         for (let i = 0; i < 4; i++) {
-            ctx.shadowBlur += 4 * this.spriteScale * dpr
+            ctx.shadowBlur += blurAmount
             ctx.fillRect(x, y, size, size)
         }
 

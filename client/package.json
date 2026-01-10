@@ -1,7 +1,6 @@
 {
   "dependencies": {
-    "archipelago.js": "^2.0.4",
-    "panzoom": "github:galdiuz/panzoom#main"
+    "archipelago.js": "^2.0.4"
   },
   "devDependencies": {
     "elm": "^0.19.1-6",

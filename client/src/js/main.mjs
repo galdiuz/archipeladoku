@@ -1,7 +1,7 @@
 import * as Archipelago from 'archipelago.js'
 import { Elm } from '../Archipeladoku.elm'
 import Worker from './worker.mjs?worker'
-import './panzoom-board-wrapper.mjs'
+import './archipeladoku-board.ts'
 
 const client = new Archipelago.Client()
 window.client = client // For debugging purposes
@@ -48,28 +48,15 @@ function itemData(item) {
     }
 }
 
-app.ports.centerViewOnCell?.subscribe(cellId => {
-    const cellElement = document.getElementById(cellId)
-    const viewport = document.querySelector('panzoom-board-wrapper')
-    const panzoom = viewport?.panzoomInstance
+app.ports.centerViewOnCell?.subscribe(cell => {
+    const viewport = document.querySelector('archipeladoku-board')
+    const [ row, col ] = cell
 
-    if (!panzoom || !cellElement) {
+    if (!viewport) {
         return
     }
 
-    const containerRect = viewport.getBoundingClientRect()
-    const { scale } = panzoom.getTransform()
-
-    const viewCenterX = containerRect.width / 2
-    const viewCenterY = containerRect.height / 2
-
-    const cellCenterX = cellElement.offsetLeft + (cellElement.offsetWidth / 2)
-    const cellCenterY = cellElement.offsetTop + (cellElement.offsetHeight / 2)
-
-    const targetX = viewCenterX - (cellCenterX * scale)
-    const targetY = viewCenterY - (cellCenterY * scale)
-
-    panzoom.smoothMoveTo(targetX, targetY)
+    viewport.centerOnCell(row, col)
 })
 
 app.ports.connect?.subscribe(data => {
@@ -102,43 +89,16 @@ app.ports.goal?.subscribe(() => {
     client.goal()
 })
 
-app.ports.moveCellIntoView?.subscribe(cellId => {
-    const cellElement = document.getElementById(cellId)
-    const viewport = document.querySelector('panzoom-board-wrapper')
+app.ports.moveCellIntoView?.subscribe(cell => {
+    const viewport = document.querySelector('archipeladoku-board')
 
-    if (!cellElement || !viewport) {
+    if (!viewport) {
         return
     }
 
-    const panzoom = viewport.panzoomInstance
-    const currentTransform = panzoom.getTransform()
-    const cellRect = cellElement.getBoundingClientRect()
-    const viewportRect = viewport.getBoundingClientRect()
+    const [ row, col ] = cell
 
-    const padding = 48 * currentTransform.scale
-    const headerOffset = 48 * currentTransform.scale
-
-    let deltaX = 0
-    let deltaY = 0
-
-    if (cellRect.left < viewportRect.left + padding + headerOffset) {
-        deltaX = viewportRect.left + padding + headerOffset - cellRect.left
-    } else if (cellRect.right > viewportRect.right - padding) {
-        deltaX = viewportRect.right - padding - cellRect.right
-    }
-
-    if (cellRect.top < viewportRect.top + padding + headerOffset) {
-        deltaY = viewportRect.top + padding + headerOffset - cellRect.top
-    } else if (cellRect.bottom > viewportRect.bottom - padding) {
-        deltaY = viewportRect.bottom - padding - cellRect.bottom
-    }
-
-    if (Math.abs(deltaX) > 0 || Math.abs(deltaY) > 0) {
-        const newX = currentTransform.x + deltaX
-        const newY = currentTransform.y + deltaY
-
-        panzoom.smoothMoveTo(newX, newY)
-    }
+    viewport.moveCellIntoView(row, col)
 })
 
 app.ports.scoutLocations?.subscribe(ids => {
@@ -178,117 +138,14 @@ app.ports.log?.subscribe(text => {
 })
 
 function triggerAnimation(data) {
-    const { ids, type } = data
+    const { cells, type } = data
+    const viewport = document.querySelector('archipeladoku-board')
 
-    ids.forEach((id, i) => {
-        const element = document.getElementById(id)
-        const viewport = document.querySelector('panzoom-board-wrapper')
+    if (!viewport) {
+        return
+    }
 
-        if (!element || !viewport) {
-            return
-        }
-
-        const container = document.body
-        const rect = element.getBoundingClientRect()
-        const viewportRect = viewport.getBoundingClientRect()
-        const isVisibleInViewport = (
-            rect.top <= viewportRect.bottom
-            && rect.bottom >= viewportRect.top
-            && rect.left <= viewportRect.right
-            && rect.right >= viewportRect.left
-        );
-
-        if (!isVisibleInViewport) {
-            return
-        }
-
-        if (type === 'shine') {
-            const shine = document.createElement('div')
-            shine.classList.add('shine')
-            element.appendChild(shine)
-
-            const keyframes = [
-                { backgroundPosition: '200% 0' },
-                { backgroundPosition: '-100% 0' }
-            ]
-            const options = {
-                duration: 500,
-                delay: i * 60,
-                easing: 'ease-in-out',
-            }
-            const animation = shine.animate(keyframes, options)
-
-            animation.onfinish = () => {
-                shine.remove()
-            }
-        } else if (type === 'shatter') {
-            const panzoom = viewport.panzoomInstance
-            const scale = panzoom.getTransform().scale
-            const width = rect.width
-            const height = rect.height
-
-            const rows = 3
-            const cols = 3
-            const shardWidth = Math.ceil(width / cols)
-            const shardHeight = Math.ceil(height / rows)
-
-            for (let row = 0; row < rows; row++) {
-                for (let col = 0; col < cols; col++) {
-                    const shard = document.createElement('div')
-                    shard.classList.add('shard')
-                    shard.style.width = `${shardWidth}px`
-                    shard.style.height = `${shardHeight}px`
-
-                    const initialX = rect.left + window.scrollX + col * shardWidth
-                    const initialY = rect.top + window.scrollY + row * shardHeight
-
-                    shard.style.left = `${initialX}px`
-                    shard.style.top = `${initialY}px`
-
-                    container.appendChild(shard)
-
-                    const centerX = rect.left + width / 2
-                    const centerY = rect.top + height / 2
-                    const shardCenterX = initialX + shardWidth / 2
-                    const shardCenterY = initialY + shardHeight / 2
-
-
-                    let dirX = shardCenterX - centerX
-                    let dirY = shardCenterY - centerY
-
-                    const distance = Math.sqrt(dirX * dirX + dirY * dirY) || 1
-                    dirX = dirX / distance + (Math.random() - 0.5) * 0.5
-                    dirY = dirY / distance + (Math.random() - 0.5) * 0.5
-
-                    const travelDist = (50 + Math.random() * 50) * scale
-                    const rotation = -360 + Math.random() * 720
-
-                    const keyframes = [
-                        {
-                            transform: `translate(0px, 0px) rotate(0deg) scale(1)`,
-                            opacity: 1
-                        },
-                        {
-                            transform: `translate(${dirX * travelDist}px, ${dirY * travelDist}px) rotate(${rotation}deg) scale(0.5)`,
-                            opacity: 0
-                        }
-                    ]
-                    const options = {
-                        duration: 1500 + Math.random() * 500,
-                        easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                        fill: 'forwards',
-                        delay: i * 100,
-                    }
-
-                    const animation = shard.animate(keyframes, options)
-
-                    animation.onfinish = () => {
-                        shard.remove()
-                    }
-                }
-            }
-        }
-    })
+    viewport.animateCells(cells, type)
 }
 
 window.triggerAnimation = triggerAnimation
@@ -297,34 +154,26 @@ app.ports.triggerAnimation?.subscribe(triggerAnimation)
 
 app.ports.zoom?.subscribe(data => {
     const { id, scaleMult } = data
-    const cellElement = document.getElementById(id)
-    const viewport = document.querySelector('panzoom-board-wrapper')
-    const panzoom = viewport?.panzoomInstance
+    const viewport = document.querySelector('archipeladoku-board')
 
-    if (!panzoom || !cellElement) {
+    if (!viewport) {
         return
     }
 
-    const containerRect = viewport.getBoundingClientRect()
-    const { x, y, scale } = panzoom.getTransform()
-    const localX = cellElement.offsetLeft + (cellElement.offsetWidth / 2)
-    const localY = cellElement.offsetTop + (cellElement.offsetHeight / 2)
+    // TODO: Center on cell
 
-    const targetX = (localX * scale) + x + containerRect.left
-    const targetY = (localY * scale) + y + containerRect.top
-
-    panzoom.smoothZoom(targetX, targetY, scaleMult)
+    viewport.zoomCenter(scaleMult)
 })
 
 app.ports.zoomReset?.subscribe(() => {
-    const panzoom = document.querySelector('panzoom-board-wrapper')?.panzoomInstance
+    const viewport = document.querySelector('archipeladoku-board')
 
-    if (!panzoom) {
+    if (!viewport) {
         return
     }
 
-    panzoom.moveTo(8, 8)
-    panzoom.zoomAbs(8, 8, 1.0)
+    viewport.setViewport(60, 60, 1.0)
+
 })
 
 client.socket.on('disconnected', () => {

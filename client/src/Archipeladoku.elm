@@ -28,14 +28,14 @@ import Time
 import Yaml.Encode
 
 
-port centerViewOnCell : String -> Cmd msg
+port centerViewOnCell : ( Int, Int ) -> Cmd msg
 port checkLocation : Int -> Cmd msg
 port connect : Encode.Value -> Cmd msg
 port generateBoard : Encode.Value -> Cmd msg
 port goal : () -> Cmd msg
 port hintForItem : String -> Cmd msg
 port log : String -> Cmd msg
-port moveCellIntoView : String -> Cmd msg
+port moveCellIntoView : ( Int, Int ) -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
 port sendPlayingStatus : () -> Cmd msg
@@ -62,6 +62,7 @@ type alias Model =
     , autoFillCandidatesOnUnlock : Bool
     , autoRemoveInvalidCandidates : Bool
     , blockSize : Int
+    , boardData : Encode.Value
     , boardsPerCluster : Int
     , candidateMode : Bool
     , cellBlocks : Dict ( Int, Int ) (List Area)
@@ -83,6 +84,7 @@ type alias Model =
     , givens : Set ( Int, Int )
     , heldKeys : Set String
     , highlightedCells : Set ( Int, Int )
+    , highlightedNumbers : Set Int
     , highlightMode : HighlightMode
     , hints : Dict Int Hint
     , hintCost : Int
@@ -242,6 +244,7 @@ init flagsValue =
       , autoFillCandidatesOnUnlock = False
       , autoRemoveInvalidCandidates = False
       , blockSize = 9
+      , boardData = Encode.null
       , boardsPerCluster = 5
       , candidateMode = False
       , cellBlocks = Dict.empty
@@ -263,6 +266,7 @@ init flagsValue =
       , givens = Set.empty
       , heldKeys = Set.empty
       , highlightedCells = Set.empty
+      , highlightedNumbers = Set.empty
       , highlightMode = HighlightNone
       , hints = Dict.empty
       , hintCost = 0
@@ -390,10 +394,17 @@ update msg model =
             )
 
         CellSelected ( row, col ) ->
-            ( { model | selectedCell = ( row, col ) }
-                |> updateHighlightedCells
-            , Cmd.none
-            )
+            if Dict.member ( row, col ) model.solution then
+                ( { model | selectedCell = ( row, col ) }
+                    |> updateHighlight
+                , Cmd.none
+                )
+                    |> andThen updateBoardData
+
+            else
+                ( model
+                , Cmd.none
+                )
 
         ClearBoardPressed ->
             let
@@ -421,6 +432,7 @@ update msg model =
             ( { model | colorScheme = scheme }
             , setLocalStorage ( "apdk-color-scheme", scheme )
             )
+                |> andThen updateBoardData
 
         ConnectPressed ->
             ( { model | gameState = Connecting }
@@ -552,6 +564,7 @@ update msg model =
               }
             , Cmd.none
             )
+                |> andThen updateBoardData
 
         FillCellCandidatesPressed ->
             if Set.member model.selectedCell model.visibleCells
@@ -567,6 +580,7 @@ update msg model =
                   }
                 , Cmd.none
                 )
+                    |> andThen updateBoardData
 
             else
                 ( model
@@ -801,9 +815,10 @@ update msg model =
 
         HighlightModeChanged mode ->
             ( { model | highlightMode = mode }
-                |> updateHighlightedCells
+                |> updateHighlight
             , Cmd.none
             )
+                |> andThen updateBoardData
 
         HintItemPressed name ->
             ( model
@@ -1175,6 +1190,7 @@ update msg model =
               }
             , Cmd.none
             )
+                |> andThen updateBoardData
 
         SeedInputChanged value ->
             ( { model
@@ -1219,9 +1235,10 @@ update msg model =
             case targetCell of
                 Just cell ->
                     ( { model | selectedCell = cell }
-                        |> updateHighlightedCells
-                    , moveCellIntoView (cellHtmlId cell)
+                        |> updateHighlight
+                    , moveCellIntoView cell
                     )
+                        |> andThen updateBoardData
 
                 Nothing ->
                     ( model
@@ -1256,9 +1273,10 @@ update msg model =
             case targetCell of
                 Just cell ->
                     ( { model | selectedCell = cell }
-                        |> updateHighlightedCells
-                    , centerViewOnCell (cellHtmlId cell)
+                        |> updateHighlight
+                    , centerViewOnCell cell
                     )
+                        |> andThen updateBoardData
 
                 Nothing ->
                     ( model
@@ -1572,9 +1590,10 @@ update msg model =
                             HighlightNumber ->
                                 HighlightNone
               }
-                |> updateHighlightedCells
+                |> updateHighlight
             , Cmd.none
             )
+                |> andThen updateBoardData
 
         TriggerEmojiTrapPressed ->
             ( model
@@ -1611,6 +1630,7 @@ update msg model =
                 (Dict.get model.selectedCell model.cellBlocks
                     |> Maybe.withDefault []
                 )
+                |> andThen updateBoardData
 
         ZoomInPressed ->
             ( model
@@ -1716,9 +1736,8 @@ type CellValue
 
 
 type CellError
-    = CandidateErrors (Set Int)
-    | NumberError
-    | ErrorContext
+    = CandidateErrors (Dict Int (Set ( Int, Int )))
+    | NumberError (Set ( Int, Int ))
 
 
 type HighlightMode
@@ -1984,6 +2003,14 @@ tupleDecoder decodeA decodeB =
         (Decode.index 1 decodeB)
 
 
+encodeTuple : (a -> Encode.Value) -> (b -> Encode.Value) -> ( a, b ) -> Encode.Value
+encodeTuple encodeA encodeB ( a, b ) =
+    Encode.list identity
+        [ encodeA a
+        , encodeB b
+        ]
+
+
 encodeGenerateArgs : GenerateArgs -> Encode.Value
 encodeGenerateArgs args =
     Encode.object
@@ -2188,7 +2215,7 @@ generationProgressDecoder =
 encodeTriggerAnimation : String -> List ( Int, Int ) -> Encode.Value
 encodeTriggerAnimation animationType cells =
     Encode.object
-        [ ( "ids", Encode.list Encode.string (List.map cellHtmlId cells) )
+        [ ( "cells", Encode.list (encodeTuple Encode.int Encode.int) cells )
         , ( "type", Encode.string animationType )
         ]
 
@@ -2299,6 +2326,286 @@ locationScoutingToString locationScouting =
             "disabled"
 
 
+encodeData : Model -> Encode.Value
+encodeData model =
+    Encode.object
+        [ ( "cells"
+          , Encode.list
+                identity
+                (List.map
+                    (\( row, col ) ->
+                        Encode.list
+                            identity
+                            [ Encode.int row
+                            , Encode.int col
+                            , encodeCellValue model ( row, col )
+                            ]
+                    )
+                    (Dict.keys model.solution)
+                )
+          )
+        , ( "blocks"
+          , Encode.list
+                identity
+                (List.map
+                    (\block ->
+                        Encode.object
+                            [ ( "startRow", Encode.int block.startRow )
+                            , ( "startCol", Encode.int block.startCol )
+                            , ( "endRow", Encode.int block.endRow )
+                            , ( "endCol", Encode.int block.endCol )
+                            ]
+                    )
+                    model.puzzleAreas.blocks
+                )
+          )
+        , ( "boards"
+          , Encode.list
+                identity
+                (List.map
+                    (\board ->
+                        Encode.object
+                            [ ( "startRow", Encode.int board.startRow )
+                            , ( "startCol", Encode.int board.startCol )
+                            , ( "endRow", Encode.int board.endRow )
+                            , ( "endCol", Encode.int board.endCol )
+                            ]
+                    )
+                    model.puzzleAreas.boards
+                )
+          )
+        , ( "errors", encodeErrors model.errors )
+        , ( "selectedCell", encodeSelectedCell model.selectedCell )
+        , ( "blockSize", Encode.int model.blockSize )
+        , ( "numberMap", encodeNumberMap model)
+        , ( "colorScheme", Encode.string model.colorScheme )
+        ]
+
+
+cellSelectedDecoder : Decode.Decoder Msg
+cellSelectedDecoder =
+    Decode.map2
+        (\row col -> CellSelected ( row, col ) )
+        (Decode.at [ "detail", "row" ] Decode.int)
+        (Decode.at [ "detail" ,"col" ] Decode.int)
+
+
+encodeSelectedCell : ( Int, Int ) -> Encode.Value
+encodeSelectedCell ( row, col ) =
+    Encode.object
+        [ ( "row", Encode.int row )
+        , ( "col", Encode.int col )
+        ]
+
+
+encodeCellValue : Model -> ( Int, Int ) -> Encode.Value
+encodeCellValue model cell =
+    if cellIsVisible model cell then
+        case getCellValue model cell of
+            Just ( Given n ) ->
+                Encode.object
+                    [ ( "type", Encode.string "given" )
+                    , ( "number", Encode.int n )
+                    , ( "dimmed"
+                      , case model.highlightMode of
+                            HighlightNone ->
+                                Encode.bool False
+
+                            HighlightBoard ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightArea ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightNumber ->
+                                Set.member n model.highlightedNumbers
+                                    |> not
+                                    |> xor (Set.isEmpty model.highlightedNumbers)
+                                    |> Encode.bool
+                      )
+                    ]
+
+            Just ( Single n ) ->
+                Encode.object
+                    [ ( "type", Encode.string "single" )
+                    , ( "number", Encode.int n )
+                    , ( "dimmed"
+                      , case model.highlightMode of
+                            HighlightNone ->
+                                Encode.bool False
+
+                            HighlightBoard ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightArea ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightNumber ->
+                                Set.member n model.highlightedNumbers
+                                    |> not
+                                    |> xor (Set.isEmpty model.highlightedNumbers)
+                                    |> Encode.bool
+                      )
+                    ]
+
+            Just ( Multiple nums ) ->
+                Encode.object
+                    [ ( "type", Encode.string "candidates" )
+                    , ( "numbers", Encode.list Encode.int (Set.toList nums) )
+                    , ( "dimmed"
+                      , case model.highlightMode of
+                            HighlightNone ->
+                                Encode.bool False
+
+                            HighlightBoard ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightArea ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightNumber ->
+                                Set.intersect nums model.highlightedNumbers
+                                    |> Set.isEmpty
+                                    |> xor (Set.isEmpty model.highlightedNumbers)
+                                    |> Encode.bool
+                      )
+                    , ( "dimmedNumbers"
+                      , case model.highlightMode of
+                            HighlightNumber ->
+                                Encode.list
+                                    Encode.int
+                                    (Set.toList (Set.diff nums model.highlightedNumbers))
+
+                            _ ->
+                                Encode.list Encode.int []
+                      )
+                    ]
+
+            Nothing ->
+                Encode.object
+                    [ ( "type", Encode.string "empty" )
+                    , ( "dimmed"
+                      , case model.highlightMode of
+                            HighlightNone ->
+                                Encode.bool False
+
+                            HighlightBoard ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightArea ->
+                                Set.member cell model.highlightedCells
+                                    |> not
+                                    |> Encode.bool
+
+                            HighlightNumber ->
+                                Set.isEmpty model.highlightedNumbers
+                                    |> not
+                                    |> Encode.bool
+                      )
+                    ]
+
+    else
+        Encode.object
+            [ ( "type", Encode.string "hidden" )
+            , ( "dimmed"
+              , case model.highlightMode of
+                    HighlightNone ->
+                        Encode.bool False
+
+                    HighlightBoard ->
+                        Set.member cell model.highlightedCells
+                            |> not
+                            |> Encode.bool
+
+                    HighlightArea ->
+                        Set.member cell model.highlightedCells
+                            |> not
+                            |> Encode.bool
+
+                    HighlightNumber ->
+                        Set.isEmpty model.highlightedNumbers
+                            |> not
+                            |> Encode.bool
+              )
+            ]
+
+
+encodeErrors : Dict ( Int, Int ) CellError -> Encode.Value
+encodeErrors errorsDict =
+    Encode.list
+        (\( ( row, col ), cellError ) ->
+            Encode.object
+                [ ( "row", Encode.int row )
+                , ( "col", Encode.int col )
+                , ( "details"
+                  , case cellError of
+                        CandidateErrors errors ->
+                            Encode.object
+                                [ ( "type", Encode.string "candidates" )
+                                , ( "errors"
+                                  , Encode.list
+                                        (\( n, cells ) ->
+                                            Encode.object
+                                                [ ( "number", Encode.int n )
+                                                , ( "cells"
+                                                  , Encode.list
+                                                        (encodeTuple Encode.int Encode.int)
+                                                        (Set.toList cells)
+                                                  )
+                                                ]
+                                        )
+                                        (Dict.toList errors)
+                                  )
+                                ]
+
+                        NumberError cells ->
+                            Encode.object
+                                [ ( "type", Encode.string "number" )
+                                , ( "cells"
+                                  , Encode.list
+                                        (encodeTuple Encode.int Encode.int)
+                                        (Set.toList cells)
+                                  )
+                                ]
+                  )
+                ]
+        )
+        (Dict.toList errorsDict)
+
+
+encodeNumberMap : Model -> Encode.Value
+encodeNumberMap model =
+    if model.emojiTrapTimer > 0 then
+        Encode.list
+            (encodeTuple Encode.int Encode.string)
+            (List.map
+                (\( k, v ) ->
+                    ( k, v )
+                )
+                (Dict.toList model.emojiTrapMap)
+            )
+
+    else
+        Encode.list Encode.int []
+
+
+
+
+
 ---
 -- Update helpers & utility functions
 ---
@@ -2384,20 +2691,24 @@ moveSelection ( rowOffset, colOffset ) model =
     ( { model
         | selectedCell = newCell
       }
-        |> updateHighlightedCells
+        |> updateHighlight
     , Cmd.batch
-        [ moveCellIntoView (cellHtmlId newCell)
+        [ moveCellIntoView newCell
         , Browser.Dom.focus (cellHtmlId newCell)
             |> Task.attempt (always NoOp)
         ]
     )
+        |> andThen updateBoardData
 
 
-updateHighlightedCells : Model -> Model
-updateHighlightedCells model =
+updateHighlight : Model -> Model
+updateHighlight model =
     case model.highlightMode of
         HighlightNone ->
-            { model | highlightedCells = Set.empty }
+            { model
+                | highlightedCells = Set.empty
+                , highlightedNumbers = Set.empty
+            }
 
         HighlightBoard ->
             { model
@@ -2406,6 +2717,7 @@ updateHighlightedCells model =
                         |> Maybe.withDefault []
                         |> List.concatMap getAreaCells
                         |> Set.fromList
+                , highlightedNumbers = Set.empty
             }
 
         HighlightArea ->
@@ -2427,10 +2739,30 @@ updateHighlightedCells model =
                             |> List.concatMap getAreaCells
                             |> Set.fromList
                         ]
+                , highlightedNumbers = Set.empty
             }
 
         HighlightNumber ->
-            { model | highlightedCells = Set.empty }
+            { model
+                | highlightedCells = Set.empty
+                , highlightedNumbers =
+                    if not (cellIsVisible model model.selectedCell) then
+                        Set.empty
+
+                    else
+                        case getCellValue model model.selectedCell of
+                            Just (Given number) ->
+                                Set.singleton number
+
+                            Just (Single number) ->
+                                Set.singleton number
+
+                            Just (Multiple numbers) ->
+                                numbers
+
+                            _ ->
+                                Set.empty
+            }
 
 
 getCandidateMode : Model -> Bool
@@ -2452,7 +2784,7 @@ removeInvalidCandidates model =
                         ( CandidateErrors errorNumbers, Just (Multiple values) ) ->
                             Dict.insert
                                 cell
-                                (Set.diff values errorNumbers
+                                (Set.diff values (Set.fromList <| Dict.keys errorNumbers)
                                     |> Multiple
                                 )
                                 current
@@ -2540,6 +2872,8 @@ updateState model =
                     , updateStateErrors
                     , updateStateScoutLocations
                     , updateStateGoal
+                    , updateStateHighlight
+                    , updateBoardData
                     ]
                     model
 
@@ -2549,6 +2883,8 @@ updateState model =
                     , updateStateErrors
                     , updateStateScoutLocations
                     , updateStateGoal
+                    , updateStateHighlight
+                    , updateBoardData
                     ]
                     model
 
@@ -2679,6 +3015,20 @@ updateStateGoal model =
         ( model
         , Cmd.none
         )
+
+
+updateStateHighlight : Model -> ( Model, Cmd Msg )
+updateStateHighlight model =
+    ( updateHighlight model
+    , Cmd.none
+    )
+
+
+updateBoardData : Model -> ( Model, Cmd Msg )
+updateBoardData model =
+    ( { model | boardData = encodeData model }
+    , Cmd.none
+    )
 
 
 updateStateCellChange : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
@@ -2959,88 +3309,90 @@ getBoardErrors model =
             List.foldl
                 (\cell acc ->
                     let
-                        cellValue : Maybe CellValue
-                        cellValue =
-                            getCellValue model cell
+                        getConflictingCells : Int -> Set ( Int, Int )
+                        getConflictingCells number =
+                            areaCells
+                                |> List.filter ((/=) cell)
+                                |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
+                                |> List.filter
+                                    (\areaCell ->
+                                        getCellValue model areaCell
+                                            |> Maybe.andThen cellValueToInt
+                                            |> Maybe.map ((==) number)
+                                            |> Maybe.withDefault False
+                                    )
+                                |> Set.fromList
                     in
-                    case cellValue of
+                    case getCellValue model cell of
                         Just (Given v) ->
-                            let
-                                numbersInArea : Set Int
-                                numbersInArea =
-                                    areaCells
-                                        |> List.filter ((/=) cell)
-                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (getCellValue model)
-                                        |> List.map cellValueToInts
-                                        |> List.foldl Set.union Set.empty
-                            in
-                            if Set.member v numbersInArea then
-                                Dict.insert
-                                    cell
-                                    ErrorContext
-                                    acc
-
-                            else
-                                acc
+                            acc
 
                         Just (Single v) ->
                             let
-                                numbersInArea : Set Int
-                                numbersInArea =
-                                    areaCells
-                                        |> List.filter ((/=) cell)
-                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (getCellValue model)
-                                        |> List.filterMap cellValueToInt
-                                        |> Set.fromList
-
-                                candidatesInArea : Set Int
-                                candidatesInArea =
-                                    areaCells
-                                        |> List.filter ((/=) cell)
-                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (getCellValue model)
-                                        |> List.map cellValueToInts
-                                        |> List.foldl Set.union Set.empty
+                                conflictingCells : Set ( Int, Int )
+                                conflictingCells =
+                                    getConflictingCells v
                             in
-                            if Set.member v numbersInArea then
-                                Dict.insert
-                                    cell
-                                    NumberError
-                                    acc
-
-                            else if Set.member v candidatesInArea then
-                                Dict.insert
-                                    cell
-                                    ErrorContext
-                                    acc
+                            if Set.isEmpty conflictingCells then
+                                acc
 
                             else
-                                acc
+                                Dict.update
+                                    cell
+                                    (\error ->
+                                        case error of
+                                            Just (NumberError existingConflicts) ->
+                                                Just <| NumberError <| Set.union existingConflicts conflictingCells
+
+                                            _ ->
+                                                Just <| NumberError conflictingCells
+                                    )
+                                    acc
 
                         Just (Multiple numbers) ->
                             let
-                                numbersInArea : Set Int
-                                numbersInArea =
-                                    areaCells
-                                        |> List.filter ((/=) cell)
-                                        |> List.filter (\areaCell -> Set.member areaCell model.visibleCells)
-                                        |> List.filterMap (getCellValue model)
-                                        |> List.filterMap cellValueToInt
-                                        |> Set.fromList
-                            in
-                            Dict.update
-                                cell
-                                (\maybeSet ->
-                                    case maybeSet of
-                                        Just (CandidateErrors set) ->
-                                            Just <| CandidateErrors <| Set.union set numbersInArea
+                                candidateErrors : Dict Int (Set ( Int, Int ))
+                                candidateErrors =
+                                    numbers
+                                        |> Set.toList
+                                        |> List.filterMap
+                                            (\number ->
+                                                let
+                                                    conflictingCells : Set ( Int, Int )
+                                                    conflictingCells =
+                                                        getConflictingCells number
+                                                in
+                                                if Set.isEmpty conflictingCells then
+                                                    Nothing
 
-                                        _ ->
-                                            Just <| CandidateErrors numbersInArea
-                                )
+                                                else
+                                                    Just ( number, conflictingCells )
+                                            )
+                                        |> Dict.fromList
+                            in
+                            if Dict.isEmpty candidateErrors then
                                 acc
+
+                            else
+                                Dict.update
+                                    cell
+                                    (\error ->
+                                        case error of
+                                            Just (CandidateErrors existingErrors) ->
+                                                Dict.merge
+                                                    (\k a -> Dict.insert k a)
+                                                    (\k a b -> Dict.insert k (Set.union a b))
+                                                    (\k b -> Dict.insert k b)
+                                                    existingErrors
+                                                    candidateErrors
+                                                    Dict.empty
+                                                    |> CandidateErrors
+                                                    |> Just
+
+                                            _ ->
+                                                Just <| CandidateErrors candidateErrors
+                                    )
+                                    acc
 
                         Nothing ->
                             acc
@@ -3699,6 +4051,7 @@ updateEmojiTrapMap model =
       }
     , Cmd.none
     )
+        |> andThen updateBoardData
 
 
 animalEmojis : List String
@@ -4481,296 +4834,20 @@ viewRatioInputs args =
 
 viewBoard : Model -> Html Msg
 viewBoard model =
-    let
-        rows : Int
-        rows =
-            Dict.keys model.solution
-                |> List.map Tuple.first
-                |> List.maximum
-                |> Maybe.withDefault 0
-
-        cols : Int
-        cols =
-            Dict.keys model.solution
-                |> List.map Tuple.second
-                |> List.maximum
-                |> Maybe.withDefault 0
-    in
-    Html.node "panzoom-board-wrapper"
+    Html.div
         [ HA.class "grid"
-        , HA.class <| "block-" ++ String.fromInt model.blockSize
-        , HA.style "grid-template-rows" ("repeat(" ++ String.fromInt (rows + 1) ++ ", 1.5em)")
-        , HA.style "grid-template-columns" ("repeat(" ++ String.fromInt (cols + 1) ++ ", 1.5em)")
-        , HE.preventDefaultOn "keydown" (keyDownDecoder model)
-        , HE.on "keyup" keyUpDecoder
         ]
-        [ Html.div
-            [ HA.class "grid-corner" ]
-            []
-        , Html.div
-            [ HA.class "grid-columns-header" ]
-            (List.map
-                (\col ->
-                    Html.div
-                        [ HA.style "grid-row" "1"
-                        , HA.style "grid-column" (String.fromInt col)
-                        ]
-                        [ Html.text (String.fromInt col) ]
-                )
-                (List.range 1 cols)
-            )
-        , Html.div
-            [ HA.class "grid-rows-header" ]
-            (List.map
-                (\row ->
-                    Html.div
-                        [ HA.style "grid-column" "1"
-                        , HA.style "grid-row" (String.fromInt row)
-                        ]
-                        [ Html.text (rowToLabel row) ]
-                )
-                (List.range 1 rows)
-            )
-        , Html.div
-            [ HA.class "grid-cells"
-            , HAE.attributeIf (model.emojiTrapTimer > 0) (HA.class "emoji-trap")
+        [ Html.node "archipeladoku-board"
+            [ HA.property "data" model.boardData
+            , HE.preventDefaultOn "keydown" (keyDownDecoder model)
+            , HE.on "keyup" keyUpDecoder
+            , HE.on "cellselected" cellSelectedDecoder
+            , HA.tabindex 0
             ]
-            (List.concat
-                [ List.map
-                    (viewCell model)
-                    (List.range 1 (rows)
-                        |> List.concatMap
-                            (\row ->
-                                List.range 1 (cols)
-                                    |> List.map (Tuple.pair row)
-                            )
-                    )
-                , List.map
-                    (\block ->
-                        Html.div
-                            [ HA.class "block"
-                            , HA.style "grid-area"
-                                (String.concat
-                                    [ String.fromInt block.startRow
-                                    , " / "
-                                    , String.fromInt block.startCol
-                                    , " / "
-                                    , String.fromInt (block.endRow + 1)
-                                    , " / "
-                                    , String.fromInt (block.endCol + 1)
-                                    ]
-                                )
-                            ]
-                            []
-                    )
-                    model.puzzleAreas.blocks
-                , List.map
-                    (\board ->
-                        Html.div
-                            [ HA.class "board"
-                            , HA.style "grid-area"
-                                (String.concat
-                                    [ String.fromInt board.startRow
-                                    , " / "
-                                    , String.fromInt board.startCol
-                                    , " / "
-                                    , String.fromInt (board.endRow + 1)
-                                    , " / "
-                                    , String.fromInt (board.endCol + 1)
-                                    ]
-                                )
-                            ]
-                            []
-                    )
-                    model.puzzleAreas.boards
-                ]
-            )
+            []
         , viewZoomControls
         , viewTrapTimers model
         ]
-
-
-viewCell : Model -> ( Int, Int ) -> Html Msg
-viewCell model ( row, col ) =
-    let
-        cellIsAt : ( Int, Int ) -> Bool
-        cellIsAt ( r, c ) =
-            Dict.member ( r, c ) model.solution
-
-        isVisible : Bool
-        isVisible =
-            Set.member ( row, col ) model.visibleCells
-
-        isDimmed : Bool
-        isDimmed =
-            if model.highlightMode == HighlightNumber then
-                if not (cellIsVisible model model.selectedCell) then
-                    False
-
-                else if not isVisible then
-                    case getCellValue model model.selectedCell of
-                        Just selectedCellValue ->
-                            not (Set.isEmpty (cellValueToInts selectedCellValue))
-
-                        Nothing ->
-                            False
-
-                else
-                    case ( getCellValue model model.selectedCell, cellValue ) of
-                        ( Just selectedCellValue, Just currentCellValue ) ->
-                            Set.intersect
-                                (cellValueToInts selectedCellValue)
-                                (cellValueToInts currentCellValue)
-                                |> Set.isEmpty
-
-                        ( Just _, Nothing ) ->
-                            True
-
-                        _ ->
-                            False
-
-            else
-                not (Set.isEmpty model.highlightedCells)
-                    && not (Set.member ( row, col ) model.highlightedCells)
-
-        highlightNumbers : Set Int
-        highlightNumbers =
-            if model.highlightMode == HighlightNumber
-                && not isDimmed
-                && cellIsVisible model model.selectedCell
-            then
-                getCellValue model model.selectedCell
-                    |> Maybe.map cellValueToInts
-                    |> Maybe.withDefault Set.empty
-
-            else
-                Set.empty
-
-        cellError : Maybe CellError
-        cellError =
-            Dict.get ( row, col ) model.errors
-
-        errorIsContext : Bool
-        errorIsContext =
-            case cellError of
-                Just ErrorContext ->
-                    True
-
-                _ ->
-                    False
-
-        errorIsNumber : Bool
-        errorIsNumber =
-            case cellError of
-                Just NumberError ->
-                    True
-
-                _ ->
-                    False
-
-        cellIsMultiple : Bool
-        cellIsMultiple =
-            cellValue
-                |> Maybe.map isMultiple
-                |> Maybe.withDefault False
-
-        cellValue : Maybe CellValue
-        cellValue =
-            getCellValue model ( row, col )
-    in
-    if cellIsAt ( row, col ) then
-        Html.button
-            [ HA.id (cellHtmlId ( row, col ))
-            , HA.class "cell"
-            , HA.style "grid-row" (String.fromInt row)
-            , HA.style "grid-column" (String.fromInt col)
-            , HAE.attributeMaybe
-                (\v ->
-                    if isVisible then
-                        HA.class <| "val-" ++ String.fromInt v
-
-                    else
-                        HAE.empty
-                )
-                (Maybe.andThen cellValueToInt cellValue)
-            , HA.classList
-                [ ( "selected", model.selectedCell == ( row, col ) )
-                , ( "given", cellIsGiven model ( row, col ) && isVisible )
-                , ( "user-input", Maybe.Extra.isJust cellValue && (not <| cellIsGiven model ( row, col )) )
-                , ( "multi", cellIsMultiple )
-                , ( "hidden", not isVisible )
-                , ( "error", errorIsNumber && (not cellIsMultiple) && isVisible )
-                , ( "error-context", errorIsContext && (not cellIsMultiple) && isVisible )
-                , ( "dimmed", isDimmed )
-                ]
-            , HE.onClick (CellSelected ( row, col ))
-            ]
-            (if isVisible then
-                case cellValue of
-                    Just value ->
-                        case value of
-                            Given v ->
-                                [ Html.text (numberToString model v) ]
-
-                            Single v ->
-                                [ Html.text (numberToString model v) ]
-
-                            Multiple numbers ->
-                                viewMultipleNumbers model cellError highlightNumbers numbers
-
-                    Nothing ->
-                        []
-
-             else
-                []
-            )
-
-    else
-        Html.text ""
-
-
-viewMultipleNumbers : Model -> Maybe CellError -> Set Int -> Set Int -> List (Html Msg)
-viewMultipleNumbers model cellError highlightNumbers numbers =
-    let
-        errorNumbers : Set Int
-        errorNumbers =
-            case cellError of
-                Just (CandidateErrors nums) ->
-                    nums
-
-                _ ->
-                    Set.empty
-    in
-    List.map
-        (\number ->
-            let
-                blockWidth : Int
-                blockWidth =
-                    Tuple.second (blockSizeToDimensions model.blockSize)
-
-                row : Int
-                row =
-                    (number - 1) // blockWidth + 1
-
-                col : Int
-                col =
-                    modBy blockWidth (number - 1) + 1
-            in
-            Html.div
-                [ HA.style "grid-row" (String.fromInt row)
-                , HA.style "grid-column" (String.fromInt col)
-                , HA.class "center"
-                , HA.class <| "val-" ++ String.fromInt number
-                , HAE.attributeIf
-                    (Set.member number errorNumbers)
-                    (HA.class "error")
-                , HAE.attributeIf
-                    (not (Set.isEmpty highlightNumbers) && not (Set.member number highlightNumbers))
-                    (HA.class "dimmed")
-                ]
-                [ Html.text (numberToString model number) ]
-        )
-        (Set.toList numbers)
 
 
 viewZoomControls : Html Msg

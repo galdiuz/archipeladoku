@@ -2018,7 +2018,7 @@ class ArchipeladokuBoard extends HTMLElement {
     ) {
         ctx.fillStyle = 'white'
         ctx.strokeStyle = 'black'
-        ctx.lineWidth = 2
+        ctx.lineWidth = 1 * this.spriteScale
 
         ctx.save();
 
@@ -2052,7 +2052,7 @@ class ArchipeladokuBoard extends HTMLElement {
         step: number,
     ) {
         ctx.strokeStyle = colors.crack[this.colorScheme]
-        ctx.lineWidth = 2
+        ctx.lineWidth = 1 * this.spriteScale
 
         ctx.save();
 
@@ -2085,6 +2085,7 @@ class ArchipeladokuBoard extends HTMLElement {
 
         const path1 = crackPaths[path1Index]!
         const path2 = crackPaths[path2Index]!
+        const lineWidth = 1 * this.spriteScale
 
         ctx.save();
 
@@ -2092,20 +2093,36 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx.rect(x, y, size, size);
         ctx.clip();
 
+        const points: [number, number][] = [
+            [x + path1[0]![0]! * size, y + path1[0]![1]! * size],
+            [x + path1[1]![0]! * size, y + path1[1]![1]! * size],
+            [x + path1[2]![0]! * size, y + path1[2]![1]! * size],
+            [x + path1[3]![0]! * size, y + path1[3]![1]! * size],
+            [x + path1[4]![0]! * size, y + path1[4]![1]! * size],
+            [x + path2[3]![0]! * size, y + path2[3]![1]! * size],
+            [x + path2[2]![0]! * size, y + path2[2]![1]! * size],
+            [x + path2[1]![0]! * size, y + path2[1]![1]! * size],
+        ]
+
         ctx.beginPath()
-        ctx.moveTo(x + path1[0]![0]! * size, y + path1[0]![1]! * size)
-        ctx.lineTo(x + path1[1]![0]! * size, y + path1[1]![1]! * size)
-        ctx.lineTo(x + path1[2]![0]! * size, y + path1[2]![1]! * size)
-        ctx.lineTo(x + path1[3]![0]! * size, y + path1[3]![1]! * size)
-        ctx.lineTo(x + path1[4]![0]! * size, y + path1[4]![1]! * size)
-        ctx.lineTo(x + path2[3]![0]! * size, y + path2[3]![1]! * size)
-        ctx.lineTo(x + path2[2]![0]! * size, y + path2[2]![1]! * size)
-        ctx.lineTo(x + path2[1]![0]! * size, y + path2[1]![1]! * size)
+        for (let [px, py] of points) {
+            if (px === 0) {
+                px += lineWidth / 2
+            } else if (px === size) {
+                px -= lineWidth / 2
+            }
+            if (py === 0) {
+                py += lineWidth / 2
+            } else if (py === size) {
+                py -= lineWidth / 2
+            }
+            ctx.lineTo(px, py)
+        }
         ctx.closePath()
 
         ctx.fillStyle = colors.cellHidden[this.colorScheme]
         ctx.strokeStyle = colors.crack[this.colorScheme]
-        ctx.lineWidth = 2
+        ctx.lineWidth = lineWidth
 
         ctx.fill()
         ctx.stroke()
@@ -2122,11 +2139,12 @@ class ArchipeladokuBoard extends HTMLElement {
     ) {
         const x = cornerX + size
         const y = cornerY + size
+        const padding = 40 * this.spriteScale
 
         ctx.save()
 
         ctx.beginPath()
-        ctx.rect(x - 50, y - 50, size + 100, size + 100)
+        ctx.rect(x - padding, y - padding, size + padding * 2, size + padding * 2)
         ctx.rect(x, y + size, size, -size)
         ctx.clip()
 

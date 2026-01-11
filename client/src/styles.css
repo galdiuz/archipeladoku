@@ -287,6 +287,7 @@ h1, h2 {
     border: 1px solid var(--color-border);
     padding: var(--spacing-m);
     box-shadow: 1px 1px 4px 2px var(--color-shadow);
+    pointer-events: none;
 }
 
 .trap-timer-track {

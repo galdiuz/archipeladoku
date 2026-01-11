@@ -111,7 +111,15 @@ class EmojiTrapRatio(Range):
     display_name = "Filler Ratio: Emoji Trap"
     range_start = 0
     range_end = 5000
-    default = 40
+    default = 20
+
+
+class DiscoTrapRatio(Range):
+    """Ratio of Disco Trap filler items to number of boards, in percent."""
+    display_name = "Filler Ratio: Disco Trap"
+    range_start = 0
+    range_end = 5000
+    default = 20
 
 
 class PreFillNothingsPercent(Range):
@@ -137,4 +145,5 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     solve_random_cell_ratio: SolveRandomCellRatio
     remove_random_candidate_ratio: RemoveRandomCandidateRatio
     emoji_trap_ratio: EmojiTrapRatio
+    disco_trap_ratio: DiscoTrapRatio
     pre_fill_nothings_percent: PreFillNothingsPercent

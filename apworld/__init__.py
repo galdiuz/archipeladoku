@@ -343,6 +343,7 @@ class ArchipeladokuWorld(World):
             "Solve Random Cell": self.options.solve_random_cell_ratio.value,
             "Remove Random Candidate": self.options.remove_random_candidate_ratio.value,
             "Emoji Trap": self.options.emoji_trap_ratio.value,
+            "Disco Trap": self.options.disco_trap_ratio.value,
             "Nothing": self.get_nothing_weight(),
         }
 

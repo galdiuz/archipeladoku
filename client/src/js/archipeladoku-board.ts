@@ -1155,7 +1155,7 @@ class ArchipeladokuBoard extends HTMLElement {
         const dpr = window.devicePixelRatio || 1
         const width = canvas.width / dpr
         const height = canvas.height / dpr
-        const spriteSize = this.cellSize * this.spriteScale * dpr
+        const spriteSize = this.getSpriteSize()
 
         ctx.fillStyle = colors.mainBg[this.colorScheme]
         ctx.fillRect(0, 0, width, height)
@@ -1274,7 +1274,7 @@ class ArchipeladokuBoard extends HTMLElement {
         const dpr = window.devicePixelRatio || 1
         const cellType = cell.type
         const cellSizeWithGap = this.cellSize + this.cellGap
-        const spriteSize = this.cellSize * this.spriteScale * dpr
+        const spriteSize = this.getSpriteSize()
         const x = (col - 1) * cellSizeWithGap
         const y = (row - 1) * cellSizeWithGap
 
@@ -1529,7 +1529,6 @@ class ArchipeladokuBoard extends HTMLElement {
             ctx,
             cellX,
             cellY,
-            this.cellSize,
             effects.shineProgress
         )
         this.renderSparkleEffect(
@@ -1537,7 +1536,6 @@ class ArchipeladokuBoard extends HTMLElement {
             cellX + effects.sparkle1X,
             cellY + effects.sparkle1Y,
             effects.sparkle1Angle,
-            this.cellSize,
             effects.sparkle1Progress,
         )
         this.renderSparkleEffect(
@@ -1545,7 +1543,6 @@ class ArchipeladokuBoard extends HTMLElement {
             cellX + effects.sparkle2X,
             cellY + effects.sparkle2Y,
             effects.sparkle2Angle,
-            this.cellSize,
             effects.sparkle2Progress,
         )
         this.renderSparkleEffect(
@@ -1553,7 +1550,6 @@ class ArchipeladokuBoard extends HTMLElement {
             cellX + effects.sparkle3X,
             cellY + effects.sparkle3Y,
             effects.sparkle3Angle,
-            this.cellSize,
             effects.sparkle3Progress,
         )
     }
@@ -1563,12 +1559,13 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
-        size: number,
         progress: number
     ) {
         if (progress <= 0 || progress >= 1) {
             return
         }
+
+        const size = this.cellSize;
 
         ctx.save();
 
@@ -1599,15 +1596,14 @@ class ArchipeladokuBoard extends HTMLElement {
         x: number,
         y: number,
         angle: number,
-        size: number,
         progress: number
     ) {
         if (progress <= 0 || progress >= 1) {
             return
         }
 
-        const spriteSize = size * this.spriteScale
-        const sparkleSize = size * 0.3 * (0.2 + 0.8 * Math.sin(progress * Math.PI))
+        const spriteSize = this.getSpriteSize()
+        const sparkleSize = this.cellSize * 0.3 * (0.2 + 0.8 * Math.sin(progress * Math.PI))
 
         ctx.save()
 
@@ -1650,7 +1646,6 @@ class ArchipeladokuBoard extends HTMLElement {
             ctx,
             cellX,
             cellY,
-            this.cellSize,
             effects.crackFrame,
         )
     }
@@ -1677,7 +1672,6 @@ class ArchipeladokuBoard extends HTMLElement {
                 ctx,
                 cellX,
                 cellY,
-                this.cellSize,
                 i as 1 | 2 | 3 | 4 | 5 | 6,
                 angle,
                 speed,
@@ -1692,16 +1686,15 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
-        size: number,
         frame: 0 | 1 | 2 | 3,
     ) {
-        const spriteSize = size * this.spriteScale
+        const spriteSize = this.getSpriteSize()
 
         this.renderCellHidden(
             ctx,
             x,
             y,
-            size,
+            this.cellSize,
             'regular'
         )
 
@@ -1720,8 +1713,8 @@ class ArchipeladokuBoard extends HTMLElement {
             spriteSize,
             x,
             y,
-            size,
-            size
+            this.cellSize,
+            this.cellSize
         )
     }
 
@@ -1729,7 +1722,6 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
-        size: number,
         shard: 1 | 2 | 3 | 4 | 5 | 6,
         angle: number,
         speed: number,
@@ -1740,7 +1732,8 @@ class ArchipeladokuBoard extends HTMLElement {
             return
         }
 
-        const spriteSize = size * this.spriteScale
+        const size = this.cellSize
+        const spriteSize = this.getSpriteSize()
         const sourceX = getSpriteX(spriteSize, 'shard', shard)
         const sourceY = getSpriteY(spriteSize, 'shard', shard)
 
@@ -1827,8 +1820,7 @@ class ArchipeladokuBoard extends HTMLElement {
         startCol: number,
         endCol: number,
     ) {
-        const dpr = window.devicePixelRatio || 1
-        const spriteSize = this.cellSize * this.spriteScale * dpr
+        const spriteSize = this.getSpriteSize()
         const cellSizeWithGap = this.cellSize + this.cellGap
         const viewportX = -this.viewport.x / this.viewport.scale - this.cellGap
         const viewportY = -this.viewport.y / this.viewport.scale - this.cellGap
@@ -2361,7 +2353,7 @@ class ArchipeladokuBoard extends HTMLElement {
         const cellSizeWithGap = (this.cellSize + this.cellGap) * this.spriteScale
         const padding = this.headerCanvasPadding * this.spriteScale
 
-        const spriteSize = this.cellSize * this.spriteScale * dpr
+        const spriteSize = this.getSpriteSize()
         const sourceX = getSpriteX(spriteSize, 'background')
         const sourceY = getSpriteY(spriteSize, 'background')
         const fontSize = cellSize * 0.5
@@ -2501,6 +2493,11 @@ class ArchipeladokuBoard extends HTMLElement {
             cellSize + cellGap,
             cellSizeWithGap * this.boardCols + cellGap
         )
+    }
+
+
+    getSpriteSize(): number {
+        return this.cellSize * this.spriteScale * (window.devicePixelRatio || 1)
     }
 
 

@@ -2427,7 +2427,7 @@ class ArchipeladokuBoard extends HTMLElement {
 
         // Row canvas
         const rowWidth = cellSizeWithGap + padding * 2
-        const rowHeight = cellSizeWithGap * this.boardCols + padding * 2
+        const rowHeight = cellSizeWithGap * this.boardRows + padding * 2
         rowCanvas.width = rowWidth * dpr
         rowCanvas.height = rowHeight * dpr
         rowCanvas.style.width = `${rowWidth}px`
@@ -2443,7 +2443,7 @@ class ArchipeladokuBoard extends HTMLElement {
             padding - (cellGap / 2),
             padding - (cellGap / 2),
             cellSize + cellGap,
-            cellSizeWithGap * this.boardCols + cellGap
+            cellSizeWithGap * this.boardRows + cellGap
         )
         rowCtx.restore()
 
@@ -2453,7 +2453,7 @@ class ArchipeladokuBoard extends HTMLElement {
             padding,
             padding,
             cellSize,
-            cellSizeWithGap * this.boardCols
+            cellSizeWithGap * this.boardRows
         )
 
         // Row labels
@@ -2491,7 +2491,7 @@ class ArchipeladokuBoard extends HTMLElement {
             padding - (cellGap / 2),
             padding - (cellGap / 2),
             cellSize + cellGap,
-            cellSizeWithGap * this.boardCols + cellGap
+            cellSizeWithGap * this.boardRows + cellGap
         )
     }
 

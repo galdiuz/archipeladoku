@@ -1900,11 +1900,12 @@ class ArchipeladokuBoard extends HTMLElement {
         const cellSize = this.cellSize * this.spriteScale
         const blockSize = this.blockSize
         const dpr = window.devicePixelRatio || 1
+        const columns = Math.max(blockSize, 9)
         const rows = 18
 
-        canvas.width = (blockSize + 1) * cellSize * dpr
+        canvas.width = cellSize * dpr * columns
         canvas.height = cellSize * dpr * rows
-        canvas.style.width = `${(blockSize + 1) * cellSize}px`
+        canvas.style.width = `${cellSize * columns}px`
         canvas.style.height = `${cellSize * rows}px`
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 

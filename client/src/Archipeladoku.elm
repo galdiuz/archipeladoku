@@ -72,6 +72,7 @@ type alias Model =
     , colorScheme : String
     , current : Dict ( Int, Int ) CellValue
     , discoTrapMap : Dict Int Int
+    , discoTrapOffset : Int
     , discoTrapRatio : Int
     , discoTrapRatioInput : String
     , discoTrapTimer : Int
@@ -262,6 +263,7 @@ init flagsValue =
       , colorScheme = "light dark"
       , current = Dict.empty
       , discoTrapMap = Dict.empty
+      , discoTrapOffset = 0
       , discoTrapRatio = 20
       , discoTrapRatioInput = "20"
       , discoTrapTimer = 0
@@ -2551,17 +2553,25 @@ encodeCellValue model cell =
                                     |> Encode.bool
 
                             HighlightNumber ->
-                                Set.intersect nums model.highlightedNumbers
-                                    |> Set.isEmpty
-                                    |> xor (Set.isEmpty model.highlightedNumbers)
-                                    |> Encode.bool
+                                if Set.isEmpty model.highlightedNumbers then
+                                    Encode.bool False
+
+                                else
+                                    Set.intersect nums model.highlightedNumbers
+                                        |> Set.isEmpty
+                                        |> xor (Set.isEmpty model.highlightedNumbers)
+                                        |> Encode.bool
                       )
                     , ( "dimmedNumbers"
                       , case model.highlightMode of
                             HighlightNumber ->
-                                Encode.list
-                                    Encode.int
-                                    (Set.toList (Set.diff nums model.highlightedNumbers))
+                                if Set.isEmpty model.highlightedNumbers then
+                                    Encode.list Encode.int []
+
+                                else
+                                    Encode.list
+                                        Encode.int
+                                        (Set.toList (Set.diff nums model.highlightedNumbers))
 
                             _ ->
                                 Encode.list Encode.int []
@@ -4117,7 +4127,8 @@ trapDuration =
 triggerDiscoTrap : Model -> ( Model, Cmd Msg )
 triggerDiscoTrap model =
     ( { model
-        | discoTrapTimer = trapDuration
+        | discoTrapOffset = 0
+        , discoTrapTimer = trapDuration
       }
     , Cmd.none
     )
@@ -4127,23 +4138,30 @@ triggerDiscoTrap model =
 updateDiscoTrapMap : Model -> ( Model, Cmd Msg )
 updateDiscoTrapMap model =
     let
-        ( discoTrapMap, newSeed ) =
-            Random.step
-                (List.range 1 model.blockSize
-                    |> Random.List.shuffle
-                    |> Random.map
-                        (List.indexedMap
-                            (\idx number ->
-                                ( idx + 1, number )
-                            )
-                            >> Dict.fromList
-                        )
+        step : Int
+        step =
+            if model.blockSize >= 12 then
+                2
+
+            else
+                1
+
+        newOffset : Int
+        newOffset =
+            modBy model.blockSize (model.discoTrapOffset + step)
+
+        discoTrapMap : Dict Int Int
+        discoTrapMap =
+            List.map
+                (\number ->
+                    ( number, modBy model.blockSize (number + newOffset) + 1 )
                 )
-                model.seed
+                (List.range 1 model.blockSize)
+                |> Dict.fromList
     in
     ( { model
         | discoTrapMap = discoTrapMap
-        , seed = newSeed
+        , discoTrapOffset = newOffset
       }
     , Cmd.none
     )

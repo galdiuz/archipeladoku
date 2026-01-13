@@ -288,14 +288,13 @@ const spriteOffsets = {
         givenNumber: { x: 0, y: 3 },
         userValue: { x: 0, y: 5 },
         userValueNumber: { x: 0, y: 8 },
-        candidate: { x: 0, y: 10 },
-        candidateNumber: { x: 0, y: 13 },
-        background: { x: 0, y: 15 },
-        hidden: { x: 1, y: 15 },
-        sparkle: { x: 2, y: 15 },
-        crack: { x: 3, y: 15 },
-        shard: { x: 4, y: 15 },
-        selection: { x: 6, y: 15 },
+        candidateNumber: { x: 0, y: 10 },
+        background: { x: 0, y: 12 },
+        hidden: { x: 1, y: 12 },
+        sparkle: { x: 2, y: 12 },
+        crack: { x: 3, y: 12 },
+        shard: { x: 4, y: 12 },
+        selection: { x: 6, y: 12 },
     },
     state: {
         none: { x: 0, y: 0 },
@@ -420,6 +419,8 @@ class ArchipeladokuBoard extends HTMLElement {
     cells: Map<string, CellValue> = new Map()
     boardRows: number = 0
     boardCols: number = 0
+    blockRows: number = 0
+    blockCols: number = 0
     cellErrors: Map<string, [number, number][]> = new Map()
     colorScheme: ColorScheme = 'dark'
     viewport: { x: number; y: number; scale: number }
@@ -430,7 +431,6 @@ class ArchipeladokuBoard extends HTMLElement {
     cellSize: number = 48
     cellGap: number = 1
     borderWidth: number = 3
-
     activePointers: Map<number, PointerEvent> = new Map()
     lastPinchDistance: number = 0
     isDragging: boolean = false
@@ -449,9 +449,14 @@ class ArchipeladokuBoard extends HTMLElement {
     cellShineEffects: Map<string, any> = new Map()
     cellShatterEffects: Map<string, any> = new Map()
     colorMap: Map<number, number> = new Map()
+    oldColorMap: Map<number, number> = new Map()
+    oldColorMapOpacity: number = 0
     numberMap: Map<number, string> = new Map()
     discoTrap: boolean = false
     discoTrapSpotlights: Spotlight[] = []
+    candidateSubXMap: Map<number, number> = new Map()
+    candidateSubYMap: Map<number, number> = new Map()
+    candidateSubSize: number = 0
 
 
     constructor() {
@@ -527,6 +532,20 @@ class ArchipeladokuBoard extends HTMLElement {
         this.selectedCell = value.selectedCell
         this.blockSize = value.blockSize
 
+        const [ blockRows, blockCols ] = this.blockSizeToDimensions(value.blockSize)
+        this.blockRows = blockRows
+        this.blockCols = blockCols
+
+        for (let i = 1; i <= this.blockSize; i++) {
+            const size = this.cellSize
+            const subX = size / blockCols * ((i - 1) % blockCols)
+            const subYOffset = blockRows !== blockCols ? size / (blockRows * blockCols * 2) : 0
+            const subY = (size / blockRows) * Math.floor((i - 1) / blockCols) + subYOffset
+            this.candidateSubXMap.set(i, subX)
+            this.candidateSubYMap.set(i, subY)
+            this.candidateSubSize = size / blockCols
+        }
+
         this.cells.clear()
         for (const [row, col, cellValue] of value.cells) {
             this.cells.set(`${row},${col}`, cellValue)
@@ -548,8 +567,9 @@ class ArchipeladokuBoard extends HTMLElement {
         }
 
         if (!compareMaps(this.colorMap, colorMap)) {
+            this.oldColorMap = this.colorMap
             this.colorMap = colorMap
-            this.renderedSpriteScale = 0
+            this.startColorMapTransition()
         }
 
         this.cellErrors.clear()
@@ -1013,6 +1033,23 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    startColorMapTransition() {
+        this.oldColorMapOpacity = 1
+        this.addAnimation({
+            id: 'color-map-transition',
+            startTime: performance.now(),
+            duration: 500,
+            onUpdate: (t: number) => {
+                this.oldColorMapOpacity = 1 - easing.easeInOutQuad(t)
+            },
+            onComplete: () => {
+                this.oldColorMap.clear()
+                this.oldColorMapOpacity = 0
+            },
+        })
+    }
+
+
     startDiscoTrapAnimation() {
         this.discoTrapSpotlights = []
         const numSpotlights = Math.floor(Math.sqrt(this.clientWidth) / 3) + 3
@@ -1188,6 +1225,30 @@ class ArchipeladokuBoard extends HTMLElement {
 
         for (let row = startRow; row <= endRow; row++) {
             for (let col = startCol; col <= endCol; col++) {
+                this.renderCellBackground(ctx, row, col, this.colorMap)
+            }
+        }
+
+        if (this.oldColorMapOpacity > 0) {
+            ctx.save()
+            ctx.globalAlpha = this.oldColorMapOpacity
+            for (let row = startRow; row <= endRow; row++) {
+                for (let col = startCol; col <= endCol; col++) {
+                    this.renderCellBackground(ctx, row, col, this.oldColorMap)
+                }
+            }
+            ctx.restore()
+        }
+
+        for (let row = startRow; row <= endRow; row++) {
+            for (let col = startCol; col <= endCol; col++) {
+                if (this.selectedCell
+                    && this.selectedCell.row === row
+                    && this.selectedCell.col === col
+                ) {
+                    continue
+                }
+
                 this.renderCell(ctx, row, col)
 
                 if (this.cellShineEffects.has(`${row},${col}`)) {
@@ -1215,8 +1276,20 @@ class ArchipeladokuBoard extends HTMLElement {
             const row = this.selectedCell.row
             const col = this.selectedCell.col
 
-            // Render cell again so it's on top of block borders
+            this.renderCellBackground(ctx, row, col, this.colorMap)
+            if (this.oldColorMapOpacity > 0) {
+                ctx.save()
+                ctx.globalAlpha = this.oldColorMapOpacity
+                this.renderCellBackground(ctx, row, col, this.oldColorMap)
+                ctx.restore()
+            }
+
             this.renderCell(ctx, row, col)
+
+            if (this.cellShineEffects.has(`${row},${col}`)) {
+                this.renderCellShine(ctx, row, col)
+            }
+
             if (this.cellShatterEffects.has(`${row},${col}`)) {
                 this.renderCellShatterCracks(ctx, row, col)
             }
@@ -1264,15 +1337,13 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    renderCell(ctx: CanvasRenderingContext2D, row: number, col: number) {
+    renderCellBackground(ctx: CanvasRenderingContext2D, row: number, col: number, colorMap?: Map<number, number>) {
         const cell = this.cells.get(`${row},${col}`)
 
         if (!cell) {
             return
         }
 
-        const dpr = window.devicePixelRatio || 1
-        const cellType = cell.type
         const cellSizeWithGap = this.cellSize + this.cellGap
         const spriteSize = this.getSpriteSize()
         const x = (col - 1) * cellSizeWithGap
@@ -1282,8 +1353,12 @@ class ArchipeladokuBoard extends HTMLElement {
         const isHovered = this.hoveredCell && this.hoveredCell.row === row && this.hoveredCell.col === col
         const spriteState = isActive ? 'active' : isHovered ? 'hover' : 'none'
 
-        switch (cellType) {
+        switch (cell.type) {
             case 'empty': {
+                if (colorMap == this.oldColorMap) {
+                    break
+                }
+
                 const sourceX = getSpriteX(spriteSize, 'background', spriteState)
                 const sourceY = getSpriteY(spriteSize, 'background', spriteState)
 
@@ -1299,14 +1374,13 @@ class ArchipeladokuBoard extends HTMLElement {
                     this.cellSize
                 )
 
-                if (cell.dimmed) {
-                    ctx.fillStyle = colors.cellDimmed[this.colorScheme]
-                    ctx.fillRect(x, y, this.cellSize, this.cellSize)
-                }
-
                 break
             }
             case 'hidden': {
+                if (colorMap == this.oldColorMap) {
+                    break
+                }
+
                 const sourceX = getSpriteX(spriteSize, 'hidden', spriteState)
                 const sourceY = getSpriteY(spriteSize, 'hidden', spriteState)
 
@@ -1322,6 +1396,114 @@ class ArchipeladokuBoard extends HTMLElement {
                     this.cellSize
                 )
 
+                break
+            }
+            case 'given':
+            case 'single': {
+                const spriteType = cell.type === 'given' ? 'given' : 'userValue'
+                const bgNumber = colorMap?.get(cell.number) ?? cell.number
+                const sourceX = (bgNumber - 1) * spriteSize
+                const sourceY = getSpriteY(spriteSize, spriteType, spriteState)
+                const cellError = this.cellErrors.get(`${row},${col}`)
+                const numberState = cellError ? 'error' : 'none'
+
+                if (spriteType === 'userValue' && colorMap != this.oldColorMap) {
+                    const bgSourceX = getSpriteX(spriteSize, 'background', spriteState)
+                    const bgSourceY = getSpriteY(spriteSize, 'background', spriteState)
+
+                    ctx.drawImage(
+                        this.spriteCanvas,
+                        bgSourceX,
+                        bgSourceY,
+                        spriteSize,
+                        spriteSize,
+                        x,
+                        y,
+                        this.cellSize,
+                        this.cellSize
+                    )
+                }
+
+                ctx.drawImage(
+                    this.spriteCanvas,
+                    sourceX,
+                    sourceY,
+                    spriteSize,
+                    spriteSize,
+                    x,
+                    y,
+                    this.cellSize,
+                    this.cellSize
+                )
+
+                break
+            }
+            case 'candidates': {
+                const bgSourceX = getSpriteX(spriteSize, 'background', spriteState)
+                const bgSourceY = getSpriteY(spriteSize, 'background', spriteState)
+
+                if (colorMap != this.oldColorMap) {
+                    ctx.drawImage(
+                        this.spriteCanvas,
+                        bgSourceX,
+                        bgSourceY,
+                        spriteSize,
+                        spriteSize,
+                        x,
+                        y,
+                        this.cellSize,
+                        this.cellSize
+                    )
+                }
+
+                for (const number of cell.numbers) {
+                    const bgNumber = colorMap?.get(number) ?? number
+                    const sourceX = (bgNumber - 1) * spriteSize
+                    const sourceY = getSpriteY(spriteSize, 'userValue', spriteState)
+                    const subX = x + this.candidateSubXMap.get(number)!
+                    const subY = y + this.candidateSubYMap.get(number)!
+
+                    ctx.drawImage(
+                        this.spriteCanvas,
+                        sourceX,
+                        sourceY,
+                        spriteSize,
+                        spriteSize,
+                        subX,
+                        subY,
+                        this.candidateSubSize,
+                        this.candidateSubSize
+                    )
+                }
+
+                break
+            }
+        }
+    }
+
+
+    renderCell(ctx: CanvasRenderingContext2D, row: number, col: number) {
+        const cell = this.cells.get(`${row},${col}`)
+
+        if (!cell) {
+            return
+        }
+
+        const cellSizeWithGap = this.cellSize + this.cellGap
+        const spriteSize = this.getSpriteSize()
+        const x = (col - 1) * cellSizeWithGap
+        const y = (row - 1) * cellSizeWithGap
+
+        switch (cell.type) {
+            case 'empty': {
+                if (cell.dimmed) {
+                    ctx.fillStyle = colors.cellDimmed[this.colorScheme]
+                    ctx.fillRect(x, y, this.cellSize, this.cellSize)
+                }
+
+                break
+            }
+            case 'hidden': {
                 if (cell.dimmed) {
                     ctx.fillStyle = colors.cellDimmed[this.colorScheme]
                     ctx.fillRect(x, y, this.cellSize, this.cellSize)
@@ -1331,28 +1513,16 @@ class ArchipeladokuBoard extends HTMLElement {
             }
             case 'given':
             case 'single': {
-                const spriteType = cellType === 'given' ? 'given' : 'userValue'
-                const sourceX = (cell.number - 1) * spriteSize
-                const sourceY = getSpriteY(spriteSize, spriteType, spriteState)
+                const spriteType = cell.type === 'given' ? 'givenNumber' : 'userValueNumber'
                 const cellError = this.cellErrors.get(`${row},${col}`)
                 const numberState = cellError ? 'error' : 'none'
+                const sourceX = (cell.number - 1) * spriteSize
+                const sourceY = getSpriteY(spriteSize, spriteType, numberState)
 
                 ctx.drawImage(
                     this.spriteCanvas,
                     sourceX,
-                    getSpriteY(spriteSize, spriteType, spriteState),
-                    spriteSize,
-                    spriteSize,
-                    x,
-                    y,
-                    this.cellSize,
-                    this.cellSize
-                )
-
-                ctx.drawImage(
-                    this.spriteCanvas,
-                    sourceX,
-                    getSpriteY(spriteSize, `${spriteType}Number`, numberState),
+                    sourceY,
                     spriteSize,
                     spriteSize,
                     x,
@@ -1373,43 +1543,16 @@ class ArchipeladokuBoard extends HTMLElement {
                 break
             }
             case 'candidates': {
-                const bgSourceX = getSpriteX(spriteSize, 'background', spriteState)
-                const bgSourceY = getSpriteY(spriteSize, 'background', spriteState)
-
-                ctx.drawImage(
-                    this.spriteCanvas,
-                    bgSourceX,
-                    bgSourceY,
-                    spriteSize,
-                    spriteSize,
-                    x,
-                    y,
-                    this.cellSize,
-                    this.cellSize
-                )
-
                 for (const number of cell.numbers) {
-                    const sourceX = (number - 1) * spriteSize
-                    const sourceY = getSpriteY(spriteSize, 'candidate', spriteState)
                     const cellError = this.cellErrors.get(`${row},${col},${number}`)
                     const numberState = cellError ? 'error' : 'none'
+                    const sourceX = (number - 1) * spriteSize
+                    const sourceY = getSpriteY(spriteSize, 'candidateNumber', numberState)
 
                     ctx.drawImage(
                         this.spriteCanvas,
                         sourceX,
-                        getSpriteY(spriteSize, 'candidate', spriteState),
-                        spriteSize,
-                        spriteSize,
-                        x,
-                        y,
-                        this.cellSize,
-                        this.cellSize
-                    )
-
-                    ctx.drawImage(
-                        this.spriteCanvas,
-                        sourceX,
-                        getSpriteY(spriteSize, 'candidateNumber', numberState),
+                        sourceY,
                         spriteSize,
                         spriteSize,
                         x,
@@ -1423,7 +1566,7 @@ class ArchipeladokuBoard extends HTMLElement {
                     }
 
                     if (!cell.dimmed && cell.dimmedNumbers.includes(number)) {
-                        this.renderCandidateDimmedOverlay(ctx, x, y, this.cellSize, number)
+                        this.renderCandidateDimmedOverlay(ctx, x, y, number)
                     }
                 }
 
@@ -1481,12 +1624,13 @@ class ArchipeladokuBoard extends HTMLElement {
         value: number,
         contextCells: [number, number][],
     ) {
-        const [ rows, columns ] = this.blockSizeToDimensions(this.blockSize)
+        const rows = this.blockRows
+        const columns = this.blockCols
         const size = this.cellSize
         const cellX = (col - 1) * (this.cellSize + this.cellGap)
         const cellY = (row - 1) * (this.cellSize + this.cellGap)
-        const subX = cellX + size / (columns * 2) + (size / columns) * ((value - 1) % columns)
-        const subY = cellY + size / (rows * 2) + (size / rows) * Math.floor((value - 1) / columns)
+        const subX = cellX + size / (columns * 2) + this.candidateSubXMap.get(value)!
+        const subY = cellY + size / (rows * 2) + this.candidateSubYMap.get(value)!
         const subSize = size / (columns * 2)
 
         ctx.strokeStyle = colors.textError[this.colorScheme]
@@ -1690,7 +1834,7 @@ class ArchipeladokuBoard extends HTMLElement {
     ) {
         const spriteSize = this.getSpriteSize()
 
-        this.renderCellHidden(
+        this.renderCellHiddenSprite(
             ctx,
             x,
             y,
@@ -1898,10 +2042,9 @@ class ArchipeladokuBoard extends HTMLElement {
         const canvas = this.spriteCanvas
 
         const cellSize = this.cellSize * this.spriteScale
-        const blockSize = this.blockSize
         const dpr = window.devicePixelRatio || 1
-        const columns = Math.max(blockSize, 9)
-        const rows = 18
+        const columns = Math.max(this.blockSize, 9)
+        const rows = 15
 
         canvas.width = cellSize * dpr * columns
         canvas.height = cellSize * dpr * rows
@@ -1918,32 +2061,29 @@ class ArchipeladokuBoard extends HTMLElement {
             stateKey?: keyof typeof spriteOffsets.state,
         ) => getSpriteY(cellSize, baseKey, stateKey)
 
-        for (let number = 1; number <= blockSize; number++) {
+        for (let number = 1; number <= this.blockSize; number++) {
             const x = (number - 1) * cellSize
 
-            this.renderGiven(ctx, blockSize, x, spriteY('given'), cellSize, number, 'regular')
-            this.renderGiven(ctx, blockSize, x, spriteY('given', 'hover'), cellSize, number, 'hover')
-            this.renderGiven(ctx, blockSize, x, spriteY('given', 'active'), cellSize, number, 'active')
-            this.renderGivenNumber(ctx, blockSize, x, spriteY('givenNumber'), cellSize, number, 'regular')
-            this.renderGivenNumber(ctx, blockSize, x, spriteY('givenNumber', 'error'), cellSize, number, 'error')
-            this.renderUserValue(ctx, blockSize, x, spriteY('userValue'), cellSize, number, 'regular')
-            this.renderUserValue(ctx, blockSize, x, spriteY('userValue', 'hover'), cellSize, number, 'hover')
-            this.renderUserValue(ctx, blockSize, x, spriteY('userValue', 'active'), cellSize, number, 'active')
-            this.renderUserValueNumber(ctx, blockSize, x, spriteY('userValueNumber'), cellSize, number, 'regular')
-            this.renderUserValueNumber(ctx, blockSize, x, spriteY('userValueNumber', 'error'), cellSize, number, 'error')
-            this.renderCandidate(ctx, blockSize, x, spriteY('candidate'), cellSize, number, 'regular')
-            this.renderCandidate(ctx, blockSize, x, spriteY('candidate', 'hover'), cellSize, number, 'hover')
-            this.renderCandidate(ctx, blockSize, x, spriteY('candidate', 'active'), cellSize, number, 'active')
-            this.renderCandidateNumber(ctx, blockSize, x, spriteY('candidateNumber'), cellSize, number, 'regular')
-            this.renderCandidateNumber(ctx, blockSize, x, spriteY('candidateNumber', 'error'), cellSize, number, 'error')
+            this.renderGivenSprite(ctx, x, spriteY('given'), cellSize, number, 'regular')
+            this.renderGivenSprite(ctx, x, spriteY('given', 'hover'), cellSize, number, 'hover')
+            this.renderGivenSprite(ctx, x, spriteY('given', 'active'), cellSize, number, 'active')
+            this.renderGivenNumberSprite(ctx, x, spriteY('givenNumber'), cellSize, number, 'regular')
+            this.renderGivenNumberSprite(ctx, x, spriteY('givenNumber', 'error'), cellSize, number, 'error')
+            this.renderUserValueSprite(ctx, x, spriteY('userValue'), cellSize, number, 'regular')
+            this.renderUserValueSprite(ctx, x, spriteY('userValue', 'hover'), cellSize, number, 'hover')
+            this.renderUserValueSprite(ctx, x, spriteY('userValue', 'active'), cellSize, number, 'active')
+            this.renderUserValueNumberSprite(ctx, x, spriteY('userValueNumber'), cellSize, number, 'regular')
+            this.renderUserValueNumberSprite(ctx, x, spriteY('userValueNumber', 'error'), cellSize, number, 'error')
+            this.renderCandidateNumberSprite(ctx, x, spriteY('candidateNumber'), cellSize, number, 'regular')
+            this.renderCandidateNumberSprite(ctx, x, spriteY('candidateNumber', 'error'), cellSize, number, 'error')
         }
 
-        this.renderCellBackground(ctx, spriteX('background'), spriteY('background'), cellSize, 'regular')
-        this.renderCellBackground(ctx, spriteX('background'), spriteY('background', 'hover'), cellSize, 'hover')
-        this.renderCellBackground(ctx, spriteX('background'), spriteY('background', 'active'), cellSize, 'active')
-        this.renderCellHidden(ctx, spriteX('hidden'), spriteY('hidden'), cellSize, 'regular')
-        this.renderCellHidden(ctx, spriteX('hidden'), spriteY('hidden', 'hover'), cellSize, 'hover')
-        this.renderCellHidden(ctx, spriteX('hidden'), spriteY('hidden', 'active'), cellSize, 'active')
+        this.renderCellBackgroundSprite(ctx, spriteX('background'), spriteY('background'), cellSize, 'regular')
+        this.renderCellBackgroundSprite(ctx, spriteX('background'), spriteY('background', 'hover'), cellSize, 'hover')
+        this.renderCellBackgroundSprite(ctx, spriteX('background'), spriteY('background', 'active'), cellSize, 'active')
+        this.renderCellHiddenSprite(ctx, spriteX('hidden'), spriteY('hidden'), cellSize, 'regular')
+        this.renderCellHiddenSprite(ctx, spriteX('hidden'), spriteY('hidden', 'hover'), cellSize, 'hover')
+        this.renderCellHiddenSprite(ctx, spriteX('hidden'), spriteY('hidden', 'active'), cellSize, 'active')
 
         this.renderSparkleSprite(ctx, spriteX('sparkle'), spriteY('sparkle'), cellSize)
 
@@ -1958,15 +2098,14 @@ class ArchipeladokuBoard extends HTMLElement {
         this.renderShardSprite(ctx, spriteX('shard', 5), spriteY('shard', 5), cellSize, 5)
         this.renderShardSprite(ctx, spriteX('shard', 6), spriteY('shard', 6), cellSize, 6)
 
-        this.renderSelection(ctx, spriteX('selection'), spriteY('selection'), cellSize)
+        this.renderSelectionSprite(ctx, spriteX('selection'), spriteY('selection'), cellSize)
 
         this.renderHeaderSprites()
     }
 
 
-    renderGiven(
+    renderGivenSprite(
         ctx: CanvasRenderingContext2D,
-        blockSize: number,
         x: number,
         y: number,
         size: number,
@@ -1974,8 +2113,7 @@ class ArchipeladokuBoard extends HTMLElement {
         state: CellState = 'regular',
     ) {
         const gradient = ctx.createLinearGradient(x, y, x, y + size)
-        const bgNumber = this.colorMap.get(number) || number
-        const color = getCellColor(blockSize, bgNumber, this.colorScheme, state)
+        const color = getCellColor(this.blockSize, number, this.colorScheme, state)
         gradient.addColorStop(0, color[0])
         gradient.addColorStop(1, color[1])
         ctx.fillStyle = gradient
@@ -1983,9 +2121,8 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    renderGivenNumber(
+    renderGivenNumberSprite(
         ctx: CanvasRenderingContext2D,
-        blockSize: number,
         x: number,
         y: number,
         size: number,
@@ -2009,22 +2146,16 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    renderUserValue(
+    renderUserValueSprite(
         ctx: CanvasRenderingContext2D,
-        blockSize: number,
         x: number,
         y: number,
         size: number,
         number: number,
         state: CellState = 'regular',
     ) {
-        // Background
-        this.renderCellBackground(ctx, x, y, size, state)
-
-        // Circle background
         const gradient = ctx.createLinearGradient(x, y, x, y + size)
-        const bgNumber = this.colorMap.get(number) || number
-        const color = getCellColor(blockSize, bgNumber, this.colorScheme, state)
+        const color = getCellColor(this.blockSize, number, this.colorScheme, state)
         gradient.addColorStop(0, color[0])
         gradient.addColorStop(1, color[1])
         ctx.fillStyle = gradient
@@ -2032,31 +2163,11 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx.moveTo(x + size / 2, y)
         ctx.arc(x + size / 2, y + size / 2, (size / 2) * 0.95, 0, Math.PI * 2)
         ctx.fill()
-
-        // Fade background
-        // const fadeGradient = ctx.createRadialGradient(
-        //     x + size / 2,
-        //     y + size / 2,
-        //     0,
-        //     x + size / 2,
-        //     y + size / 2,
-        //     size / 2
-        // )
-        // const cellBg = colors.cellBg.dark
-        // const cellBgTransparent = colors.cellBgTransparent[this.colorScheme]
-        // fadeGradient.addColorStop(0.85, cellBgTransparent)
-        // fadeGradient.addColorStop(1, cellBg)
-        // ctx.fillStyle = fadeGradient
-        // ctx.beginPath()
-        // ctx.moveTo(x + size / 2, y)
-        // ctx.arc(x + size / 2, y + size / 2, (size / 2) * 0.95, 0, Math.PI * 2)
-        // ctx.fill()
     }
 
 
-    renderUserValueNumber(
+    renderUserValueNumberSprite(
         ctx: CanvasRenderingContext2D,
-        blockSize: number,
         x: number,
         y: number,
         size: number,
@@ -2076,50 +2187,17 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    renderCandidate(
+    renderCandidateNumberSprite(
         ctx: CanvasRenderingContext2D,
-        blockSize: number,
-        x: number,
-        y: number,
-        size: number,
-        number: number,
-        state: CellState = 'regular',
-    ) {
-        const [ rows, columns ] = this.blockSizeToDimensions(blockSize)
-        const subX = x + size / (columns * 2) + (size / columns) * ((number - 1) % columns)
-        const subY = y + size / (rows * 2) + (size / rows) * Math.floor((number - 1) / columns)
-        const subSize = size / (columns * 2)
-
-        const gradient = ctx.createLinearGradient(subX, subY, subX, subY + subSize)
-        const bgNumber = this.colorMap.get(number) || number
-        const color = getCellColor(blockSize, bgNumber, this.colorScheme, state)
-        gradient.addColorStop(0, color[0])
-        gradient.addColorStop(1, color[1])
-        ctx.fillStyle = gradient
-        ctx.beginPath()
-        ctx.moveTo(x + size / 2, y)
-        ctx.arc(
-            subX,
-            subY,
-            subSize * 0.95,
-            0,
-            Math.PI * 2
-        )
-        ctx.fill()
-    }
-
-
-    renderCandidateNumber(
-        ctx: CanvasRenderingContext2D,
-        blockSize: number,
         x: number,
         y: number,
         size: number,
         value: number,
         state: NumberState = 'regular',
     ) {
-        const fontSize = size * candidateFontSizeMultiplier[blockSize as keyof typeof candidateFontSizeMultiplier]
-        const [ rows, columns ] = this.blockSizeToDimensions(blockSize)
+        const fontSize = size * candidateFontSizeMultiplier[this.blockSize as keyof typeof candidateFontSizeMultiplier]
+        const rows = this.blockRows
+        const columns = this.blockCols
         const subX = x + size / (columns * 2) + (size / columns) * ((value - 1) % columns)
         const subY = y + size / (rows * 2) + (size / rows) * Math.floor((value - 1) / columns)
 
@@ -2139,12 +2217,13 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
-        size: number,
         value: number,
     ) {
-        const [ rows, columns ] = this.blockSizeToDimensions(this.blockSize)
-        const subX = x + size / (columns * 2) + (size / columns) * ((value - 1) % columns)
-        const subY = y + size / (rows * 2) + (size / rows) * Math.floor((value - 1) / columns)
+        const size = this.cellSize
+        const rows = this.blockRows
+        const columns = this.blockCols
+        const subX = x + size / (columns * 2) + this.candidateSubXMap.get(value)!
+        const subY = y + size / (rows * 2) + this.candidateSubYMap.get(value)!
 
         ctx.fillStyle = colors.cellDimmed[this.colorScheme]
         ctx.beginPath()
@@ -2160,7 +2239,7 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    renderCellBackground(
+    renderCellBackgroundSprite(
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
@@ -2174,7 +2253,7 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    renderCellHidden(
+    renderCellHiddenSprite(
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
@@ -2309,7 +2388,7 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    renderSelection(
+    renderSelectionSprite(
         ctx: CanvasRenderingContext2D,
         cornerX: number,
         cornerY: number,

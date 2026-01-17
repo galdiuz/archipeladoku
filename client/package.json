@@ -1,6 +1,7 @@
 {
   "dependencies": {
-    "archipelago.js": "^2.0.4"
+    "archipelago.js": "^2.0.4",
+    "idb-keyval": "^6.2.2"
   },
   "devDependencies": {
     "elm": "^0.19.1-6",

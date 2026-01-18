@@ -76,6 +76,7 @@ def get_filler_counts(options) -> dict[str, int]:
         "Solve Selected Cell": options.solve_selected_cell_ratio.value,
         "Emoji Trap": options.emoji_trap_ratio.value,
         "Disco Trap": options.disco_trap_ratio.value,
+        "Tunnel Vision Trap": options.tunnel_vision_trap_ratio.value,
     }
     fillers = {}
 
@@ -417,6 +418,7 @@ item_name_to_id = {
     # 4xx: Trap Items
     "Emoji Trap": 401,
     "Disco Trap": 402,
+    "Tunnel Vision Trap": 403,
     # 1xxxyyy: Block Items, row xxx, col yyy, added below
 }
 location_name_to_id = {

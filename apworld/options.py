@@ -107,7 +107,9 @@ class RemoveRandomCandidateRatio(Range):
 
 
 class EmojiTrapRatio(Range):
-    """Ratio of Emoji Trap filler items to number of boards, in percent."""
+    """Ratio of Emoji Trap filler items to number of boards, in percent.
+    When received your numbers will be replaced with emojis for a time.
+    """
     display_name = "Filler Ratio: Emoji Trap"
     range_start = 0
     range_end = 5000
@@ -115,8 +117,20 @@ class EmojiTrapRatio(Range):
 
 
 class DiscoTrapRatio(Range):
-    """Ratio of Disco Trap filler items to number of boards, in percent."""
+    """Ratio of Disco Trap filler items to number of boards, in percent.
+    When received all cells will shift colors for a time.
+    """
     display_name = "Filler Ratio: Disco Trap"
+    range_start = 0
+    range_end = 5000
+    default = 20
+
+
+class TunnelVisionTrapRatio(Range):
+    """Ratio of Tunnel Vision Trap filler items to number of boards, in percent.
+    When received you will only be able to see a small area of the board for a time.
+    """
+    display_name = "Filler Ratio: Tunnel Vision Trap"
     range_start = 0
     range_end = 5000
     default = 20
@@ -146,4 +160,5 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     remove_random_candidate_ratio: RemoveRandomCandidateRatio
     emoji_trap_ratio: EmojiTrapRatio
     disco_trap_ratio: DiscoTrapRatio
+    tunnel_vision_trap_ratio: TunnelVisionTrapRatio
     pre_fill_nothings_percent: PreFillNothingsPercent

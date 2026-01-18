@@ -44,6 +44,7 @@ interface GenerateLocalArgs {
     seed: number
     solveRandomCellRatio: number
     solveSelectedCellRatio: number
+    tunnelVisionTrapRatio: number
 }
 
 
@@ -174,6 +175,7 @@ const progressiveBlockId = 101
 const solveSelectedCellId = 201
 const emojiTrapId = 401
 const discoTrapId = 402
+const tunnelVisionTrapId = 403
 const nothingId = 99
 
 
@@ -686,6 +688,7 @@ function addFillers(
     ratios.set(solveSelectedCellId, args.solveSelectedCellRatio)
     ratios.set(emojiTrapId, args.emojiTrapRatio)
     ratios.set(discoTrapId, args.discoTrapRatio)
+    ratios.set(tunnelVisionTrapId, args.tunnelVisionTrapRatio)
 
     const fillerCounts = new Map<number, number>()
 

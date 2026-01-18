@@ -9,6 +9,7 @@ interface BoardData {
     errors: CellError[]
     colorScheme: string
     discoTrap: boolean
+    tunnelVisionTrap: boolean
 }
 
 
@@ -52,6 +53,12 @@ interface CellValueHidden {
 }
 
 
+interface CellValueTunnel {
+    type: 'tunnel'
+    dimmed: boolean
+}
+
+
 interface CellValueGiven {
     type: 'given'
     number: number
@@ -77,6 +84,7 @@ interface CellValueCandidates {
 type CellValue
     = CellValueEmpty
     | CellValueHidden
+    | CellValueTunnel
     | CellValueGiven
     | CellValueSingle
     | CellValueCandidates
@@ -90,9 +98,12 @@ const colors = {
     cellBgHover: { light: 'hsl(0 0 85)', dark: 'hsl(0 0 20)' },
     cellBgActive: { light: 'hsl(0 0 80)', dark: 'hsl(0 0 5)' },
     cellBgTransparent: { light: 'hsl(0 0 90 / 0)', dark: 'hsl(0 0 10 / 0)' },
-    cellHidden: { light: 'hsl(0 0 80)', dark: 'hsl(0 0 40)' },
-    cellHiddenHover: { light: 'hsl(0 0 75)', dark: 'hsl(0 0 50)' },
-    cellHiddenActive: { light: 'hsl(0 0 70)', dark: 'hsl(0 0 35)' },
+    cellHidden: { light: 'hsl(0 0 70)', dark: 'hsl(0 0 40)' },
+    cellHiddenHover: { light: 'hsl(0 0 65)', dark: 'hsl(0 0 50)' },
+    cellHiddenActive: { light: 'hsl(0 0 60)', dark: 'hsl(0 0 35)' },
+    cellTunnel: { light: 'hsl(0 0 80)', dark: 'hsl(0 0 20)' },
+    cellTunnelHover: { light: 'hsl(0 0 75)', dark: 'hsl(0 0 30)' },
+    cellTunnelActive: { light: 'hsl(0 0 70)', dark: 'hsl(0 0 15)' },
     cellDimmed: { light: 'hsl(0 0 0 / 0.3)', dark: 'hsl(0 0 0 / 0.5)' },
     crack: { light: 'hsl(0 0 20)', dark: 'hsl(0 0 20)' },
     selection: { light: 'hsl(0 0 0)', dark: 'hsl(0 0 100)' },
@@ -259,6 +270,12 @@ const easing = {
     easeInOutQuad: (t: number): number => {
         return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
     },
+    easeIn: (t: number): number => {
+        return t * t
+    },
+    easeOut: (t: number): number => {
+        return t * (2 - t)
+    },
 }
 
 
@@ -289,12 +306,10 @@ const spriteOffsets = {
         userValue: { x: 0, y: 5 },
         userValueNumber: { x: 0, y: 8 },
         candidateNumber: { x: 0, y: 10 },
-        background: { x: 0, y: 12 },
-        hidden: { x: 1, y: 12 },
-        sparkle: { x: 2, y: 12 },
-        crack: { x: 3, y: 12 },
-        shard: { x: 4, y: 12 },
-        selection: { x: 6, y: 12 },
+        sparkle: { x: 0, y: 12 },
+        crack: { x: 1, y: 12 },
+        shard: { x: 2, y: 12 },
+        selection: { x: 4, y: 12 },
     },
     state: {
         none: { x: 0, y: 0 },
@@ -467,6 +482,9 @@ class ArchipeladokuBoard extends HTMLElement {
     numberMap: Map<number, string> = new Map()
     discoTrap: boolean = false
     discoTrapSpotlights: Spotlight[] = []
+    tunnelVisionTrap: boolean = false
+    tunnelVisionTrapRadius: number = 0
+    tunnelVisionTrapOpacity: number = 0
     candidateSubXMap: Map<number, number> = new Map()
     candidateSubYMap: Map<number, number> = new Map()
     candidateSubSize: number = 0
@@ -616,6 +634,14 @@ class ArchipeladokuBoard extends HTMLElement {
         } else if (this.discoTrap && !value.discoTrap) {
             this.discoTrap = false
             this.stopDiscoTrapAnimation()
+        }
+
+        if (!this.tunnelVisionTrap && value.tunnelVisionTrap) {
+            this.tunnelVisionTrap = true
+            this.startTunnelVisionTrapAnimation()
+        } else if (this.tunnelVisionTrap && !value.tunnelVisionTrap) {
+            this.tunnelVisionTrap = false
+            this.stopTunnelVisionTrapAnimation()
         }
 
         this.requestRender()
@@ -1188,6 +1214,32 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    startTunnelVisionTrapAnimation() {
+        this.addAnimation({
+            id: 'tunnel-vision-trap',
+            startTime: performance.now(),
+            duration: 1000,
+            onUpdate: (t: number) => {
+                this.tunnelVisionTrapRadius = 8 - 7 * easing.easeOut(t)
+                this.tunnelVisionTrapOpacity = 0.5 * easing.easeOut(t)
+            }
+        })
+    }
+
+
+    stopTunnelVisionTrapAnimation() {
+        this.addAnimation({
+            id: 'tunnel-vision-trap',
+            startTime: performance.now(),
+            duration: 1000,
+            onUpdate: (t: number) => {
+                this.tunnelVisionTrapRadius = 1 + 7 * easing.easeIn(t)
+                this.tunnelVisionTrapOpacity = 0.5 - 0.5 * easing.easeIn(t)
+            }
+        })
+    }
+
+
     requestRender() {
         if (this.renderRequested || this.isAnimating) {
             return
@@ -1392,6 +1444,10 @@ class ArchipeladokuBoard extends HTMLElement {
             }
         }
 
+        if (this.tunnelVisionTrapOpacity > 0) {
+            this.renderTunnelVisionTrap(ctx)
+        }
+
         if (this.discoTrapSpotlights.length > 0) {
             ctx.save()
             ctx.globalCompositeOperation = this.colorScheme === 'dark' ? 'lighten' : 'hard-light'
@@ -1429,20 +1485,10 @@ class ArchipeladokuBoard extends HTMLElement {
                     break
                 }
 
-                const sourceX = getSpriteX(spriteSize, 'background', spriteState)
-                const sourceY = getSpriteY(spriteSize, 'background', spriteState)
-
-                ctx.drawImage(
-                    this.spriteCanvas,
-                    sourceX,
-                    sourceY,
-                    spriteSize,
-                    spriteSize,
-                    x,
-                    y,
-                    this.cellSize,
-                    this.cellSize
-                )
+                ctx.fillStyle = spriteState === 'hover' ? colors.cellBgHover[this.colorScheme]
+                    : spriteState === 'active' ? colors.cellBgActive[this.colorScheme]
+                    : colors.cellBg[this.colorScheme]
+                ctx.fillRect(x, y, this.cellSize, this.cellSize)
 
                 break
             }
@@ -1451,20 +1497,22 @@ class ArchipeladokuBoard extends HTMLElement {
                     break
                 }
 
-                const sourceX = getSpriteX(spriteSize, 'hidden', spriteState)
-                const sourceY = getSpriteY(spriteSize, 'hidden', spriteState)
+                ctx.fillStyle = spriteState === 'hover' ? colors.cellHiddenHover[this.colorScheme]
+                    : spriteState === 'active' ? colors.cellHiddenActive[this.colorScheme]
+                    : colors.cellHidden[this.colorScheme]
+                ctx.fillRect(x, y, this.cellSize, this.cellSize)
 
-                ctx.drawImage(
-                    this.spriteCanvas,
-                    sourceX,
-                    sourceY,
-                    spriteSize,
-                    spriteSize,
-                    x,
-                    y,
-                    this.cellSize,
-                    this.cellSize
-                )
+                break
+            }
+            case 'tunnel': {
+                if (colorMap == this.oldColorMap) {
+                    break
+                }
+
+                ctx.fillStyle = spriteState === 'hover' ? colors.cellTunnelHover[this.colorScheme]
+                    : spriteState === 'active' ? colors.cellTunnelActive[this.colorScheme]
+                    : colors.cellTunnel[this.colorScheme]
+                ctx.fillRect(x, y, this.cellSize, this.cellSize)
 
                 break
             }
@@ -1478,20 +1526,10 @@ class ArchipeladokuBoard extends HTMLElement {
                 const numberState = cellError ? 'error' : 'none'
 
                 if (spriteType === 'userValue' && colorMap != this.oldColorMap) {
-                    const bgSourceX = getSpriteX(spriteSize, 'background', spriteState)
-                    const bgSourceY = getSpriteY(spriteSize, 'background', spriteState)
-
-                    ctx.drawImage(
-                        this.spriteCanvas,
-                        bgSourceX,
-                        bgSourceY,
-                        spriteSize,
-                        spriteSize,
-                        x,
-                        y,
-                        this.cellSize,
-                        this.cellSize
-                    )
+                    ctx.fillStyle = spriteState === 'hover' ? colors.cellBgHover[this.colorScheme]
+                        : spriteState === 'active' ? colors.cellBgActive[this.colorScheme]
+                        : colors.cellBg[this.colorScheme]
+                    ctx.fillRect(x, y, this.cellSize, this.cellSize)
                 }
 
                 ctx.drawImage(
@@ -1509,21 +1547,11 @@ class ArchipeladokuBoard extends HTMLElement {
                 break
             }
             case 'candidates': {
-                const bgSourceX = getSpriteX(spriteSize, 'background', spriteState)
-                const bgSourceY = getSpriteY(spriteSize, 'background', spriteState)
-
                 if (colorMap != this.oldColorMap) {
-                    ctx.drawImage(
-                        this.spriteCanvas,
-                        bgSourceX,
-                        bgSourceY,
-                        spriteSize,
-                        spriteSize,
-                        x,
-                        y,
-                        this.cellSize,
-                        this.cellSize
-                    )
+                    ctx.fillStyle = spriteState === 'hover' ? colors.cellBgHover[this.colorScheme]
+                        : spriteState === 'active' ? colors.cellBgActive[this.colorScheme]
+                        : colors.cellBg[this.colorScheme]
+                    ctx.fillRect(x, y, this.cellSize, this.cellSize)
                 }
 
                 for (const number of cell.numbers) {
@@ -1892,13 +1920,8 @@ class ArchipeladokuBoard extends HTMLElement {
     ) {
         const spriteSize = this.getSpriteSize()
 
-        this.renderCellHiddenSprite(
-            ctx,
-            x,
-            y,
-            this.cellSize,
-            'regular'
-        )
+        ctx.fillStyle = colors.cellHidden[this.colorScheme]
+        ctx.fillRect(x, y, this.cellSize, this.cellSize)
 
         if (frame == 0) {
             return
@@ -2012,6 +2035,51 @@ class ArchipeladokuBoard extends HTMLElement {
         gradient.addColorStop(1, `hsl(${hue} 100 ${lum} / 0)`)
         ctx.fillStyle = gradient
         ctx.fill()
+    }
+
+
+    renderTunnelVisionTrap(
+        ctx: CanvasRenderingContext2D,
+    ) {
+        if (!this.selectedCell) {
+            return
+        }
+
+        const row = this.selectedCell.row
+        const col = this.selectedCell.col
+        const cellSizeWithGap = this.cellSize + this.cellGap
+        const centerX = (col - 1) * cellSizeWithGap + this.cellSize / 2
+        const centerY = (row - 1) * cellSizeWithGap + this.cellSize / 2
+        const blockSizeRadius = {
+            4: this.cellSize * 1.6,
+            6: this.cellSize * 2.2,
+            8: this.cellSize * 2.2,
+            9: this.cellSize * 2.2,
+            12: this.cellSize * 2.8,
+            16: this.cellSize * 3.2,
+        }
+        const innerRadius = blockSizeRadius[this.blockSize as keyof typeof blockSizeRadius]
+            * this.tunnelVisionTrapRadius
+        const outerRadius = innerRadius * 1.5
+
+        const gradient = ctx.createRadialGradient(
+            centerX,
+            centerY,
+            innerRadius,
+            centerX,
+            centerY,
+            outerRadius
+        )
+        gradient.addColorStop(0.7, 'hsl(0 0 0 / 0)')
+        gradient.addColorStop(1, `hsl(0 0 0 / ${this.tunnelVisionTrapOpacity})`)
+
+        ctx.fillStyle = gradient
+        ctx.fillRect(
+            -this.viewport.x / this.viewport.scale,
+            -this.viewport.y / this.viewport.scale,
+            this.clientWidth / this.viewport.scale,
+            this.clientHeight / this.viewport.scale
+        )
     }
 
 
@@ -2135,13 +2203,6 @@ class ArchipeladokuBoard extends HTMLElement {
             this.renderCandidateNumberSprite(ctx, x, spriteY('candidateNumber'), cellSize, number, 'regular')
             this.renderCandidateNumberSprite(ctx, x, spriteY('candidateNumber', 'error'), cellSize, number, 'error')
         }
-
-        this.renderCellBackgroundSprite(ctx, spriteX('background'), spriteY('background'), cellSize, 'regular')
-        this.renderCellBackgroundSprite(ctx, spriteX('background'), spriteY('background', 'hover'), cellSize, 'hover')
-        this.renderCellBackgroundSprite(ctx, spriteX('background'), spriteY('background', 'active'), cellSize, 'active')
-        this.renderCellHiddenSprite(ctx, spriteX('hidden'), spriteY('hidden'), cellSize, 'regular')
-        this.renderCellHiddenSprite(ctx, spriteX('hidden'), spriteY('hidden', 'hover'), cellSize, 'hover')
-        this.renderCellHiddenSprite(ctx, spriteX('hidden'), spriteY('hidden', 'active'), cellSize, 'active')
 
         this.renderSparkleSprite(ctx, spriteX('sparkle'), spriteY('sparkle'), cellSize)
 
@@ -2294,34 +2355,6 @@ class ArchipeladokuBoard extends HTMLElement {
             Math.PI * 2
         )
         ctx.fill()
-    }
-
-
-    renderCellBackgroundSprite(
-        ctx: CanvasRenderingContext2D,
-        x: number,
-        y: number,
-        size: number,
-        state: CellState = 'regular',
-    ) {
-        ctx.fillStyle = state === 'hover' ? colors.cellBgHover[this.colorScheme]
-            : state === 'active' ? colors.cellBgActive[this.colorScheme]
-            : colors.cellBg[this.colorScheme]
-        ctx.fillRect(x, y, size, size)
-    }
-
-
-    renderCellHiddenSprite(
-        ctx: CanvasRenderingContext2D,
-        x: number,
-        y: number,
-        size: number,
-        state: CellState = 'regular',
-    ) {
-        ctx.fillStyle = state === 'hover' ? colors.cellHiddenHover[this.colorScheme]
-            : state === 'active' ? colors.cellHiddenActive[this.colorScheme]
-            : colors.cellHidden[this.colorScheme]
-        ctx.fillRect(x, y, size, size)
     }
 
 
@@ -2492,8 +2525,6 @@ class ArchipeladokuBoard extends HTMLElement {
         const padding = this.headerCanvasPadding * this.spriteScale
 
         const spriteSize = this.getSpriteSize()
-        const sourceX = getSpriteX(spriteSize, 'background')
-        const sourceY = getSpriteY(spriteSize, 'background')
         const fontSize = cellSize * 0.5
 
         // Column canvas
@@ -2530,17 +2561,8 @@ class ArchipeladokuBoard extends HTMLElement {
             const x = (col - 1) * cellSizeWithGap + padding
             const y = 0 + padding
 
-            colCtx.drawImage(
-                this.spriteCanvas,
-                sourceX,
-                sourceY,
-                spriteSize,
-                spriteSize,
-                x,
-                y,
-                cellSize,
-                cellSize
-            )
+            colCtx.fillStyle = colors.cellBg[this.colorScheme]
+            colCtx.fillRect(x, y, cellSize, cellSize)
 
             colCtx.fillStyle = colors.text[this.colorScheme]
             colCtx.font = `${fontSize}px Times New Roman`
@@ -2599,17 +2621,8 @@ class ArchipeladokuBoard extends HTMLElement {
             const x = 0 + padding
             const y = (row - 1) * cellSizeWithGap + padding
 
-            rowCtx.drawImage(
-                this.spriteCanvas,
-                sourceX,
-                sourceY,
-                spriteSize,
-                spriteSize,
-                x,
-                y,
-                cellSize,
-                cellSize
-            )
+            rowCtx.fillStyle = colors.cellBg[this.colorScheme]
+            rowCtx.fillRect(x, y, cellSize, cellSize)
 
             rowCtx.fillStyle = colors.text[this.colorScheme]
             rowCtx.font = `${fontSize}px Times New Roman`

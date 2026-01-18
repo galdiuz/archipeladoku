@@ -100,8 +100,8 @@ app.ports.connect?.subscribe(data => {
 
             IDB.get(slotData.seed, store)
                 .then(savedGame => {
-                    console.log('Loaded saved game from IndexedDB:', savedGame)
                     if (savedGame) {
+                        console.log('Loaded saved game from IndexedDB:', savedGame)
                         unpackSavedGame(savedGame)
                         app.ports.receiveOnlineGameSave.send(savedGame)
                     } else {

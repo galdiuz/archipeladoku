@@ -147,6 +147,11 @@ type alias Model =
     , solveSelectedCellUsed : Int
     , solvedLocations : Set Int
     , timezone : Time.Zone
+    , tunnelVisionTrapRatio : Int
+    , tunnelVisionTrapRatioInput : String
+    , tunnelVisionTrapReceived : Int
+    , tunnelVisionTrapTimer : Int
+    , tunnelVisionTrapTriggers : Int
     , undoStack : List (Dict ( Int, Int ) CellValue)
     , unlockedBlocks : Set ( Int, Int )
     , unlockMap : Dict Int Item
@@ -243,6 +248,10 @@ type Msg
     | ToggleHighlightModePressed
     | TriggerDiscoTrapPressed
     | TriggerEmojiTrapPressed
+    | TriggerTunnelVisionTrapPressed
+    | TunnelVisionTrapRatioChanged Int
+    | TunnelVisionTrapRatioInputBlurred
+    | TunnelVisionTrapRatioInputChanged String
     | UndoPressed
     | UnlockSelectedBlockPressed
     | ZoomInPressed
@@ -359,6 +368,11 @@ init flagsValue =
       , solveSelectedCellUsed = 0
       , solvedLocations = Set.empty
       , timezone = Time.utc
+      , tunnelVisionTrapRatio = 20
+      , tunnelVisionTrapRatioInput = "20"
+      , tunnelVisionTrapReceived = 0
+      , tunnelVisionTrapTimer = 0
+      , tunnelVisionTrapTriggers = 0
       , undoStack = []
       , unlockedBlocks = Set.empty
       , unlockMap = Dict.empty
@@ -384,7 +398,7 @@ subscriptions model =
         , receiveMessage GotMessage
         , receiveOnlineGameSave GotOnlineGameSave
         , receiveSlotData GotSlotData
-        , if model.discoTrapTimer > 0 || model.emojiTrapTimer > 0 then
+        , if model.discoTrapTimer > 0 || model.emojiTrapTimer > 0 || model.tunnelVisionTrapTimer > 0 then
             Time.every 1000 (\_ -> SecondPassed)
 
           else
@@ -433,6 +447,7 @@ update msg model =
             ( { model
                 | discoTrapTimer = 0
                 , emojiTrapTimer = 0
+                , tunnelVisionTrapTimer = 0
               }
             , Cmd.none
             )
@@ -1097,6 +1112,7 @@ update msg model =
                     , seed = model.seedInput
                     , solveRandomCellRatio = model.solveRandomCellRatio
                     , solveSelectedCellRatio = model.solveSelectedCellRatio
+                    , tunnelVisionTrapRatio = model.tunnelVisionTrapRatio
                     }
                 )
             )
@@ -1340,6 +1356,12 @@ update msg model =
                 , emojiTrapTimer =
                     if model.emojiTrapTimer > 0 then
                         model.emojiTrapTimer - 1
+
+                    else
+                        0
+                , tunnelVisionTrapTimer =
+                    if model.tunnelVisionTrapTimer > 0 then
+                        model.tunnelVisionTrapTimer - 1
 
                     else
                         0
@@ -1770,6 +1792,46 @@ update msg model =
             )
                 |> andThen triggerEmojiTrap
 
+        TriggerTunnelVisionTrapPressed ->
+            ( model
+            , Cmd.none
+            )
+                |> andThen triggerTunnelVisionTrap
+
+        TunnelVisionTrapRatioChanged value ->
+            ( { model
+                | tunnelVisionTrapRatio = value
+                , tunnelVisionTrapRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        TunnelVisionTrapRatioInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.tunnelVisionTrapRatioInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.tunnelVisionTrapRatio
+                        |> clamp 0 maxRatio
+            in
+            ( { model
+                | tunnelVisionTrapRatio = value
+                , tunnelVisionTrapRatioInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        TunnelVisionTrapRatioInputChanged value ->
+            ( { model
+                | tunnelVisionTrapRatio =
+                    String.toInt value
+                        |> Maybe.withDefault model.tunnelVisionTrapRatio
+                , tunnelVisionTrapRatioInput = value
+              }
+            , Cmd.none
+            )
+
         UndoPressed ->
             case model.undoStack of
                 [] ->
@@ -1883,6 +1945,7 @@ type alias GenerateArgs =
     , seed : Int
     , solveRandomCellRatio : Int
     , solveSelectedCellRatio : Int
+    , tunnelVisionTrapRatio : Int
     }
 
 
@@ -1926,6 +1989,7 @@ type Item
     | RemoveRandomCandidate
     | DiscoTrap
     | EmojiTrap
+    | TunnelVisionTrap
     | NothingItem
 
 
@@ -2037,6 +2101,7 @@ type alias SavedGame =
     , solveSelectedCellUsed : Int
     , solvedLocations : Set Int
     , timestamp : Time.Posix
+    , tunnelVisionTrapTriggers : Int
     , unlockMap : Dict Int Item
     , unlockedBlocks : Set ( Int, Int )
     }
@@ -2270,6 +2335,7 @@ encodeGenerateArgs args =
         , ( "seed", Encode.int args.seed )
         , ( "solveRandomCellRatio", Encode.int args.solveRandomCellRatio )
         , ( "solveSelectedCellRatio", Encode.int args.solveSelectedCellRatio )
+        , ( "tunnelVisionTrapRatio", Encode.int args.tunnelVisionTrapRatio )
         ]
 
 
@@ -2634,6 +2700,7 @@ encodeData model =
         , ( "numberMap", encodeNumberMap model)
         , ( "colorScheme", Encode.string model.colorScheme )
         , ( "discoTrap", Encode.bool (model.discoTrapTimer > 0) )
+        , ( "tunnelVisionTrap", Encode.bool (model.tunnelVisionTrapTimer > 0) )
         ]
 
 
@@ -2655,7 +2722,7 @@ encodeSelectedCell ( row, col ) =
 
 encodeCellValue : Model -> ( Int, Int ) -> Encode.Value
 encodeCellValue model cell =
-    if cellIsVisible model cell then
+    if cellIsVisible model cell && not (cellIsHiddenByTunnelVision model cell) then
         case getCellValue model cell of
             Just ( Given n ) ->
                 Encode.object
@@ -2781,9 +2848,34 @@ encodeCellValue model cell =
                       )
                     ]
 
-    else
+    else if not (cellIsVisible model cell) then
         Encode.object
             [ ( "type", Encode.string "hidden" )
+            , ( "dimmed"
+              , case model.highlightMode of
+                    HighlightNone ->
+                        Encode.bool False
+
+                    HighlightBoard ->
+                        Set.member cell model.highlightedCells
+                            |> not
+                            |> Encode.bool
+
+                    HighlightArea ->
+                        Set.member cell model.highlightedCells
+                            |> not
+                            |> Encode.bool
+
+                    HighlightNumber ->
+                        Set.isEmpty model.highlightedNumbers
+                            |> not
+                            |> Encode.bool
+              )
+            ]
+
+    else
+        Encode.object
+            [ ( "type", Encode.string "tunnel" )
             , ( "dimmed"
               , case model.highlightMode of
                     HighlightNone ->
@@ -2906,6 +2998,7 @@ encodeSavedGame timestamp model =
         , ( "solveSelectedCellUsed", Encode.int model.solveSelectedCellUsed )
         , ( "solvedLocations", Encode.list Encode.int (Set.toList model.solvedLocations) )
         , ( "timestamp", Encode.int (Time.posixToMillis timestamp) )
+        , ( "tunnelVisionTrapTriggers", Encode.int model.tunnelVisionTrapTriggers )
         , ( "unlockMap", encodeUnlockMap model.unlockMap )
         , ( "unlockedBlocks", Encode.list (encodeTuple Encode.int Encode.int) (Set.toList model.unlockedBlocks) )
         ]
@@ -2933,6 +3026,7 @@ savedGameDecoder =
     Field.require "solveSelectedCellUsed" Decode.int <| \solveSelectedCellUsed ->
     Field.require "solvedLocations" (Decode.list Decode.int) <| \solvedLocations ->
     Field.require "timestamp" (Decode.map Time.millisToPosix Decode.int) <| \timestamp ->
+    Field.optional "tunnelVisionTrapTriggers" Decode.int <| \tunnelVisionTrapTriggers ->
     Field.require "unlockMap" unlockMapDecoder <| \unlockMap ->
     Field.require "unlockedBlocks" (Decode.list (tupleDecoder Decode.int Decode.int)) <| \unlockedBlocks ->
     Decode.succeed
@@ -2956,6 +3050,7 @@ savedGameDecoder =
         , solveSelectedCellUsed = solveSelectedCellUsed
         , solvedLocations = Set.fromList solvedLocations
         , timestamp = timestamp
+        , tunnelVisionTrapTriggers = Maybe.withDefault 0 tunnelVisionTrapTriggers
         , unlockMap = unlockMap
         , unlockedBlocks = Set.fromList unlockedBlocks
         }
@@ -4005,6 +4100,20 @@ updateStateItem item model =
             )
                 |> andThenIf (model.emojiTrapReceived >= model.emojiTrapTriggers) triggerEmojiTrap
 
+        TunnelVisionTrap ->
+            ( { model
+                | tunnelVisionTrapReceived = model.tunnelVisionTrapReceived + 1
+                , messages =
+                    if model.gameIsLocal then
+                        addLocalMessage "Unlocked a Tunnel Vision Trap." model.messages
+
+                    else
+                        model.messages
+              }
+            , Cmd.none
+            )
+                |> andThenIf (model.tunnelVisionTrapReceived >= model.tunnelVisionTrapTriggers) triggerTunnelVisionTrap
+
         NothingItem ->
             ( model
             , Cmd.none
@@ -4153,6 +4262,52 @@ cellIsVisible model cell =
 cellIsGiven : Model -> ( Int, Int ) -> Bool
 cellIsGiven model cell =
     Set.member cell model.givens
+
+
+cellIsHiddenByTunnelVision : Model -> ( Int, Int ) -> Bool
+cellIsHiddenByTunnelVision model ( row, col ) =
+    if model.tunnelVisionTrapTimer <= 0 then
+        False
+
+    else
+        let
+            rows : Int
+            rows =
+                abs (Tuple.first model.selectedCell - row)
+
+            cols : Int
+            cols =
+                abs (Tuple.second model.selectedCell - col)
+
+            ( limitOne, limitCombined ) =
+                tunnelVisionLimit model.blockSize
+        in
+        rows > limitOne || cols > limitOne || (rows + cols) > limitCombined
+
+
+tunnelVisionLimit : Int -> ( Int, Int )
+tunnelVisionLimit blockSize =
+    case blockSize of
+        4 ->
+            ( 1, 2 )
+
+        6 ->
+            ( 2, 3 )
+
+        8 ->
+            ( 2, 3 )
+
+        9 ->
+            ( 2, 3 )
+
+        12 ->
+            ( 3, 4 )
+
+        16 ->
+            ( 3, 5 )
+
+        _ ->
+            ( 2, 3 )
 
 
 getCellValue : Model -> ( Int, Int ) -> Maybe CellValue
@@ -4478,6 +4633,9 @@ itemFromId id =
     else if id == 402 then
         DiscoTrap
 
+    else if id == 403 then
+        TunnelVisionTrap
+
     else
         NothingItem
 
@@ -4505,6 +4663,9 @@ itemToId item =
 
         DiscoTrap ->
             402
+
+        TunnelVisionTrap ->
+            403
 
         NothingItem ->
             99
@@ -4565,6 +4726,9 @@ itemName item =
         EmojiTrap ->
             "Emoji Trap"
 
+        TunnelVisionTrap ->
+            "Tunnel Vision Trap"
+
         NothingItem ->
             "Nothing"
 
@@ -4591,6 +4755,9 @@ itemClassification item =
             Trap
 
         EmojiTrap ->
+            Trap
+
+        TunnelVisionTrap ->
             Trap
 
         NothingItem ->
@@ -4740,6 +4907,17 @@ emojiTrapVariantFromString str =
             EmojiTrapRandom
 
 
+triggerTunnelVisionTrap : Model -> ( Model, Cmd Msg )
+triggerTunnelVisionTrap model =
+    ( { model
+        | tunnelVisionTrapTimer = trapDuration
+        , tunnelVisionTrapTriggers = model.tunnelVisionTrapTriggers + 1
+      }
+    , Cmd.none
+    )
+        |> andThen updateBoardData
+
+
 monthToString : Time.Month -> String
 monthToString month =
     case month of
@@ -4832,6 +5010,7 @@ loadSavedGame save model =
         , solveSelectedCellReceived = if save.gameIsLocal then save.solveSelectedCellReceived else 0
         , solveSelectedCellUsed = save.solveSelectedCellUsed
         , solvedLocations = save.solvedLocations
+        , tunnelVisionTrapTriggers = save.tunnelVisionTrapTriggers
         , unlockMap = save.unlockMap
         , unlockedBlocks = save.unlockedBlocks
         , visibleCells =
@@ -5388,7 +5567,7 @@ viewMenuOptionsFiller model =
                 }
             , viewRatioInputs
                 { label = "Disco Trap Ratio:"
-                , hint = "Ratio of Disco Trap items to number of boards."
+                , hint = "Ratio of Disco Trap items to number of boards. When received all cells will shift colors for a time."
                 , hintId = "disco-trap-ratio-hint"
                 , value = model.discoTrapRatio
                 , inputValue = model.discoTrapRatioInput
@@ -5398,13 +5577,23 @@ viewMenuOptionsFiller model =
                 }
             , viewRatioInputs
                 { label = "Emoji Trap Ratio:"
-                , hint = "Ratio of Emoji Trap items to number of boards."
+                , hint = "Ratio of Emoji Trap items to number of boards. When received your numbers will be replaced with emojis for a time."
                 , hintId = "emoji-trap-ratio-hint"
                 , value = model.emojiTrapRatio
                 , inputValue = model.emojiTrapRatioInput
                 , onBlur = EmojiTrapRatioInputBlurred
                 , onInput = EmojiTrapRatioInputChanged
                 , onRangeChange = EmojiTrapRatioChanged
+                }
+            , viewRatioInputs
+                { label = "Tunnel Vision Trap Ratio:"
+                , hint = "Ratio of Tunnel Vision Trap items to number of boards. When received you will only be able to see a small area of the board for a time."
+                , hintId = "tunnelVision-trap-ratio-hint"
+                , value = model.tunnelVisionTrapRatio
+                , inputValue = model.tunnelVisionTrapRatioInput
+                , onBlur = TunnelVisionTrapRatioInputBlurred
+                , onInput = TunnelVisionTrapRatioInputChanged
+                , onRangeChange = TunnelVisionTrapRatioChanged
                 }
             ]
         ]
@@ -5739,7 +5928,7 @@ viewZoomControls =
 
 viewTrapTimers : Model -> Html Msg
 viewTrapTimers model =
-    if model.discoTrapTimer == 0 && model.emojiTrapTimer == 0 then
+    if model.discoTrapTimer == 0 && model.emojiTrapTimer == 0 && model.tunnelVisionTrapTimer == 0 then
         Html.text ""
 
     else
@@ -5782,6 +5971,9 @@ viewTrapTimers model =
                   }
                 , { label = "Emoji trap"
                   , timeLeft = model.emojiTrapTimer
+                  }
+                , { label = "Tunnel vision trap"
+                  , timeLeft = model.tunnelVisionTrapTimer
                   }
                 ]
             )
@@ -6288,6 +6480,11 @@ viewInfoPanelDebug model =
                 , HE.onClick TriggerEmojiTrapPressed
                 ]
                 [ Html.text "Trigger Emoji Trap" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick TriggerTunnelVisionTrapPressed
+                ]
+                [ Html.text "Trigger Trunnel Vision Trap" ]
             , Html.button
                 [ HA.class "button"
                 , HE.onClick CancelTrapsPressed

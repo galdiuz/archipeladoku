@@ -17,6 +17,7 @@ let app = Elm.Archipeladoku.init({
         localStorage: { ...localStorage },
     }
 })
+window.app = app // For debugging purposes
 let worker = new Worker(Worker)
 
 worker.onmessage = function(event) {

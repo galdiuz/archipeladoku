@@ -738,13 +738,17 @@ update msg model =
                         ( False, Connecting ) ->
                             MainMenu
 
-                        -- TODO: Handle disconnect during play
+                        ( False, Generating ) ->
+                            MainMenu
+
+                        ( False, Playing ) ->
+                            Disconnected
 
                         _ ->
                             model.gameState
                 , messages =
                     if not status && model.gameState == Playing then
-                        addLocalMessage "Disconnected from server, reload page." model.messages
+                        addLocalMessage "Disconnected from server." model.messages
 
                     else
                         model.messages
@@ -777,7 +781,7 @@ update msg model =
                             , blockSize = board.blockSize
                             , current = Dict.empty
                             , errors = Dict.empty
-                            , gameState = Playing
+                            , gameState = if model.gameState == Generating then Playing else model.gameState
                             , givens = Set.fromList (Dict.keys board.givens)
                             , lockedBlocks = board.blockUnlockOrder
                             , puzzleAreas = board.puzzleAreas
@@ -785,11 +789,11 @@ update msg model =
                             , unlockedBlocks = Set.empty
                             , unlockMap = board.unlockMap
                           }
-                        , if model.gameIsLocal then
-                            Cmd.none
+                        , if not model.gameIsLocal && model.gameState == Generating then
+                            sendPlayingStatus ()
 
                           else
-                            sendPlayingStatus ()
+                            Cmd.none
                         )
                         |> andThen (updateState True)
 
@@ -1893,6 +1897,7 @@ type GameState
     | Connecting
     | Generating
     | Playing
+    | Disconnected
 
 
 type CellValue
@@ -4806,7 +4811,9 @@ loadSavedGame save model =
         , cellRows = buildCellAreasMap save.puzzleAreas.rows
         , blockSize = save.blockSize
         , current = cells.current
+        , discoTrapReceived = 0
         , discoTrapTriggers = save.discoTrapTriggers
+        , emojiTrapReceived = 0
         , emojiTrapTriggers = save.emojiTrapTriggers
         , errors = Dict.empty
         , gameIsLocal = save.gameIsLocal
@@ -4911,6 +4918,12 @@ view model =
                 Playing ->
                     [ viewBoard model
                     , viewInfoPanel model
+                    ]
+
+                Disconnected ->
+                    [ viewBoard model
+                    , viewInfoPanel model
+                    , viewDisconnectedOverlay model
                     ]
             )
         )
@@ -6542,3 +6555,27 @@ viewMessage message =
             )
             message.nodes
         )
+
+
+viewDisconnectedOverlay : Model -> Html Msg
+viewDisconnectedOverlay model =
+    Html.div
+        [ HA.class "overlay"
+        ]
+        [ Html.div
+            [ HA.class "main-menu-panel"
+            ]
+            [ Html.h2
+                []
+                [ Html.text "Disconnected" ]
+            , Html.div
+                []
+                [ Html.text "You have been disconnected from the Archipelago server."
+                ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick ConnectPressed
+                ]
+                [ Html.text "Reconnect" ]
+            ]
+        ]

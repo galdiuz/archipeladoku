@@ -375,6 +375,11 @@ function getSystemColorScheme(): ColorScheme {
 }
 
 
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max)
+}
+
+
 function mapRange(value: number, start: number, end: number): number {
     const clamped = Math.max(start, Math.min(end, value))
 
@@ -398,6 +403,14 @@ function compareMaps<K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean {
     }
 
     return true
+}
+
+
+function shuffleArray<T>(array: T[]): void {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[array[i], array[j]] = [array[j]!, array[i]!]
+    }
 }
 
 
@@ -932,54 +945,110 @@ class ArchipeladokuBoard extends HTMLElement {
 
 
     animateCells(cells: [number, number][], type: 'shine' | 'shatter') {
-        let i = 0
-        for (const [row, col] of cells) {
-            if (type === 'shine') {
-                const sparkle1X = this.cellSize / 8 * (Math.random() * 2 + 1)
-                const sparkle1Y = this.cellSize / 8 * (Math.random() * 2 + 1)
-                const sparkle1Angle = Math.random() * Math.PI * 2
-                const sparkle2X = this.cellSize / 8 * (Math.random() * 2 + 5)
-                const sparkle2Y = this.cellSize / 8 * (Math.random() * 2 + 3)
-                const sparkle2Angle = Math.random() * Math.PI * 2
-                const sparkle3X = this.cellSize / 8 * (Math.random() * 2 + 3)
-                const sparkle3Y = this.cellSize / 8 * (Math.random() * 2 + 5)
-                const sparkle3Angle = Math.random() * Math.PI * 2
+        if (type === 'shine') {
+            let minRow = 1000
+            let minCol = 1000
+            let maxRow = 0
+            let maxCol = 0
+            for (const [row, col] of cells) {
+                minRow = row < minRow ? row : minRow
+                minCol = col < minCol ? col : minCol
+                maxRow = row > maxRow ? row : maxRow
+                maxCol = col > maxCol ? col : maxCol
+            }
+            minRow -= 1
+            minCol -= 1
+            maxRow += 1
+            maxCol += 1
+            const size = this.cellSize
+            const minSum = minRow + minCol
+            const maxSum = maxRow + maxCol
+            const span = maxSum - minSum
+            const totalTravelDistance = span * size
+            const sparkles = new Map<string, Map<number, any>>()
 
-                this.cellShineEffects.delete(`${row},${col}`)
-
-                const delay = i * 60
-
-                this.addAnimation({
-                    id: `cell-shine-${row}-${col}`,
-                    startTime: performance.now() + delay,
-                    duration: 1000,
-                    onUpdate: (t: number) => {
-                        const shineProgress = easing.easeInOutQuad(mapRange(t, 0, 0.5))
-                        const sparkle1Progress = easing.easeInOutQuad(mapRange(t, 0.2, 0.8))
-                        const sparkle2Progress = easing.easeInOutQuad(mapRange(t, 0.3, 0.9))
-                        const sparkle3Progress = easing.easeInOutQuad(mapRange(t, 0.4, 1))
-
-                        this.cellShineEffects.set(`${row},${col}`, {
-                            shineProgress,
-                            sparkle1Progress,
-                            sparkle1X,
-                            sparkle1Y,
-                            sparkle1Angle,
-                            sparkle2Progress,
-                            sparkle2X,
-                            sparkle2Y,
-                            sparkle2Angle,
-                            sparkle3Progress,
-                            sparkle3X,
-                            sparkle3Y,
-                            sparkle3Angle,
-                        })
-                    },
-                    onComplete: () => {
-                        this.cellShineEffects.delete(`${row},${col}`)
-                    },
+            for (const [row, col] of cells) {
+                const cellSparkles = new Map<number, any>()
+                cellSparkles.set(1, {
+                    x: this.cellSize / 8 * (Math.random() * 2 + 1),
+                    y: this.cellSize / 8 * (Math.random() * 2 + 1),
+                    angle: Math.random() * Math.PI * 2,
+                    direction: Math.random() > 0.5 ? 1 : -1,
+                    progress: 0,
+                    delay: 0,
                 })
-            } else if (type === 'shatter') {
+                cellSparkles.set(2, {
+                    x: this.cellSize / 8 * (Math.random() * 2 + 5),
+                    y: this.cellSize / 8 * (Math.random() * 2 + 3),
+                    angle: Math.random() * Math.PI * 2,
+                    direction: Math.random() > 0.5 ? 1 : -1,
+                    progress: 0,
+                    delay: 0.05,
+                })
+                cellSparkles.set(3, {
+                    x: this.cellSize / 8 * (Math.random() * 2 + 3),
+                    y: this.cellSize / 8 * (Math.random() * 2 + 5),
+                    angle: Math.random() * Math.PI * 2,
+                    direction: Math.random() > 0.5 ? 1 : -1,
+                    progress: 0,
+                    delay: 0.10,
+                })
+                sparkles.set(`${row},${col}`, cellSparkles)
+            }
+
+            this.addAnimation({
+                id: `cell-shine-${minRow}-${minCol}-${maxRow}-${maxCol}`,
+                startTime: performance.now(),
+                duration: 2000,
+                onUpdate: (t: number) => {
+                    const sparkleDuration = 0.4
+                    const shineProgress = easing.easeInOutQuad(mapRange(t, 0, 0.5))
+                    const totalOffset = shineProgress * totalTravelDistance + size * 0.5
+
+                    for (const [row, col] of cells) {
+                        const cellSum = row + col
+                        const cellOffset = (cellSum - minSum) * size
+                        const localOffset = totalOffset - cellOffset
+
+                        const relativePos = (cellSum - minSum) / span
+                        const triggerTime = relativePos * 0.4
+                        const sparkleProgress = Math.min(1, (t - triggerTime) / sparkleDuration)
+
+                        for (const sparkle of sparkles.get(`${row},${col}`)!.values()) {
+                            sparkle.progress = easing.easeInOutQuad(
+                                clamp((t - triggerTime - sparkle.delay) / sparkleDuration, 0, 1)
+                            )
+                        }
+
+                        const shineIsActive = localOffset > -size && localOffset < size * 3
+                        const sparkleIsActive = sparkleProgress > 0 && sparkleProgress < 1
+                        let cellShineEffects = this.cellShineEffects.get(`${row},${col}`)
+
+                        if (shineIsActive || sparkleIsActive) {
+                            if (!cellShineEffects) {
+                                cellShineEffects = new Map<string, any>()
+                                this.cellShineEffects.set(`${row},${col}`, cellShineEffects)
+                            }
+
+                            cellShineEffects.set(`${minRow},${minCol},${maxRow},${maxCol}`, {
+                                offset: localOffset,
+                                sparkles: sparkles.get(`${row},${col}`),
+                            })
+                        } else if (cellShineEffects) {
+                            cellShineEffects.delete(`${minRow},${minCol},${maxRow},${maxCol}`)
+                            if (cellShineEffects.size === 0) {
+                                this.cellShineEffects.delete(`${row},${col}`)
+                            }
+                        }
+                    }
+                },
+            })
+        } else if (type === 'shatter') {
+            let i = 0
+
+            shuffleArray(cells)
+
+            for (const [row, col] of cells) {
                 const delay = i * 100
                 const shardAngles = new Map<number, number>()
                 const shardSpeeds = new Map<number, number>()
@@ -1027,8 +1096,9 @@ class ArchipeladokuBoard extends HTMLElement {
                         this.cellShatterEffects.delete(`${row},${col}`)
                     },
                 })
+
+                i++
             }
-            i++
         }
     }
 
@@ -1665,37 +1735,29 @@ class ArchipeladokuBoard extends HTMLElement {
         row: number,
         col: number,
     ) {
-        const effects = this.cellShineEffects.get(`${row},${col}`)
+        const effectsMap = this.cellShineEffects.get(`${row},${col}`)!
         const cellX = (col - 1) * (this.cellSize + this.cellGap)
         const cellY = (row - 1) * (this.cellSize + this.cellGap)
 
-        this.renderShineEffect(
-            ctx,
-            cellX,
-            cellY,
-            effects.shineProgress
-        )
-        this.renderSparkleEffect(
-            ctx,
-            cellX + effects.sparkle1X,
-            cellY + effects.sparkle1Y,
-            effects.sparkle1Angle,
-            effects.sparkle1Progress,
-        )
-        this.renderSparkleEffect(
-            ctx,
-            cellX + effects.sparkle2X,
-            cellY + effects.sparkle2Y,
-            effects.sparkle2Angle,
-            effects.sparkle2Progress,
-        )
-        this.renderSparkleEffect(
-            ctx,
-            cellX + effects.sparkle3X,
-            cellY + effects.sparkle3Y,
-            effects.sparkle3Angle,
-            effects.sparkle3Progress,
-        )
+        for (const effects of effectsMap.values()) {
+            this.renderShineEffect(
+                ctx,
+                cellX,
+                cellY,
+                effects.offset
+            )
+
+            for (const sparkle of effects.sparkles.values()) {
+                this.renderSparkleEffect(
+                    ctx,
+                    cellX + sparkle.x,
+                    cellY + sparkle.y,
+                    sparkle.angle,
+                    sparkle.direction,
+                    sparkle.progress,
+                )
+            }
+        }
     }
 
 
@@ -1703,12 +1765,8 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
-        progress: number
+        offset: number
     ) {
-        if (progress <= 0 || progress >= 1) {
-            return
-        }
-
         const size = this.cellSize;
 
         ctx.save();
@@ -1717,7 +1775,6 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx.rect(x, y, size, size);
         ctx.clip();
 
-        const offset = (progress * (size * 3)) - (size / 4);
         const lineWidth = size / 2;
 
         const gradient = ctx.createLinearGradient(0, 0, lineWidth, 0);
@@ -1726,7 +1783,7 @@ class ArchipeladokuBoard extends HTMLElement {
         gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
         ctx.fillStyle = gradient;
 
-        ctx.translate(x + offset, y - size * 0.5);
+        ctx.translate(x + offset, y - size * 0.4);
         ctx.rotate(Math.PI / 4);
 
         ctx.fillRect(0, 0, lineWidth, size * 2)
@@ -1740,6 +1797,7 @@ class ArchipeladokuBoard extends HTMLElement {
         x: number,
         y: number,
         angle: number,
+        direction: number,
         progress: number
     ) {
         if (progress <= 0 || progress >= 1) {
@@ -1752,7 +1810,7 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx.save()
 
         ctx.translate(x, y)
-        ctx.rotate(progress * Math.PI * 0.75 + angle)
+        ctx.rotate(progress * Math.PI * 0.75 * direction + angle)
         ctx.translate(-x, -y)
 
         ctx.globalAlpha = 0.5 + 0.5 * Math.sin(progress * Math.PI)

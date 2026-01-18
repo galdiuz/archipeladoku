@@ -116,6 +116,7 @@ type alias Model =
     , pendingItems : List Item
     , pendingScoutLocations : Set Int
     , pendingSolvedBlocks : Set ( Int, Int )
+    , pendingSolvedBoards : Set ( Int, Int )
     , pendingSolvedCols : Set ( Int, Int )
     , pendingSolvedRows : Set ( Int, Int )
     , player : String
@@ -322,6 +323,7 @@ init flagsValue =
       , pendingItems = []
       , pendingScoutLocations = Set.empty
       , pendingSolvedBlocks = Set.empty
+      , pendingSolvedBoards = Set.empty
       , pendingSolvedCols = Set.empty
       , pendingSolvedRows = Set.empty
       , player = ""
@@ -3400,6 +3402,7 @@ updateStateChangesLoop triggerAnimations ( model, cmd ) =
     if Set.isEmpty model.pendingCellChanges
         && List.isEmpty model.pendingItems
         && Set.isEmpty model.pendingSolvedBlocks
+        && Set.isEmpty model.pendingSolvedBoards
         && Set.isEmpty model.pendingSolvedCols
         && Set.isEmpty model.pendingSolvedRows
     then
@@ -3411,7 +3414,7 @@ updateStateChangesLoop triggerAnimations ( model, cmd ) =
                 applySteps
                     [ updateStateItems
                     , updateStateCellChanges
-                    , updateStateSolvedBlocks triggerAnimations
+                    , updateStateSolvedAreas triggerAnimations
                     , updateStateCheckLocations
                     ]
                     model
@@ -3431,10 +3434,11 @@ updateStateCellChanges model =
         |> applySet updateStateCellChange model.pendingCellChanges
 
 
-updateStateSolvedBlocks : Bool -> Model -> ( Model, Cmd Msg )
-updateStateSolvedBlocks triggerAnimations model =
+updateStateSolvedAreas : Bool -> Model -> ( Model, Cmd Msg )
+updateStateSolvedAreas triggerAnimations model =
     ( { model
         | pendingSolvedBlocks = Set.empty
+        , pendingSolvedBoards = Set.empty
         , pendingSolvedCols = Set.empty
         , pendingSolvedRows = Set.empty
       }
@@ -3443,6 +3447,7 @@ updateStateSolvedBlocks triggerAnimations model =
         |> applySet (updateStateSolvedArea triggerAnimations model.cellBlocks cellToBlockId) model.pendingSolvedBlocks
         |> applySet (updateStateSolvedArea triggerAnimations model.cellRows cellToRowId) model.pendingSolvedRows
         |> applySet (updateStateSolvedArea triggerAnimations model.cellCols cellToColId) model.pendingSolvedCols
+        |> applySet (updateStateSolvedBoard triggerAnimations model.cellBoards) model.pendingSolvedBoards
 
 
 updateStateErrors : Model -> ( Model, Cmd Msg )
@@ -3642,6 +3647,10 @@ updateStateCellChange updatedCell initialModel =
                     ( { model
                         | pendingCheckLocations =
                             Set.insert boardId model.pendingCheckLocations
+                        , pendingSolvedBoards =
+                            Set.insert
+                                ( board.startRow, board.startCol )
+                                model.pendingSolvedBoards
                         , solvedLocations =
                             Set.insert boardId model.solvedLocations
                       }
@@ -4014,6 +4023,31 @@ updateStateSolvedArea triggerAnimations cellAreas toId ( row, col ) model =
         , pendingCellChanges = Set.union (Set.fromList cells) model.pendingCellChanges
         , solvedLocations = Set.insert (toId ( row, col )) model.solvedLocations
       }
+    , if triggerAnimations && model.animationsEnabled then
+        triggerAnimation (encodeTriggerAnimation "shine" cells)
+
+      else
+        Cmd.none
+    )
+
+
+updateStateSolvedBoard :
+    Bool
+    -> Dict ( Int, Int ) (List Area)
+    -> ( Int, Int )
+    -> Model
+    -> ( Model, Cmd Msg )
+updateStateSolvedBoard triggerAnimations cellAreas ( row, col ) model =
+    let
+        cells : List ( Int, Int )
+        cells =
+            Dict.get ( row, col ) cellAreas
+                |> Maybe.withDefault []
+                |> List.Extra.find (\area -> area.startRow == row && area.startCol == col)
+                |> Maybe.map getAreaCells
+                |> Maybe.withDefault []
+    in
+    ( { model | solvedLocations = Set.insert (cellToBoardId ( row, col )) model.solvedLocations }
     , if triggerAnimations && model.animationsEnabled then
         triggerAnimation (encodeTriggerAnimation "shine" cells)
 

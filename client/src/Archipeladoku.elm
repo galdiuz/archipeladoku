@@ -3365,6 +3365,7 @@ updateState triggerAnimations model =
                     , updateStateScoutLocations
                     , updateStateGoal
                     , updateStateHighlight
+                    , updateStateSaveGame
                     , updateBoardData
                     ]
                     model
@@ -3376,6 +3377,7 @@ updateState triggerAnimations model =
                     , updateStateScoutLocations
                     , updateStateGoal
                     , updateStateHighlight
+                    , updateStateSaveGame
                     , updateBoardData
                     ]
                     model
@@ -3525,10 +3527,17 @@ updateStateHighlight model =
     )
 
 
+updateStateSaveGame : Model -> ( Model, Cmd Msg )
+updateStateSaveGame model =
+    ( model
+    , Task.perform (GotSaveGameTime True) Time.now
+    )
+
+
 updateBoardData : Model -> ( Model, Cmd Msg )
 updateBoardData model =
     ( { model | boardData = encodeData model }
-    , Task.perform (GotSaveGameTime True) Time.now
+    , Cmd.none
     )
 
 

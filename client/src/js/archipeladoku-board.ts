@@ -597,7 +597,7 @@ class ArchipeladokuBoard extends HTMLElement {
             this.renderedSpriteScale = 0
         }
 
-        if (!this.discoTrap && value.discoTrap) {
+        if (!this.discoTrap && value.discoTrap && this.clientWidth) {
             this.discoTrap = true
             this.startDiscoTrapAnimation()
         } else if (this.discoTrap && !value.discoTrap) {

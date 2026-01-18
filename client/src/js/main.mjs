@@ -1,7 +1,10 @@
 import * as Archipelago from 'archipelago.js'
+import * as IDB from 'idb-keyval'
 import { Elm } from '../Archipeladoku.elm'
 import Worker from './worker.mjs?worker'
 import './archipeladoku-board.ts'
+
+const store = IDB.createStore('archipeladoku', 'saves');
 
 const client = new Archipelago.Client()
 window.client = client // For debugging purposes
@@ -48,6 +51,36 @@ function itemData(item) {
     }
 }
 
+function unpackSavedGame(savedGame) {
+    savedGame.coordinates = Array.from(savedGame.coordinates)
+    savedGame.current = Array.from(savedGame.current)
+    savedGame.solution = Array.from(savedGame.solution)
+}
+
+function cleanSavedGames() {
+    IDB.entries(store).then(entries => {
+        const savesToKeep = 10
+        const onlineSaves = []
+        for (let [ key, value ] of entries) {
+            if (!value.gameIsLocal) {
+                onlineSaves.push({ key: key, timestamp: value.timestamp })
+            }
+        }
+        onlineSaves.sort((a, b) => b.timestamp - a.timestamp)
+        const keysToDelete = onlineSaves.slice(savesToKeep).map(save => save.key)
+        IDB.delMany(keysToDelete, store)
+    })
+}
+
+IDB.get('local', store).then(savedGame => {
+    if (!savedGame) {
+        return
+    }
+
+    unpackSavedGame(savedGame)
+    app.ports.receiveLocalGameSave.send(savedGame)
+})
+
 app.ports.centerViewOnCell?.subscribe(cell => {
     const viewport = document.querySelector('archipeladoku-board')
     const [ row, col ] = cell
@@ -63,9 +96,23 @@ app.ports.connect?.subscribe(data => {
     client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
         .then(slotData => {
             app.ports.receiveHintCost.send(client.room.hintCost)
-            app.ports.receiveConnectionStatus.send(true)
-            app.ports.receiveSlotData.send(slotData)
-            worker.postMessage({ type: 'generateBoard', data: slotData })
+
+            IDB.get(slotData.seed, store)
+                .then(savedGame => {
+                    console.log('Loaded saved game from IndexedDB:', savedGame)
+                    if (savedGame) {
+                        unpackSavedGame(savedGame)
+                        app.ports.receiveOnlineGameSave.send(savedGame)
+                    } else {
+                        app.ports.receiveConnectionStatus.send(true)
+                        app.ports.receiveSlotData.send(slotData)
+                        worker.postMessage({ type: 'generateBoard', data: slotData })
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading from IndexedDB:', error)
+                    app.ports.receiveConnectionStatus.send(false)
+                })
         })
         .catch(error => {
             console.error('Connection error:', error)
@@ -99,6 +146,19 @@ app.ports.moveCellIntoView?.subscribe(cell => {
     const [ row, col ] = cell
 
     viewport.moveCellIntoView(row, col)
+})
+
+app.ports.saveGameState?.subscribe(data => {
+    data.coordinates = new Uint16Array(data.coordinates)
+    data.current = new Uint32Array(data.current)
+    data.solution = new Uint8Array(data.solution)
+
+    if (data.gameIsLocal) {
+        IDB.set('local', data, store)
+    } else {
+        IDB.set(data.seed, data, store)
+        cleanSavedGames()
+    }
 })
 
 app.ports.scoutLocations?.subscribe(ids => {

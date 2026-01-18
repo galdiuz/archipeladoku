@@ -36,6 +36,7 @@ port goal : () -> Cmd msg
 port hintForItem : String -> Cmd msg
 port log : String -> Cmd msg
 port moveCellIntoView : ( Int, Int ) -> Cmd msg
+port saveGameState : Encode.Value -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
 port sendPlayingStatus : () -> Cmd msg
@@ -52,7 +53,9 @@ port receiveHintCost : (Int -> msg) -> Sub msg
 port receiveHintPoints : (Int -> msg) -> Sub msg
 port receiveHints : (Decode.Value -> msg) -> Sub msg
 port receiveItems : (List Int -> msg) -> Sub msg
+port receiveLocalGameSave : (Decode.Value -> msg) -> Sub msg
 port receiveMessage : (Decode.Value -> msg) -> Sub msg
+port receiveOnlineGameSave : (Decode.Value -> msg) -> Sub msg
 port receiveScoutedItems : (Decode.Value -> msg) -> Sub msg
 port receiveSlotData : (Decode.Value -> msg) -> Sub msg
 
@@ -75,12 +78,16 @@ type alias Model =
     , discoTrapOffset : Int
     , discoTrapRatio : Int
     , discoTrapRatioInput : String
+    , discoTrapReceived : Int
     , discoTrapTimer : Int
+    , discoTrapTriggers : Int
     , difficulty : Int
     , emojiTrapMap : Dict Int String
     , emojiTrapRatio : Int
     , emojiTrapRatioInput : String
+    , emojiTrapReceived : Int
     , emojiTrapTimer : Int
+    , emojiTrapTriggers : Int
     , emojiTrapVariant : EmojiTrapVariant
     , errors : Dict ( Int, Int ) CellError
     , generationProgress : ( String, Float )
@@ -95,6 +102,8 @@ type alias Model =
     , hintCost : Int
     , hintPoints : Int
     , host : String
+    , lastSaveTime : Int
+    , localGameSave : Maybe SavedGame
     , locationScouting : LocationScouting
     , lockedBlocks : List ( Int, Int )
     , messageInput : String
@@ -119,7 +128,8 @@ type alias Model =
     , puzzleAreas : PuzzleAreas
     , removeRandomCandidateRatio : Int
     , removeRandomCandidateRatioInput : String
-    , removeRandomCandidateUses : Int
+    , removeRandomCandidateReceived : Int
+    , removeRandomCandidateUsed : Int
     , scoutedItems : Dict Int Hint
     , seed : Random.Seed
     , seedInput : Int
@@ -128,11 +138,14 @@ type alias Model =
     , solution : Dict ( Int, Int ) Int
     , solveRandomCellRatio : Int
     , solveRandomCellRatioInput : String
-    , solveRandomCellUses : Int
+    , solveRandomCellReceived : Int
+    , solveRandomCellUsed : Int
     , solveSelectedCellRatio : Int
     , solveSelectedCellRatioInput : String
-    , solveSelectedCellUses : Int -- TODO: Need to persist these counts
+    , solveSelectedCellReceived : Int
+    , solveSelectedCellUsed : Int
     , solvedLocations : Set Int
+    , timezone : Time.Zone
     , undoStack : List (Dict ( Int, Int ) CellValue)
     , unlockedBlocks : Set ( Int, Int )
     , unlockMap : Dict Int Item
@@ -173,8 +186,12 @@ type Msg
     | GotHintPoints Int
     | GotHints Decode.Value
     | GotItems (List Int)
+    | GotLocalGameSave Decode.Value
     | GotMessage Decode.Value
+    | GotOnlineGameSave Decode.Value
+    | GotSaveGameTime Bool Time.Posix
     | GotSlotData Decode.Value
+    | GotTimezone Time.Zone
     | HighlightModeChanged HighlightMode
     | HintItemPressed String
     | HostInputChanged String
@@ -202,6 +219,7 @@ type Msg
     | RemoveRandomCandidateRatioChanged Int
     | RemoveRandomCandidateRatioInputBlurred
     | RemoveRandomCandidateRatioInputChanged String
+    | ResumeLocalGamePressed SavedGame
     | ScoutLocationPressed Int
     | SecondPassed
     | SeedInputChanged String
@@ -266,15 +284,19 @@ init flagsValue =
       , discoTrapOffset = 0
       , discoTrapRatio = 20
       , discoTrapRatioInput = "20"
+      , discoTrapReceived = 0
       , discoTrapTimer = 0
+      , discoTrapTriggers = 0
       , difficulty = 2
       , emojiTrapMap = Dict.empty
       , emojiTrapRatio = 20
       , emojiTrapRatioInput = "20"
+      , emojiTrapReceived = 0
       , emojiTrapTimer = 0
+      , emojiTrapTriggers = 0
       , emojiTrapVariant = EmojiTrapRandom
       , errors = Dict.empty
-      , generationProgress = ( "", 0 )
+      , generationProgress = ( "Initializing", 0 )
       , gameIsLocal = False
       , gameState = MainMenu
       , givens = Set.empty
@@ -286,6 +308,8 @@ init flagsValue =
       , hintCost = 0
       , hintPoints = 0
       , host = ""
+      , lastSaveTime = 0
+      , localGameSave = Nothing
       , locationScouting = ScoutingManual
       , lockedBlocks = []
       , messageInput = ""
@@ -315,7 +339,8 @@ init flagsValue =
             }
       , removeRandomCandidateRatio = 300
       , removeRandomCandidateRatioInput = "300"
-      , removeRandomCandidateUses = 0
+      , removeRandomCandidateReceived = 0
+      , removeRandomCandidateUsed = 0
       , scoutedItems = Dict.empty
       , seed = Random.initialSeed (flags.seed + 1)
       , seedInput = flags.seed
@@ -324,17 +349,20 @@ init flagsValue =
       , solution = Dict.empty
       , solveRandomCellRatio = 150
       , solveRandomCellRatioInput = "150"
-      , solveRandomCellUses = 0
+      , solveRandomCellReceived = 0
+      , solveRandomCellUsed = 0
       , solveSelectedCellRatio = 100
       , solveSelectedCellRatioInput = "100"
-      , solveSelectedCellUses = 0
+      , solveSelectedCellReceived = 0
+      , solveSelectedCellUsed = 0
       , solvedLocations = Set.empty
+      , timezone = Time.utc
       , undoStack = []
       , unlockedBlocks = Set.empty
       , unlockMap = Dict.empty
       , visibleCells = Set.empty
       }
-    , Cmd.none
+    , Task.perform GotTimezone Time.here
     )
         |> andThen (updateFromLocalStorage flags.localStorage)
 
@@ -350,7 +378,9 @@ subscriptions model =
         , receiveHintPoints GotHintPoints
         , receiveHints GotHints
         , receiveItems GotItems
+        , receiveLocalGameSave GotLocalGameSave
         , receiveMessage GotMessage
+        , receiveOnlineGameSave GotOnlineGameSave
         , receiveSlotData GotSlotData
         , if model.discoTrapTimer > 0 || model.emojiTrapTimer > 0 then
             Time.every 1000 (\_ -> SecondPassed)
@@ -365,9 +395,9 @@ update msg model =
     case msg of
         AddDebugItemsPressed ->
             ( { model
-                | removeRandomCandidateUses = model.removeRandomCandidateUses + 1000
-                , solveSelectedCellUses = model.solveSelectedCellUses + 1000
-                , solveRandomCellUses = model.solveRandomCellUses + 1000
+                | removeRandomCandidateReceived = model.removeRandomCandidateReceived + 1000
+                , solveSelectedCellReceived = model.solveSelectedCellReceived + 1000
+                , solveRandomCellReceived = model.solveRandomCellReceived + 1000
               }
             , Cmd.none
             )
@@ -381,7 +411,7 @@ update msg model =
             ( { model | autoRemoveInvalidCandidates = value }
             , setLocalStorage ( "apdk-auto-remove-invalid-candidates", if value then "1" else "0" )
             )
-                |> andThen updateState
+                |> andThen (updateState True)
 
         BlockSizeChanged size ->
             ( { model
@@ -444,7 +474,7 @@ update msg model =
               }
             , Cmd.none
             )
-                |> andThen updateState
+                |> andThen (updateState True)
 
         ColorSchemeChanged scheme ->
             ( { model | colorScheme = scheme }
@@ -480,7 +510,7 @@ update msg model =
                   }
                 , Cmd.none
                 )
-                    |> andThen updateState
+                    |> andThen (updateState True)
 
             else
                 ( model
@@ -694,7 +724,7 @@ update msg model =
               }
             , Cmd.none
             )
-                |> andThen updateState
+                |> andThen (updateState True)
 
         GotConnectionStatus status ->
             ( { model
@@ -723,8 +753,20 @@ update msg model =
         GotGeneratedBoard value ->
             case Decode.decodeValue generatedBoardDecoder value of
                 Ok board ->
-                    List.foldl
-                        (\block -> andThen (unlockBlock block))
+                    applyList
+                        (unlockBlock False)
+                        (List.filterMap
+                            (\block ->
+                                if block.endRow <= board.blockSize
+                                    && block.endCol <= board.blockSize
+                                then
+                                    Just ( block.startRow, block.startCol )
+
+                                else
+                                    Nothing
+                            )
+                            board.puzzleAreas.blocks
+                        )
                         ( { model
                             | cellBlocks = buildCellAreasMap board.puzzleAreas.blocks
                             , cellBoards = buildCellAreasMap board.puzzleAreas.boards
@@ -740,7 +782,6 @@ update msg model =
                             , solution = board.solution
                             , unlockedBlocks = Set.empty
                             , unlockMap = board.unlockMap
-                            , pendingItems = model.pendingItems
                           }
                         , if model.gameIsLocal then
                             Cmd.none
@@ -748,19 +789,7 @@ update msg model =
                           else
                             sendPlayingStatus ()
                         )
-                        (List.filterMap
-                            (\block ->
-                                if block.endRow <= board.blockSize
-                                    && block.endCol <= board.blockSize
-                                then
-                                    Just ( block.startRow, block.startCol )
-
-                                else
-                                    Nothing
-                            )
-                            board.puzzleAreas.blocks
-                        )
-                        |> andThen updateState
+                        |> andThen (updateState True)
 
                 Err err ->
                     ( model, Cmd.none )
@@ -831,7 +860,19 @@ update msg model =
               }
             , Cmd.none
             )
-                |> andThen updateState
+                |> andThen (updateState True)
+
+        GotLocalGameSave value ->
+            case Decode.decodeValue savedGameDecoder value of
+                Ok savedGame ->
+                    ( { model | localGameSave = Just savedGame }
+                    , Cmd.none
+                    )
+
+                Err err ->
+                    ( model
+                    , Cmd.none
+                    )
 
         GotMessage value ->
             case Decode.decodeValue messageDecoder value of
@@ -850,12 +891,51 @@ update msg model =
                     , log (Decode.errorToString err)
                     )
 
+        GotOnlineGameSave value ->
+            case Decode.decodeValue savedGameDecoder value of
+                Ok savedGame ->
+                    ( loadSavedGame savedGame model
+                    , Cmd.none
+                    )
+                        |> andThen (updateState False)
+
+                Err err ->
+                    ( { model | gameState = MainMenu }
+                    , Cmd.none
+                    )
+
+        GotSaveGameTime debounce posix ->
+            let
+                maxSaveFrequency : Int
+                maxSaveFrequency =
+                    5000
+            in
+            if Time.posixToMillis posix - model.lastSaveTime >= maxSaveFrequency then
+                ( { model | lastSaveTime = Time.posixToMillis posix }
+                , saveGameState (encodeSavedGame posix model)
+                )
+
+            else if debounce then
+                ( model
+                , maxSaveFrequency - (Time.posixToMillis posix - model.lastSaveTime) + 100
+                    |> toFloat
+                    |> Process.sleep
+                    |> Task.andThen (\_ -> Time.now)
+                    |> Task.perform (GotSaveGameTime False)
+                )
+
+            else
+                ( model
+                , Cmd.none
+                )
+
         GotSlotData value ->
             case Decode.decodeValue slotDataDecoder value of
                 Ok slotData ->
                     ( { model
                         | locationScouting = slotData.locationScouting
                         , progression = slotData.progression
+                        , seedInput = slotData.seed
                       }
                     , Cmd.none
                     )
@@ -864,6 +944,11 @@ update msg model =
                     ( model
                     , Cmd.none
                     )
+
+        GotTimezone timezone ->
+            ( { model | timezone = timezone }
+            , Cmd.none
+            )
 
         HighlightModeChanged mode ->
             ( { model | highlightMode = mode }
@@ -976,7 +1061,7 @@ update msg model =
                   }
                 , Cmd.none
                 )
-                    |> andThen updateState
+                    |> andThen (updateState True)
 
             else
                 ( model
@@ -1097,7 +1182,7 @@ update msg model =
             ( removeInvalidCandidates model
             , Cmd.none
             )
-                |> andThen updateState
+                |> andThen (updateState True)
 
         RemoveRandomCandidatePressed ->
             let
@@ -1150,7 +1235,7 @@ update msg model =
                     ( { model
                         | current = Dict.update cell (toggleNumber number) model.current
                         , pendingCellChanges = Set.insert cell model.pendingCellChanges
-                        , removeRandomCandidateUses = model.removeRandomCandidateUses - 1
+                        , removeRandomCandidateUsed = model.removeRandomCandidateUsed + 1
                         , seed = newSeed
                         , messages =
                             addLocalMessage
@@ -1166,7 +1251,7 @@ update msg model =
                       }
                     , Cmd.none
                     )
-                        |> andThen updateState
+                        |> andThen (updateState True)
 
                 Nothing ->
                     ( { model
@@ -1211,6 +1296,12 @@ update msg model =
               }
             , Cmd.none
             )
+
+        ResumeLocalGamePressed save ->
+            ( loadSavedGame save model
+            , Cmd.none
+            )
+                |> andThen (updateState False)
 
         ScoutLocationPressed id ->
             if model.gameIsLocal then
@@ -1418,7 +1509,7 @@ update msg model =
                         , givens = Set.insert targetCell model.givens
                         , pendingCellChanges = Set.insert targetCell model.pendingCellChanges
                         , seed = newSeed
-                        , solveRandomCellUses = model.solveRandomCellUses - 1
+                        , solveRandomCellUsed = model.solveRandomCellUsed + 1
                         , messages =
                             addLocalMessage
                                 (String.concat
@@ -1431,7 +1522,7 @@ update msg model =
                       }
                     , Cmd.none
                     )
-                    |> andThen updateState
+                    |> andThen (updateState True)
 
                 Nothing ->
                     ( { model
@@ -1515,7 +1606,7 @@ update msg model =
                     | current = Dict.remove model.selectedCell model.current
                     , givens = Set.insert model.selectedCell model.givens
                     , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
-                    , solveSelectedCellUses = model.solveSelectedCellUses - 1
+                    , solveSelectedCellUsed = model.solveSelectedCellUsed + 1
                     , messages =
                         addLocalMessage
                             (String.concat
@@ -1528,7 +1619,7 @@ update msg model =
                   }
                 , Cmd.none
                 )
-                    |> andThen updateState
+                    |> andThen (updateState True)
 
         SolveSelectedCellRatioChanged value ->
             ( { model
@@ -1618,7 +1709,7 @@ update msg model =
               }
             , Cmd.none
             )
-                |> andThen updateState
+                |> andThen (updateState True)
 
         ToggleCandidateModePressed ->
             ( { model | candidateMode = not model.candidateMode }
@@ -1690,17 +1781,17 @@ update msg model =
                       }
                     , Cmd.none
                     )
-                        |> andThen updateState
+                        |> andThen (updateState True)
 
         UnlockSelectedBlockPressed ->
-            List.foldl
-                (andThen << \block -> (unlockBlock ( block.startRow, block.startCol ))
-                )
-                ( model
-                , Cmd.none
+            applyList
+                (\block -> (unlockBlock True ( block.startRow, block.startCol ))
                 )
                 (Dict.get model.selectedCell model.cellBlocks
                     |> Maybe.withDefault []
+                )
+                ( model
+                , Cmd.none
                 )
                 |> andThen updateBoardData
 
@@ -1888,6 +1979,7 @@ type MessageExtra
 type alias SlotData =
     { locationScouting : LocationScouting
     , progression : Progression
+    , seed : Int
     }
 
 
@@ -1901,6 +1993,46 @@ type EmojiTrapVariant
     = EmojiTrapAnimals
     | EmojiTrapFruits
     | EmojiTrapRandom
+
+
+type alias PackedBoardCells =
+    { coordinates : List Int
+    , current : List Int
+    , solution : List Int
+    }
+
+
+type alias UnpackedBoardCells =
+    { current : Dict ( Int, Int ) CellValue
+    , givens : Set ( Int, Int )
+    , solution : Dict ( Int, Int ) Int
+    }
+
+
+type alias SavedGame =
+    { blockSize : Int
+    , coordinates : List Int
+    , current : List Int
+    , discoTrapTriggers : Int
+    , emojiTrapTriggers : Int
+    , gameIsLocal : Bool
+    , locationScouting : LocationScouting
+    , lockedBlocks : List ( Int, Int )
+    , progression : Progression
+    , puzzleAreas : PuzzleAreas
+    , removeRandomCandidateReceived : Int
+    , removeRandomCandidateUsed : Int
+    , seed : Int
+    , solution : List Int
+    , solveRandomCellReceived : Int
+    , solveRandomCellUsed : Int
+    , solveSelectedCellReceived : Int
+    , solveSelectedCellUsed : Int
+    , solvedLocations : Set Int
+    , timestamp : Time.Posix
+    , unlockMap : Dict Int Item
+    , unlockedBlocks : Set ( Int, Int )
+    }
 
 
 ---
@@ -2052,6 +2184,18 @@ unlockMapDecoder =
         |> Decode.map Dict.fromList
 
 
+encodeUnlockMap : Dict Int Item -> Encode.Value
+encodeUnlockMap unlockMap =
+    Dict.toList unlockMap
+        |> Encode.list
+            (\( id, item ) ->
+                Encode.list identity
+                    [ Encode.int id
+                    , encodeItem item
+                    ]
+            )
+
+
 areaDecoder : Decode.Decoder Area
 areaDecoder =
     Decode.map4 Area
@@ -2061,6 +2205,16 @@ areaDecoder =
         (Decode.index 3 Decode.int)
 
 
+encodeArea : Area -> Encode.Value
+encodeArea area =
+    Encode.list Encode.int
+        [ area.startRow
+        , area.startCol
+        , area.endRow
+        , area.endCol
+        ]
+
+
 puzzleAreasDecoder : Decode.Decoder PuzzleAreas
 puzzleAreasDecoder =
     Decode.map4 PuzzleAreas
@@ -2068,6 +2222,16 @@ puzzleAreasDecoder =
         (Decode.field "boards" (Decode.list areaDecoder))
         (Decode.field "rows" (Decode.list areaDecoder))
         (Decode.field "cols" (Decode.list areaDecoder))
+
+
+encodePuzzleAreas : PuzzleAreas -> Encode.Value
+encodePuzzleAreas puzzleAreas =
+    Encode.object
+        [ ( "blocks", Encode.list encodeArea puzzleAreas.blocks )
+        , ( "boards", Encode.list encodeArea puzzleAreas.boards )
+        , ( "rows", Encode.list encodeArea puzzleAreas.rows )
+        , ( "cols", Encode.list encodeArea puzzleAreas.cols )
+        ]
 
 
 tupleDecoder : Decode.Decoder a -> Decode.Decoder b -> Decode.Decoder ( a, b )
@@ -2133,6 +2297,11 @@ itemDecoder : Decode.Decoder Item
 itemDecoder =
     Decode.int
         |> Decode.map itemFromId
+
+
+encodeItem : Item -> Encode.Value
+encodeItem item =
+    Encode.int (itemToId item)
 
 
 itemClassDecoder : Decode.Decoder ItemClass
@@ -2254,9 +2423,11 @@ slotDataDecoder : Decode.Decoder SlotData
 slotDataDecoder =
     Field.optional "locationScouting" locationScoutingDecoder <| \locationScouting ->
     Field.optional "progression" progressionDecoder <| \progression ->
+    Field.require "seed" Decode.int <| \seed ->
     Decode.succeed
         { locationScouting = Maybe.withDefault ScoutingManual locationScouting
         , progression = Maybe.withDefault Shuffled progression
+        , seed = seed
         }
 
 
@@ -2700,7 +2871,220 @@ encodeNumberMap model =
         Encode.list Encode.int []
 
 
+encodeSavedGame : Time.Posix -> Model -> Encode.Value
+encodeSavedGame timestamp model =
+    let
+        cells : PackedBoardCells
+        cells =
+            packBoardCells model
+    in
+    Encode.object
+        [ ( "blockSize", Encode.int model.blockSize )
+        , ( "coordinates", Encode.list Encode.int cells.coordinates )
+        , ( "current", Encode.list Encode.int cells.current )
+        , ( "discoTrapTriggers", Encode.int model.discoTrapTriggers )
+        , ( "emojiTrapTriggers", Encode.int model.emojiTrapTriggers )
+        , ( "gameIsLocal", Encode.bool model.gameIsLocal )
+        , ( "locationScouting", Encode.string (locationScoutingToString model.locationScouting) )
+        , ( "lockedBlocks", Encode.list (encodeTuple Encode.int Encode.int) model.lockedBlocks )
+        , ( "progression", Encode.string (progressionToString model.progression) )
+        , ( "puzzleAreas", encodePuzzleAreas model.puzzleAreas )
+        , ( "removeRandomCandidateReceived", Encode.int model.removeRandomCandidateReceived )
+        , ( "removeRandomCandidateUsed", Encode.int model.removeRandomCandidateUsed )
+        , ( "seed", Encode.int model.seedInput )
+        , ( "solution", Encode.list Encode.int cells.solution )
+        , ( "solveRandomCellReceived", Encode.int model.solveRandomCellReceived )
+        , ( "solveRandomCellUsed", Encode.int model.solveRandomCellUsed )
+        , ( "solveSelectedCellReceived", Encode.int model.solveSelectedCellReceived )
+        , ( "solveSelectedCellUsed", Encode.int model.solveSelectedCellUsed )
+        , ( "solvedLocations", Encode.list Encode.int (Set.toList model.solvedLocations) )
+        , ( "timestamp", Encode.int (Time.posixToMillis timestamp) )
+        , ( "unlockMap", encodeUnlockMap model.unlockMap )
+        , ( "unlockedBlocks", Encode.list (encodeTuple Encode.int Encode.int) (Set.toList model.unlockedBlocks) )
+        ]
 
+
+savedGameDecoder : Decode.Decoder SavedGame
+savedGameDecoder =
+    Field.require "blockSize" Decode.int <| \blockSize ->
+    Field.require "coordinates" (Decode.list Decode.int) <| \coordinates ->
+    Field.require "current" (Decode.list Decode.int) <| \current ->
+    Field.require "discoTrapTriggers" Decode.int <| \discoTrapTriggers ->
+    Field.require "emojiTrapTriggers" Decode.int <| \emojiTrapTriggers ->
+    Field.require "gameIsLocal" Decode.bool <| \gameIsLocal ->
+    Field.require "locationScouting" locationScoutingDecoder <| \locationScouting ->
+    Field.require "lockedBlocks" (Decode.list (tupleDecoder Decode.int Decode.int)) <| \lockedBlocks ->
+    Field.require "progression" progressionDecoder <| \progression ->
+    Field.require "puzzleAreas" puzzleAreasDecoder <| \puzzleAreas ->
+    Field.require "seed" Decode.int <| \seed ->
+    Field.require "removeRandomCandidateReceived" Decode.int <| \removeRandomCandidateReceived ->
+    Field.require "removeRandomCandidateUsed" Decode.int <| \removeRandomCandidateUsed ->
+    Field.require "solution" (Decode.list Decode.int) <| \solution ->
+    Field.require "solveRandomCellReceived" Decode.int <| \solveRandomCellReceived ->
+    Field.require "solveRandomCellUsed" Decode.int <| \solveRandomCellUsed ->
+    Field.require "solveSelectedCellReceived" Decode.int <| \solveSelectedCellReceived ->
+    Field.require "solveSelectedCellUsed" Decode.int <| \solveSelectedCellUsed ->
+    Field.require "solvedLocations" (Decode.list Decode.int) <| \solvedLocations ->
+    Field.require "timestamp" (Decode.map Time.millisToPosix Decode.int) <| \timestamp ->
+    Field.require "unlockMap" unlockMapDecoder <| \unlockMap ->
+    Field.require "unlockedBlocks" (Decode.list (tupleDecoder Decode.int Decode.int)) <| \unlockedBlocks ->
+    Decode.succeed
+        { blockSize = blockSize
+        , coordinates = coordinates
+        , current = current
+        , discoTrapTriggers = discoTrapTriggers
+        , emojiTrapTriggers = emojiTrapTriggers
+        , gameIsLocal = gameIsLocal
+        , locationScouting = locationScouting
+        , lockedBlocks = lockedBlocks
+        , progression = progression
+        , puzzleAreas = puzzleAreas
+        , removeRandomCandidateReceived = removeRandomCandidateReceived
+        , removeRandomCandidateUsed = removeRandomCandidateUsed
+        , seed = seed
+        , solution = solution
+        , solveRandomCellReceived = solveRandomCellReceived
+        , solveRandomCellUsed = solveRandomCellUsed
+        , solveSelectedCellReceived = solveSelectedCellReceived
+        , solveSelectedCellUsed = solveSelectedCellUsed
+        , solvedLocations = Set.fromList solvedLocations
+        , timestamp = timestamp
+        , unlockMap = unlockMap
+        , unlockedBlocks = Set.fromList unlockedBlocks
+        }
+
+
+packBoardCells : Model -> PackedBoardCells
+packBoardCells model =
+    Dict.foldl
+        (\( row, col ) solution acc ->
+            { acc
+                | coordinates = packCoordinate ( row, col ) :: acc.coordinates
+                , current = packCellValue (getCellValue model ( row, col )) :: acc.current
+                , solution = solution :: acc.solution
+            }
+        )
+        { coordinates = []
+        , current = []
+        , solution = []
+        }
+        model.solution
+
+
+unpackBoardCells : PackedBoardCells -> UnpackedBoardCells
+unpackBoardCells packedCells =
+    List.foldl
+        (\( packedCoordinate, packedCurrent, solution ) acc ->
+            let
+                coordinate : ( Int, Int )
+                coordinate =
+                    unpackCoordinate packedCoordinate
+
+                current : Maybe CellValue
+                current =
+                    unpackCellValue packedCurrent
+            in
+            case current of
+                Just (Given n) ->
+                    { current = acc.current
+                    , givens = Set.insert coordinate acc.givens
+                    , solution = Dict.insert coordinate solution acc.solution
+                    }
+
+                Just (Single n) ->
+                    { current = Dict.insert coordinate (Single n) acc.current
+                    , givens = acc.givens
+                    , solution = Dict.insert coordinate solution acc.solution
+                    }
+
+                Just (Multiple nums) ->
+                    { current = Dict.insert coordinate (Multiple nums) acc.current
+                    , givens = acc.givens
+                    , solution = Dict.insert coordinate solution acc.solution
+                    }
+
+                Nothing ->
+                    { current = acc.current
+                    , givens = acc.givens
+                    , solution = Dict.insert coordinate solution acc.solution
+                    }
+        )
+        { current = Dict.empty
+        , givens = Set.empty
+        , solution = Dict.empty
+        }
+        (List.Extra.zip3 packedCells.coordinates packedCells.current packedCells.solution)
+
+
+maxBoardWidth : Int
+maxBoardWidth =
+    180
+
+
+packCoordinate : ( Int, Int ) -> Int
+packCoordinate ( row, col ) =
+    row * maxBoardWidth + col
+
+
+unpackCoordinate : Int -> ( Int, Int )
+unpackCoordinate packedCoordinate =
+    ( packedCoordinate // maxBoardWidth, modBy maxBoardWidth packedCoordinate )
+
+
+packCellValue : Maybe CellValue -> Int
+packCellValue cellValue =
+    case cellValue of
+        Just (Given n) ->
+            Bitwise.or (Bitwise.shiftLeftBy 2 n) 1
+
+        Just (Single n) ->
+            Bitwise.or (Bitwise.shiftLeftBy 2 n) 2
+
+        Just (Multiple nums) ->
+            let
+                mask : Int
+                mask =
+                    List.foldl
+                        (\n -> Bitwise.or (Bitwise.shiftLeftBy (n - 1) 1))
+                        0
+                        (Set.toList nums)
+            in
+            Bitwise.or (Bitwise.shiftLeftBy 2 mask) 3
+
+        Nothing ->
+            0
+
+
+unpackCellValue : Int -> Maybe CellValue
+unpackCellValue packedValue =
+    let
+        tag : Int
+        tag =
+            Bitwise.and packedValue 3
+
+        data : Int
+        data =
+            Bitwise.shiftRightZfBy 2 packedValue
+    in
+    case tag of
+        1 ->
+            Just ( Given data )
+
+        2 ->
+            Just ( Single data )
+
+        3 ->
+            let
+                nums : Set Int
+                nums =
+                    List.range 1 16
+                        |> List.filter (\n -> Bitwise.and data (Bitwise.shiftLeftBy (n - 1) 1) /= 0)
+                        |> Set.fromList
+            in
+            Just ( Multiple nums )
+
+        _ ->
+            Nothing
 
 
 ---
@@ -2903,6 +3287,15 @@ andThen fun ( model, cmd ) =
     ( newModel, Cmd.batch [ cmd, newCmd ] )
 
 
+andThenIf : Bool -> (Model -> ( Model, Cmd Msg )) -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+andThenIf condition fun ( model, cmd ) =
+    if condition then
+        andThen fun ( model, cmd )
+
+    else
+        ( model, cmd )
+
+
 applySteps : List (Model -> ( Model, Cmd Msg )) -> Model -> ( Model, Cmd Msg )
 applySteps steps initialModel =
     List.foldl
@@ -2957,13 +3350,13 @@ applySet updateFn set ( initialModel, initialCmd ) =
     )
 
 
-updateState : Model -> ( Model, Cmd Msg )
-updateState model =
+updateState : Bool -> Model -> ( Model, Cmd Msg )
+updateState triggerAnimations model =
     case model.gameState of
         Playing ->
             if model.autoRemoveInvalidCandidates then
                 applySteps
-                    [ updateStateChanges
+                    [ updateStateChanges triggerAnimations
                     , updateStateErrors
                     , updateStateRemoveInvalidCandidates
                     , updateStateErrors
@@ -2976,7 +3369,7 @@ updateState model =
 
             else
                 applySteps
-                    [ updateStateChanges
+                    [ updateStateChanges triggerAnimations
                     , updateStateErrors
                     , updateStateScoutLocations
                     , updateStateGoal
@@ -2997,14 +3390,19 @@ updateStateItems model =
         |> applyList updateStateItem model.pendingItems
 
 
-updateStateChanges : Model -> ( Model, Cmd Msg )
-updateStateChanges model =
-    updateStateChangesLoop ( model, Cmd.none )
+updateStateChanges : Bool -> Model -> ( Model, Cmd Msg )
+updateStateChanges triggerAnimations model =
+    updateStateChangesLoop triggerAnimations ( model, Cmd.none )
 
 
-updateStateChangesLoop : ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
-updateStateChangesLoop ( model, cmd ) =
-    if Set.isEmpty model.pendingCellChanges && List.isEmpty model.pendingItems then
+updateStateChangesLoop : Bool -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+updateStateChangesLoop triggerAnimations ( model, cmd ) =
+    if Set.isEmpty model.pendingCellChanges
+        && List.isEmpty model.pendingItems
+        && Set.isEmpty model.pendingSolvedBlocks
+        && Set.isEmpty model.pendingSolvedCols
+        && Set.isEmpty model.pendingSolvedRows
+    then
         ( model, cmd )
 
     else
@@ -3013,12 +3411,13 @@ updateStateChangesLoop ( model, cmd ) =
                 applySteps
                     [ updateStateItems
                     , updateStateCellChanges
-                    , updateStateSolvedBlocks
+                    , updateStateSolvedBlocks triggerAnimations
                     , updateStateCheckLocations
                     ]
                     model
         in
         updateStateChangesLoop
+            triggerAnimations
             ( newModel
             , Cmd.batch [ cmd, newCmd ]
             )
@@ -3032,8 +3431,8 @@ updateStateCellChanges model =
         |> applySet updateStateCellChange model.pendingCellChanges
 
 
-updateStateSolvedBlocks : Model -> ( Model, Cmd Msg )
-updateStateSolvedBlocks model =
+updateStateSolvedBlocks : Bool -> Model -> ( Model, Cmd Msg )
+updateStateSolvedBlocks triggerAnimations model =
     ( { model
         | pendingSolvedBlocks = Set.empty
         , pendingSolvedCols = Set.empty
@@ -3041,9 +3440,9 @@ updateStateSolvedBlocks model =
       }
     , Cmd.none
     )
-        |> applySet (updateStateSolvedArea model.cellBlocks cellToBlockId) model.pendingSolvedBlocks
-        |> applySet (updateStateSolvedArea model.cellRows cellToRowId) model.pendingSolvedRows
-        |> applySet (updateStateSolvedArea model.cellCols cellToColId) model.pendingSolvedCols
+        |> applySet (updateStateSolvedArea triggerAnimations model.cellBlocks cellToBlockId) model.pendingSolvedBlocks
+        |> applySet (updateStateSolvedArea triggerAnimations model.cellRows cellToRowId) model.pendingSolvedRows
+        |> applySet (updateStateSolvedArea triggerAnimations model.cellCols cellToColId) model.pendingSolvedCols
 
 
 updateStateErrors : Model -> ( Model, Cmd Msg )
@@ -3124,7 +3523,7 @@ updateStateHighlight model =
 updateBoardData : Model -> ( Model, Cmd Msg )
 updateBoardData model =
     ( { model | boardData = encodeData model }
-    , Cmd.none
+    , Task.perform (GotSaveGameTime True) Time.now
     )
 
 
@@ -3263,7 +3662,7 @@ unlockNextBlock : Model -> ( Model, Cmd Msg )
 unlockNextBlock model =
     case model.lockedBlocks of
         block :: remainingBlocks ->
-            unlockBlock block model
+            unlockBlock True block model
 
         [] ->
             ( model
@@ -3271,8 +3670,8 @@ unlockNextBlock model =
             )
 
 
-unlockBlock : ( Int, Int ) -> Model -> ( Model, Cmd Msg )
-unlockBlock block model =
+unlockBlock : Bool -> ( Int, Int ) -> Model -> ( Model, Cmd Msg )
+unlockBlock triggerAnimations block model =
     let
         blockCells : Set ( Int, Int )
         blockCells =
@@ -3356,7 +3755,7 @@ unlockBlock block model =
         , visibleCells = newVisibleCells
       }
         |> autoFillCandidatesOnUnlock (Set.diff blockCells model.visibleCells)
-    , if model.animationsEnabled then
+    , if triggerAnimations && model.animationsEnabled then
         triggerAnimation
             (Set.diff blockCells model.visibleCells
                 |> Set.toList
@@ -3514,11 +3913,11 @@ updateStateItem item model =
             unlockNextBlock model
 
         Block block ->
-            unlockBlock block model
+            unlockBlock True block model
 
         SolveSelectedCell ->
             ( { model
-                | solveSelectedCellUses = model.solveSelectedCellUses + 1
+                | solveSelectedCellReceived = model.solveSelectedCellReceived + 1
                 , messages =
                     if model.gameIsLocal then
                         addLocalMessage "Unlocked a Solve Selected Cell." model.messages
@@ -3531,7 +3930,7 @@ updateStateItem item model =
 
         SolveRandomCell ->
             ( { model
-                | solveRandomCellUses = model.solveRandomCellUses + 1
+                | solveRandomCellReceived = model.solveRandomCellReceived + 1
                 , messages =
                     if model.gameIsLocal then
                         addLocalMessage "Unlocked a Solve Random Cell." model.messages
@@ -3544,7 +3943,7 @@ updateStateItem item model =
 
         RemoveRandomCandidate ->
             ( { model
-                | removeRandomCandidateUses = model.removeRandomCandidateUses + 1
+                | removeRandomCandidateReceived = model.removeRandomCandidateReceived + 1
                 , messages =
                     if model.gameIsLocal then
                         addLocalMessage "Unlocked a Remove Random Candidate." model.messages
@@ -3557,7 +3956,8 @@ updateStateItem item model =
 
         DiscoTrap ->
             ( { model
-                | messages =
+                | discoTrapReceived = model.discoTrapReceived + 1
+                , messages =
                     if model.gameIsLocal then
                         addLocalMessage "Unlocked a Disco Trap." model.messages
 
@@ -3566,11 +3966,12 @@ updateStateItem item model =
               }
             , Cmd.none
             )
-                |> andThen triggerDiscoTrap
+                |> andThenIf (model.discoTrapReceived >= model.discoTrapTriggers) triggerDiscoTrap
 
         EmojiTrap ->
             ( { model
-                | messages =
+                | emojiTrapReceived = model.emojiTrapReceived + 1
+                , messages =
                     if model.gameIsLocal then
                         addLocalMessage "Unlocked an Emoji Trap." model.messages
 
@@ -3579,7 +3980,7 @@ updateStateItem item model =
               }
             , Cmd.none
             )
-                |> andThen triggerEmojiTrap
+                |> andThenIf (model.emojiTrapReceived >= model.emojiTrapTriggers) triggerEmojiTrap
 
         NothingItem ->
             ( model
@@ -3588,12 +3989,13 @@ updateStateItem item model =
 
 
 updateStateSolvedArea :
-    Dict ( Int, Int ) (List Area)
+    Bool
+    -> Dict ( Int, Int ) (List Area)
     -> (( Int, Int ) -> Int)
     -> ( Int, Int )
     -> Model
     -> ( Model, Cmd Msg )
-updateStateSolvedArea cellAreas toId ( row, col ) model =
+updateStateSolvedArea triggerAnimations cellAreas toId ( row, col ) model =
     let
         cells : List ( Int, Int )
         cells =
@@ -3612,7 +4014,7 @@ updateStateSolvedArea cellAreas toId ( row, col ) model =
         , pendingCellChanges = Set.union (Set.fromList cells) model.pendingCellChanges
         , solvedLocations = Set.insert (toId ( row, col )) model.solvedLocations
       }
-    , if model.animationsEnabled then
+    , if triggerAnimations && model.animationsEnabled then
         triggerAnimation (encodeTriggerAnimation "shine" cells)
 
       else
@@ -4032,6 +4434,34 @@ itemFromId id =
         NothingItem
 
 
+itemToId : Item -> Int
+itemToId item =
+    case item of
+        Block block ->
+            cellToBlockId block
+
+        SolveRandomCell ->
+            1
+
+        RemoveRandomCandidate ->
+            2
+
+        ProgressiveBlock ->
+            101
+
+        SolveSelectedCell ->
+            201
+
+        EmojiTrap ->
+            401
+
+        DiscoTrap ->
+            402
+
+        NothingItem ->
+            99
+
+
 itemClassToString : ItemClass -> String
 itemClassToString classification =
     case classification of
@@ -4129,6 +4559,7 @@ triggerDiscoTrap model =
     ( { model
         | discoTrapOffset = 0
         , discoTrapTimer = trapDuration
+        , discoTrapTriggers = model.discoTrapTriggers + 1
       }
     , Cmd.none
     )
@@ -4172,6 +4603,7 @@ triggerEmojiTrap : Model -> ( Model, Cmd Msg )
 triggerEmojiTrap model =
     ( { model
         | emojiTrapTimer = trapDuration
+        , emojiTrapTriggers = model.emojiTrapTriggers + 1
       }
     , Cmd.none
     )
@@ -4260,6 +4692,118 @@ emojiTrapVariantFromString str =
             EmojiTrapRandom
 
 
+monthToString : Time.Month -> String
+monthToString month =
+    case month of
+        Time.Jan ->
+            "01"
+
+        Time.Feb ->
+            "02"
+
+        Time.Mar ->
+            "03"
+
+        Time.Apr ->
+            "04"
+
+        Time.May ->
+            "05"
+
+        Time.Jun ->
+            "06"
+
+        Time.Jul ->
+            "07"
+
+        Time.Aug ->
+            "08"
+
+        Time.Sep ->
+            "09"
+
+        Time.Oct ->
+            "10"
+
+        Time.Nov ->
+            "11"
+
+        Time.Dec ->
+            "12"
+
+
+toZeroPaddedString : Int -> String
+toZeroPaddedString number =
+    if number < 10 then
+        "0" ++ String.fromInt number
+
+    else
+        String.fromInt number
+
+
+loadSavedGame : SavedGame -> Model -> Model
+loadSavedGame save model =
+    let
+        cells : UnpackedBoardCells
+        cells =
+            unpackBoardCells
+                { coordinates = save.coordinates
+                , current = save.current
+                , solution = save.solution
+                }
+
+        cellBlocks : Dict ( Int, Int ) (List Area)
+        cellBlocks =
+            buildCellAreasMap save.puzzleAreas.blocks
+    in
+    { model
+        | cellBlocks = cellBlocks
+        , cellBoards = buildCellAreasMap save.puzzleAreas.boards
+        , cellCols = buildCellAreasMap save.puzzleAreas.cols
+        , cellRows = buildCellAreasMap save.puzzleAreas.rows
+        , blockSize = save.blockSize
+        , current = cells.current
+        , discoTrapTriggers = save.discoTrapTriggers
+        , emojiTrapTriggers = save.emojiTrapTriggers
+        , errors = Dict.empty
+        , gameIsLocal = save.gameIsLocal
+        , gameState = Playing
+        , givens = cells.givens
+        , locationScouting = save.locationScouting
+        , lockedBlocks = save.lockedBlocks
+        , progression = save.progression
+        , puzzleAreas = save.puzzleAreas
+        , removeRandomCandidateReceived = if save.gameIsLocal then save.removeRandomCandidateReceived else 0
+        , removeRandomCandidateUsed = save.removeRandomCandidateUsed
+        , seedInput = save.seed
+        , solution = cells.solution
+        , solveRandomCellReceived = if save.gameIsLocal then save.solveRandomCellReceived else 0
+        , solveRandomCellUsed = save.solveRandomCellUsed
+        , solveSelectedCellReceived = if save.gameIsLocal then save.solveSelectedCellReceived else 0
+        , solveSelectedCellUsed = save.solveSelectedCellUsed
+        , solvedLocations = save.solvedLocations
+        , unlockMap = save.unlockMap
+        , unlockedBlocks = save.unlockedBlocks
+        , visibleCells =
+            Set.foldl
+                (\block visibleCells ->
+                    Dict.get block cellBlocks
+                        |> Maybe.withDefault []
+                        |> List.Extra.find
+                            (\area ->
+                                area.startRow == Tuple.first block
+                                    && area.startCol == Tuple.second block
+                            )
+                        |> Maybe.map getAreaCells
+                        |> Maybe.withDefault []
+                        |> Set.fromList
+                        |> Set.union visibleCells
+                )
+                Set.empty
+                save.unlockedBlocks
+    }
+
+
 ---
 -- View functions
 ---
@@ -4288,24 +4832,36 @@ view model =
                     ]
 
                 Connecting ->
-                    [ Html.div
-                        [ HA.style "padding" "var(--spacing-l)"
+                    [ Html.h2
+                        [ HA.style "align-self" "center"
+                        , HA.style "margin" "0 auto"
+                        , HA.style "padding" "var(--spacing-l)"
                         ]
                         [ Html.text "Connecting..." ]
                     ]
 
                 Generating ->
                     [ Html.div
-                        [ HA.style "padding" "var(--spacing-l)"
+                        [ HA.class "column center gap-m"
+                        , HA.style "align-self" "center"
+                        , HA.style "margin" "0 auto"
+                        , HA.style "padding" "var(--spacing-l)"
+
                         ]
-                        [ Html.text (Tuple.first model.generationProgress)
-                        , Html.text " "
-                        , Html.text
-                            (Tuple.second model.generationProgress
-                                |> round
-                                |> String.fromInt
-                            )
-                        , Html.text "%"
+                        [ Html.h2
+                            []
+                            [ Html.text "Generating Puzzle..." ]
+                        , Html.div
+                            []
+                            [ Html.text (Tuple.first model.generationProgress)
+                            , Html.text " "
+                            , Html.text
+                                (Tuple.second model.generationProgress
+                                    |> round
+                                    |> String.fromInt
+                                )
+                            , Html.text "%"
+                            ]
                         ]
                     ]
 
@@ -4326,6 +4882,7 @@ viewMenu model =
             []
             [ Html.text "Archipeladoku" ]
         , viewMenuConnect model
+        , viewMenuResume model
         , viewMenuOptions model
         ]
 
@@ -4389,6 +4946,84 @@ viewMenuConnect model =
             ]
         ]
 
+
+viewMenuResume : Model -> Html Msg
+viewMenuResume model =
+    case model.localGameSave of
+        Just save ->
+            Html.div
+                [ HA.class "main-menu-panel"
+                ]
+                [ Html.h2
+                    []
+                    [ Html.text "Resume Local Game" ]
+                , Html.div
+                    []
+                    [ Html.text
+                        (String.concat
+                            [ "Last played: "
+                            , viewDateTime model save.timestamp
+                            ]
+                        )
+                    ]
+                , Html.div
+                    []
+                    [ Html.text
+                        (String.concat
+                            [ "Seed: "
+                            , String.fromInt save.seed
+                            ]
+                        )
+                    ]
+                , Html.div
+                    []
+                    [ Html.text
+                        (String.concat
+                            [ "Progress: "
+                            , String.fromInt (Set.size save.unlockedBlocks)
+                            , " / "
+                            , String.fromInt (save.puzzleAreas.blocks |> List.length)
+                            , " blocks unlocked, "
+                            , String.fromInt (Set.size save.solvedLocations)
+                            , " / "
+                            , String.fromInt
+                                (List.sum
+                                    [ List.length save.puzzleAreas.rows
+                                    , List.length save.puzzleAreas.cols
+                                    , List.length save.puzzleAreas.blocks
+                                    , List.length save.puzzleAreas.boards
+                                    ]
+                                )
+                            , " areas solved"
+                            ]
+                        )
+                    ]
+                , Html.button
+                    [ HA.class "button"
+                    , HE.onClick (ResumeLocalGamePressed save)
+                    ]
+                    [ Html.text "Resume Local Game" ]
+                ]
+
+        Nothing ->
+            Html.text ""
+
+
+viewDateTime : Model -> Time.Posix -> String
+viewDateTime model posix =
+    String.concat
+        [ Time.toYear model.timezone posix |> String.fromInt
+        , "-"
+        , Time.toMonth model.timezone posix |> monthToString
+        , "-"
+        , Time.toDay model.timezone posix |> toZeroPaddedString
+        , " "
+        , Time.toHour model.timezone posix |> toZeroPaddedString
+        , ":"
+        , Time.toMinute model.timezone posix |> toZeroPaddedString
+        , ":"
+        , Time.toSecond model.timezone posix |> toZeroPaddedString
+        ]
 
 
 viewMenuOptions : Model -> Html Msg
@@ -5440,14 +6075,14 @@ viewInfoPanelItems model =
             [ Html.button
                 [ HA.class "button"
                 , HAE.attributeIf
-                    (model.solveSelectedCellUses > 0)
+                    (model.solveSelectedCellReceived > model.solveSelectedCellUsed)
                     (HE.onClick SolveSelectedCellPressed)
-                , HA.disabled (model.solveSelectedCellUses <= 0)
+                , HA.disabled (model.solveSelectedCellReceived <= model.solveSelectedCellUsed)
                 ]
                 [ Html.text
                     (String.concat
                         [ "Solve Selected Cell ("
-                        , String.fromInt model.solveSelectedCellUses
+                        , String.fromInt (model.solveSelectedCellReceived - model.solveSelectedCellUsed)
                         , " uses)"
                         ]
                     )
@@ -5455,14 +6090,14 @@ viewInfoPanelItems model =
             , Html.button
                 [ HA.class "button"
                 , HAE.attributeIf
-                    (model.solveRandomCellUses > 0)
+                    (model.solveRandomCellReceived > model.solveRandomCellUsed)
                     (HE.onClick SolveRandomCellPressed)
-                , HA.disabled (model.solveRandomCellUses <= 0)
+                , HA.disabled (model.solveRandomCellReceived <= model.solveRandomCellUsed)
                 ]
                 [ Html.text
                     (String.concat
                         [ "Solve Random Cell ("
-                        , String.fromInt model.solveRandomCellUses
+                        , String.fromInt (model.solveRandomCellReceived - model.solveRandomCellUsed)
                         , " uses)"
                         ]
                     )
@@ -5470,14 +6105,14 @@ viewInfoPanelItems model =
             , Html.button
                 [ HA.class "button"
                 , HAE.attributeIf
-                    (model.removeRandomCandidateUses > 0)
+                    (model.removeRandomCandidateReceived > model.removeRandomCandidateUsed)
                     (HE.onClick RemoveRandomCandidatePressed)
-                , HA.disabled (model.removeRandomCandidateUses <= 0)
+                , HA.disabled (model.removeRandomCandidateReceived <= model.removeRandomCandidateUsed)
                 ]
                 [ Html.text
                     (String.concat
                         [ "Remove Random Candidate ("
-                        , String.fromInt model.removeRandomCandidateUses
+                        , String.fromInt (model.removeRandomCandidateReceived - model.removeRandomCandidateUsed)
                         , " uses)"
                         ]
                     )

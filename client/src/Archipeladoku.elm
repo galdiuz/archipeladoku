@@ -2580,6 +2580,8 @@ buildOptionsYaml model =
                     , ( "solve_random_cell_ratio", yamlRecordValue <| String.fromInt model.solveRandomCellRatio )
                     , ( "remove_random_candidate_ratio", yamlRecordValue <| String.fromInt model.removeRandomCandidateRatio )
                     , ( "emoji_trap_ratio", yamlRecordValue <| String.fromInt model.emojiTrapRatio )
+                    , ( "disco_trap_ratio", yamlRecordValue <| String.fromInt model.discoTrapRatio )
+                    , ( "tunnel_vision_trap_ratio", yamlRecordValue <| String.fromInt model.tunnelVisionTrapRatio )
                     , ( "pre_fill_nothings_percent", yamlRecordValue <| String.fromInt model.preFillNothingsPercent )
                     , ( "local_items", Yaml.Encode.list Yaml.Encode.string [] )
                     , ( "non_local_items", Yaml.Encode.list Yaml.Encode.string [] )

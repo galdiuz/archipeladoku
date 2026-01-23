@@ -774,42 +774,29 @@ update msg model =
         GotGeneratedBoard value ->
             case Decode.decodeValue generatedBoardDecoder value of
                 Ok board ->
-                    applyList
-                        (unlockBlock False)
-                        (List.filterMap
-                            (\block ->
-                                if block.endRow <= board.blockSize
-                                    && block.endCol <= board.blockSize
-                                then
-                                    Just ( block.startRow, block.startCol )
+                    ( { model
+                        | cellBlocks = buildCellAreasMap board.puzzleAreas.blocks
+                        , cellBoards = buildCellAreasMap board.puzzleAreas.boards
+                        , cellCols = buildCellAreasMap board.puzzleAreas.cols
+                        , cellRows = buildCellAreasMap board.puzzleAreas.rows
+                        , blockSize = board.blockSize
+                        , current = Dict.empty
+                        , errors = Dict.empty
+                        , gameState = if model.gameState == Generating then Playing else model.gameState
+                        , givens = Set.fromList (Dict.keys board.givens)
+                        , lockedBlocks = board.blockUnlockOrder
+                        , puzzleAreas = board.puzzleAreas
+                        , solution = board.solution
+                        , unlockedBlocks = Set.empty
+                        , unlockMap = board.unlockMap
+                      }
+                    , if not model.gameIsLocal && model.gameState == Generating then
+                        sendPlayingStatus ()
 
-                                else
-                                    Nothing
-                            )
-                            board.puzzleAreas.blocks
-                        )
-                        ( { model
-                            | cellBlocks = buildCellAreasMap board.puzzleAreas.blocks
-                            , cellBoards = buildCellAreasMap board.puzzleAreas.boards
-                            , cellCols = buildCellAreasMap board.puzzleAreas.cols
-                            , cellRows = buildCellAreasMap board.puzzleAreas.rows
-                            , blockSize = board.blockSize
-                            , current = Dict.empty
-                            , errors = Dict.empty
-                            , gameState = if model.gameState == Generating then Playing else model.gameState
-                            , givens = Set.fromList (Dict.keys board.givens)
-                            , lockedBlocks = board.blockUnlockOrder
-                            , puzzleAreas = board.puzzleAreas
-                            , solution = board.solution
-                            , unlockedBlocks = Set.empty
-                            , unlockMap = board.unlockMap
-                          }
-                        , if not model.gameIsLocal && model.gameState == Generating then
-                            sendPlayingStatus ()
-
-                          else
-                            Cmd.none
-                        )
+                      else
+                        Cmd.none
+                    )
+                        |> andThen (unlockInitialBlocks)
                         |> andThen (updateState True)
 
                 Err err ->
@@ -918,6 +905,7 @@ update msg model =
                     ( loadSavedGame savedGame model
                     , Cmd.none
                     )
+                        |> andThen (unlockInitialBlocks)
                         |> andThen (updateState False)
 
                 Err err ->
@@ -3778,13 +3766,35 @@ updateStateCellChange updatedCell initialModel =
             )
 
 
+unlockInitialBlocks : Model -> ( Model, Cmd Msg )
+unlockInitialBlocks model =
+    let
+        lockedBlocksSet : Set ( Int, Int )
+        lockedBlocksSet =
+            Set.fromList model.lockedBlocks
+    in
+    applyList
+        (unlockBlock False)
+        (List.filterMap
+            (\block ->
+                if Set.member ( block.startRow, block.startCol ) lockedBlocksSet then
+                    Nothing
+
+                else
+                    Just ( block.startRow, block.startCol )
+            )
+            model.puzzleAreas.blocks
+        )
+        ( model, Cmd.none )
+
+
 unlockNextBlock : Model -> ( Model, Cmd Msg )
 unlockNextBlock model =
-    case model.lockedBlocks of
-        block :: remainingBlocks ->
+    case List.Extra.find (\block -> not (Set.member block model.unlockedBlocks)) model.lockedBlocks of
+        Just block ->
             unlockBlock True block model
 
-        [] ->
+        Nothing ->
             ( model
             , Cmd.none
             )
@@ -3849,9 +3859,7 @@ unlockBlock triggerAnimations block model =
             unlockedAreas model.cellCols cellToColId
     in
     ( { model
-        | lockedBlocks =
-            List.filter ((/=) block) model.lockedBlocks
-        , messages =
+        | messages =
             if model.gameIsLocal then
                 addLocalMessage
                     (String.concat
@@ -5014,7 +5022,7 @@ loadSavedGame save model =
         , solvedLocations = save.solvedLocations
         , tunnelVisionTrapTriggers = save.tunnelVisionTrapTriggers
         , unlockMap = save.unlockMap
-        , unlockedBlocks = save.unlockedBlocks
+        , unlockedBlocks = if save.gameIsLocal then save.unlockedBlocks else Set.empty
         , visibleCells =
             Set.foldl
                 (\block visibleCells ->

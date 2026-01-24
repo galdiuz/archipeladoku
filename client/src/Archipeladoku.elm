@@ -3777,11 +3777,13 @@ unlockInitialBlocks model =
         (unlockBlock False)
         (List.filterMap
             (\block ->
-                if Set.member ( block.startRow, block.startCol ) lockedBlocksSet then
-                    Nothing
+                if (block.endRow <= model.blockSize && block.endCol <= model.blockSize)
+                    || (not (Set.member ( block.startRow, block.startCol ) lockedBlocksSet))
+                then
+                    Just ( block.startRow, block.startCol )
 
                 else
-                    Just ( block.startRow, block.startCol )
+                    Nothing
             )
             model.puzzleAreas.blocks
         )

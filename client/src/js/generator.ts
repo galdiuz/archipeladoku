@@ -201,7 +201,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
 
     const boardPuzzleAreas: PuzzleAreas[] = []
     for (const [startRow, startCol] of positions) {
-        const puzzleAreas = buildPuzzleAreas(args.blockSize, startRow, startCol)
+        const puzzleAreas = buildPuzzleAreasForBoard(args.blockSize, startRow, startCol)
         boardPuzzleAreas.push(puzzleAreas)
     }
     const puzzleAreas: PuzzleAreas = joinPuzzleAreas(boardPuzzleAreas)
@@ -396,7 +396,7 @@ function positionBoardsInCluster(blockSize: number, numberOfBoards: number): Cel
 }
 
 
-function buildPuzzleAreas(blockSize: number, startRow: number, startCol: number): PuzzleAreas {
+function buildPuzzleAreasForBoard(blockSize: number, startRow: number, startCol: number): PuzzleAreas {
     const [blockRows, blockCols] = blockSizeToDimensions(blockSize)
 
     const blocks: Area[] = []
@@ -575,7 +575,7 @@ function buildUnlocks(
         lockedClusters.set(i, unlockMapCluster)
 
         for (const [startRow, startCol] of cluster) {
-            let boardAreas = buildPuzzleAreas(args.blockSize, startRow, startCol)
+            let boardAreas = buildPuzzleAreasForBoard(args.blockSize, startRow, startCol)
 
             for (const block of boardAreas.blocks) {
                 const blockKey = getCellIndex(block.startRow, block.startCol)
@@ -1128,7 +1128,7 @@ function removeGivenNumbersLogical(
 
     const clusterAreasList: PuzzleAreas[] = []
     for (const [row, col] of cluster) {
-        clusterAreasList.push(buildPuzzleAreas(state.blockSize, row, col))
+        clusterAreasList.push(buildPuzzleAreasForBoard(state.blockSize, row, col))
     }
     const clusterPuzzleAreas: PuzzleAreas = joinPuzzleAreas(clusterAreasList)
     const clusterAreaIndices: CellIndex[][] = []

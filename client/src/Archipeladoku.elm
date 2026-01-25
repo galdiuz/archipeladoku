@@ -8,16 +8,17 @@ import Browser.Events
 import Dict exposing (Dict)
 import File.Download
 import Html exposing (Html)
-import Html.Extra
 import Html.Attributes as HA
 import Html.Attributes.Extra as HAE
 import Html.Events as HE
+import Html.Extra
 import Json.Decode as Decode
 import Json.Decode.Extra as DecodeExtra
 import Json.Decode.Field as Field
 import Json.Encode as Encode
-import Maybe.Extra
 import List.Extra
+import Maybe.Extra
+import Order.Extra
 import Process
 import Random
 import Random.List
@@ -1012,7 +1013,7 @@ update msg model =
                     model.numberOfBoardsInput
                         |> String.toInt
                         |> Maybe.withDefault model.numberOfBoards
-                        |> clamp 0 (maxNumberOfBoards model.blockSize)
+                        |> clamp 1 (maxNumberOfBoards model.blockSize)
             in
             ( { model
                 | numberOfBoards = value
@@ -1026,6 +1027,7 @@ update msg model =
                 | numberOfBoards =
                     String.toInt value
                         |> Maybe.withDefault model.numberOfBoards
+                        |> clamp 1 (maxNumberOfBoards model.blockSize)
                 , numberOfBoardsInput = value
               }
             , Cmd.none
@@ -4683,6 +4685,18 @@ itemToId item =
             99
 
 
+fillerItemSortOrder : List Item
+fillerItemSortOrder =
+    [ SolveSelectedCell
+    , SolveRandomCell
+    , RemoveRandomCandidate
+    , DiscoTrap
+    , EmojiTrap
+    , TunnelVisionTrap
+    , NothingItem
+    ]
+
+
 itemClassToString : ItemClass -> String
 itemClassToString classification =
     case classification of
@@ -5045,6 +5059,420 @@ loadSavedGame save model =
     }
 
 
+positionBoards : Int -> Int -> Int -> List ( Int, Int )
+positionBoards blockSize boardsPerCluster numberOfBoards =
+    let
+        fullClusters : Int
+        fullClusters =
+            numberOfBoards // boardsPerCluster
+
+        remainingBoards : Int
+        remainingBoards =
+            modBy boardsPerCluster numberOfBoards
+
+        totalClusters : Int
+        totalClusters =
+            if remainingBoards > 0 then
+                fullClusters + 1
+
+            else
+                fullClusters
+
+        gridSize : Int
+        gridSize =
+            totalClusters
+                |> toFloat
+                |> sqrt
+                |> ceiling
+                |> max 1
+
+        ( clusterRows, clusterCols ) =
+            getClusterDimensions blockSize boardsPerCluster
+
+        clusterPositions : List ( Int, Int )
+        clusterPositions =
+            positionClusters totalClusters gridSize clusterRows clusterCols
+
+        fullClusterPositions : List ( Int, Int )
+        fullClusterPositions =
+            List.concatMap
+                (\i ->
+                    let
+                        clusterPosition : ( Int, Int )
+                        clusterPosition =
+                            List.drop i clusterPositions
+                                |> List.head
+                                |> Maybe.withDefault ( 0, 0 )
+
+                        clusterBoardPositions : List ( Int, Int )
+                        clusterBoardPositions =
+                            positionBoardsInCluster blockSize boardsPerCluster
+                    in
+                    List.map
+                        (\( rowOffset, colOffset ) ->
+                            ( Tuple.first clusterPosition + rowOffset - 1
+                            , Tuple.second clusterPosition + colOffset - 1
+                            )
+                        )
+                        clusterBoardPositions
+                )
+                (List.range 0 (fullClusters - 1))
+
+        remainingClusterPositions : List ( Int, Int )
+        remainingClusterPositions =
+            if remainingBoards > 0 then
+                let
+                    clusterPosition : ( Int, Int )
+                    clusterPosition =
+                        List.drop fullClusters clusterPositions
+                            |> List.head
+                            |> Maybe.withDefault ( 0, 0 )
+
+                    clusterBoardPositions : List ( Int, Int )
+                    clusterBoardPositions =
+                        positionBoardsInCluster blockSize remainingBoards
+                in
+                List.map
+                    (\( rowOffset, colOffset ) ->
+                        ( Tuple.first clusterPosition + rowOffset - 1
+                        , Tuple.second clusterPosition + colOffset - 1
+                        )
+                    )
+                    clusterBoardPositions
+
+            else
+                []
+    in
+    List.append fullClusterPositions remainingClusterPositions
+
+
+getClusterDimensions : Int -> Int -> ( Int, Int )
+getClusterDimensions blockSize numberOfBoards =
+    List.foldl
+        (\( row, col ) ( maxRow, maxCol ) ->
+            ( max maxRow (row + blockSize - 1)
+            , max maxCol (col + blockSize - 1)
+            )
+        )
+        ( 0, 0 )
+        (positionBoardsInCluster blockSize numberOfBoards)
+
+
+positionClusters : Int -> Int -> Int -> Int -> List ( Int, Int )
+positionClusters totalClusters gridSize clusterRows clusterCols =
+    let
+        padding : Int
+        padding =
+            1
+    in
+    List.map
+        (\i ->
+            let
+                ring : Int
+                ring =
+                    floor (sqrt (toFloat i))
+
+                ringStart : Int
+                ringStart =
+                    ring * ring
+
+                offset : Int
+                offset =
+                    i - ringStart
+            in
+            if offset < ring then
+                let
+                    row : Int
+                    row =
+                        offset
+
+                    col : Int
+                    col =
+                        ring
+                in
+                ( row * (clusterRows + padding) + 1
+                , col * (clusterCols + padding) + 1
+                )
+
+            else
+                let
+                    row : Int
+                    row =
+                        ring
+
+                    col : Int
+                    col =
+                        i - ringStart - ring
+                in
+                ( row * (clusterRows + padding) + 1
+                , col * (clusterCols + padding) + 1
+                )
+        )
+        (List.range 0 (totalClusters - 1))
+
+
+positionBoardsInCluster : Int -> Int -> List ( Int, Int )
+positionBoardsInCluster blockSize numberOfBoards =
+    let
+        ( overlapRows, overlapCols ) =
+            blockSizeToOverlap blockSize
+
+        spotsInGrid : Int -> Int
+        spotsInGrid side =
+            ceiling (toFloat (side * side) / 2)
+
+        findSideLength : Int -> Int
+        findSideLength side =
+            if spotsInGrid side >= numberOfBoards then
+                side
+
+            else
+                findSideLength (side + 1)
+
+        isCornerOverlap : ( Int, Int ) -> Bool
+        isCornerOverlap ( row, col ) =
+            modBy 2 (row + col) == 0
+
+        mapToCell : ( Int, Int ) -> ( Int, Int )
+        mapToCell ( row, col ) =
+            ( row * (blockSize - overlapRows) + 1
+            , col * (blockSize - overlapCols) + 1
+            )
+
+        gridSideLength : Int
+        gridSideLength =
+            findSideLength 1
+    in
+    List.concatMap
+        (\r ->
+            List.map
+                (\c ->
+                    ( r, c )
+                )
+                (List.range 0 (gridSideLength - 1))
+        )
+        (List.range 0 (gridSideLength - 1))
+        |> List.filter isCornerOverlap
+        |> List.take numberOfBoards
+        |> List.map mapToCell
+
+
+blockSizeToOverlap : Int -> ( Int, Int )
+blockSizeToOverlap blockSize =
+    case blockSize of
+        4 ->
+            ( 1, 1 )
+
+        6 ->
+            ( 2, 2 )
+
+        8 ->
+            ( 2, 2 )
+
+        9 ->
+            ( 3, 3 )
+
+        12 ->
+            ( 3, 4 )
+
+        16 ->
+            ( 4, 4 )
+
+        _ ->
+            ( 0, 0 )
+
+
+buildPuzzleAreasForBoard : Int -> Int -> Int -> PuzzleAreas
+buildPuzzleAreasForBoard blockSize startRow startCol =
+    let
+        ( blockRows, blockCols ) =
+            blockSizeToDimensions blockSize
+    in
+    { blocks =
+        List.concatMap
+            (\r ->
+                List.map
+                    (\c ->
+                        { startRow = startRow + r * blockRows
+                        , startCol = startCol + c * blockCols
+                        , endRow = startRow + (r + 1) * blockRows - 1
+                        , endCol = startCol + (c + 1) * blockCols - 1
+                        }
+                    )
+                    (List.range 0 (blockSize // blockRows - 1))
+            )
+            (List.range 0 (blockSize // blockCols - 1))
+    , rows =
+        List.map
+            (\r ->
+                { startRow = startRow + r
+                , startCol = startCol
+                , endRow = startRow + r
+                , endCol = startCol + blockSize - 1
+                }
+            )
+            (List.range 0 (blockSize - 1))
+    , cols =
+        List.map
+            (\c ->
+                { startRow = startRow
+                , startCol = startCol + c
+                , endRow = startRow + blockSize - 1
+                , endCol = startCol + c
+                }
+            )
+            (List.range 0 (blockSize - 1))
+    , boards =
+        [ { startRow = startRow
+          , startCol = startCol
+          , endRow = startRow + blockSize - 1
+          , endCol = startCol + blockSize - 1
+          }
+        ]
+    }
+
+
+joinPuzzleAreas : List PuzzleAreas -> PuzzleAreas
+joinPuzzleAreas puzzleAreasList =
+    let
+        areaDict : (PuzzleAreas -> List Area) -> Dict ( Int, Int ) Area
+        areaDict areaFun =
+            List.foldl
+                (\puzzleAreas acc ->
+                    List.foldl
+                        (\area dictAcc ->
+                            Dict.insert ( area.startRow, area.startCol ) area dictAcc
+                        )
+                        acc
+                        (areaFun puzzleAreas)
+                )
+                Dict.empty
+                puzzleAreasList
+    in
+    { boards = Dict.values (areaDict .boards)
+    , blocks = Dict.values (areaDict .blocks)
+    , rows = Dict.values (areaDict .rows)
+    , cols = Dict.values (areaDict .cols)
+    }
+
+
+getFillerCounts : Model -> Int -> Dict Int Int
+getFillerCounts model targetTotal =
+    let
+        ratios : Dict Int Float
+        ratios =
+            [ ( 2, model.removeRandomCandidateRatio )
+            , ( 1, model.solveRandomCellRatio )
+            , ( 99, 0 )
+            , ( 201, model.solveSelectedCellRatio )
+            , ( 401, model.emojiTrapRatio )
+            , ( 402, model.discoTrapRatio )
+            , ( 403, model.tunnelVisionTrapRatio )
+            ]
+                |> List.map (Tuple.mapSecond (\r -> toFloat r / 100))
+                |> Dict.fromList
+
+        initialCounts : Dict Int Int
+        initialCounts =
+            Dict.map
+                (\id ratio ->
+                    ceiling (toFloat model.numberOfBoards * ratio)
+                )
+                ratios
+
+        initialTotal : Int
+        initialTotal =
+            Dict.values initialCounts
+                |> List.sum
+
+        scale : Float
+        scale =
+            if initialTotal == 0 then
+                1
+
+            else
+                toFloat targetTotal / toFloat initialTotal
+
+        scaledCounts : Dict Int Int
+        scaledCounts =
+            Dict.map
+                (\_ count ->
+                    floor (toFloat count * scale)
+                )
+                initialCounts
+
+        scaledTotal : Int
+        scaledTotal =
+            Dict.values scaledCounts
+                |> List.sum
+
+        toAdd : Int
+        toAdd =
+            targetTotal - scaledTotal
+
+        bestKey : Dict Int Int -> Maybe Int
+        bestKey counts =
+            List.Extra.maximumWith
+                (\a b ->
+                    let
+                        currentRatio : Int -> Float
+                        currentRatio key =
+                            (Dict.get key counts
+                                |> Maybe.withDefault 0
+                                |> toFloat
+                             ) / toFloat model.numberOfBoards
+
+                        targetRatio : Int -> Float
+                        targetRatio key =
+                            Dict.get key ratios
+                                |> Maybe.withDefault 0
+
+                        ratio : Int -> Float
+                        ratio key =
+                            targetRatio key - currentRatio key
+                    in
+                    compare (ratio a) (ratio b)
+                )
+                (Dict.keys counts)
+
+        addBestCounts : Dict Int Int -> Dict Int Int
+        addBestCounts counts =
+            case bestKey counts of
+                Just key ->
+                    Dict.update key
+                        (\maybeCount ->
+                            maybeCount
+                                |> Maybe.withDefault 0
+                                |> (+) 1
+                                |> Just
+                        )
+                        counts
+
+                Nothing ->
+                    counts
+    in
+    if initialTotal == targetTotal then
+        initialCounts
+
+    else if initialTotal < targetTotal then
+        Dict.update
+            99
+            (\v ->
+                Maybe.withDefault 0 v + (targetTotal - initialTotal)
+                    |> Just
+            )
+            initialCounts
+
+    else
+        List.foldl
+            (\_ acc ->
+                addBestCounts acc
+            )
+            scaledCounts
+            (List.range 1 toAdd)
+
+
+
 ---
 -- View functions
 ---
@@ -5052,72 +5480,91 @@ loadSavedGame save model =
 
 view : Model -> Html Msg
 view model =
-    Html.main_
-        [ HA.class "main-container"
-        ]
-        (List.append
-            [ Html.node "style"
-                []
-                [ Html.text
-                    (String.concat
-                        [ ":root { color-scheme: "
-                        , model.colorScheme
-                        , "; }"
-                        ]
-                    )
+    case model.gameState of
+        MainMenu ->
+            Html.div
+                [ HA.class "row"
                 ]
-            ]
-            (case model.gameState of
-                MainMenu ->
-                    [ viewMenu model
-                    ]
+                [ viewMenu model
+                , viewColorScheme model
+                ]
 
-                Connecting ->
+        Connecting ->
+            Html.div
+                [ HA.class "row"
+                , HA.style "height" "100vh"
+                ]
+                [ Html.h2
+                    [ HA.style "align-self" "center"
+                    , HA.style "margin" "0 auto"
+                    , HA.style "padding" "var(--spacing-l)"
+                    ]
+                    [ Html.text "Connecting..." ]
+                , viewColorScheme model
+                ]
+
+        Generating ->
+            Html.div
+                [ HA.class "row"
+                , HA.style "height" "100vh"
+                ]
+                [ Html.div
+                    [ HA.class "column center gap-m"
+                    , HA.style "align-self" "center"
+                    , HA.style "margin" "0 auto"
+                    , HA.style "padding" "var(--spacing-l)"
+
+                    ]
                     [ Html.h2
-                        [ HA.style "align-self" "center"
-                        , HA.style "margin" "0 auto"
-                        , HA.style "padding" "var(--spacing-l)"
-                        ]
-                        [ Html.text "Connecting..." ]
-                    ]
-
-                Generating ->
-                    [ Html.div
-                        [ HA.class "column center gap-m"
-                        , HA.style "align-self" "center"
-                        , HA.style "margin" "0 auto"
-                        , HA.style "padding" "var(--spacing-l)"
-
-                        ]
-                        [ Html.h2
-                            []
-                            [ Html.text "Generating Puzzle..." ]
-                        , Html.div
-                            []
-                            [ Html.text (Tuple.first model.generationProgress)
-                            , Html.text " "
-                            , Html.text
-                                (Tuple.second model.generationProgress
-                                    |> round
-                                    |> String.fromInt
-                                )
-                            , Html.text "%"
-                            ]
+                        []
+                        [ Html.text "Generating Puzzle..." ]
+                    , Html.div
+                        []
+                        [ Html.text (Tuple.first model.generationProgress)
+                        , Html.text " "
+                        , Html.text
+                            (Tuple.second model.generationProgress
+                                |> round
+                                |> String.fromInt
+                            )
+                        , Html.text "%"
                         ]
                     ]
+                , viewColorScheme model
+                ]
 
-                Playing ->
-                    [ viewBoard model
-                    , viewInfoPanel model
-                    ]
+        Playing ->
+            Html.div
+                [ HA.class "main-container"
+                ]
+                [ viewBoard model
+                , viewInfoPanel model
+                , viewColorScheme model
+                ]
 
-                Disconnected ->
-                    [ viewBoard model
-                    , viewInfoPanel model
-                    , viewDisconnectedOverlay model
-                    ]
+        Disconnected ->
+            Html.div
+                [ HA.class "main-container"
+                ]
+                [ viewBoard model
+                , viewInfoPanel model
+                , viewDisconnectedOverlay model
+                , viewColorScheme model
+                ]
+
+
+viewColorScheme : Model -> Html Msg
+viewColorScheme model =
+    Html.node "style"
+        []
+        [ Html.text
+            (String.concat
+                [ ":root { color-scheme: "
+                , model.colorScheme
+                , "; }"
+                ]
             )
-        )
+        ]
 
 
 viewMenu : Model -> Html Msg
@@ -5293,7 +5740,7 @@ viewMenuOptions model =
             ]
         , Html.div
             [ HA.style "display" "grid"
-            , HA.style "grid-template-columns" "repeat(auto-fit, minmax(300px, 1fr))"
+            , HA.style "grid-template-columns" "repeat(auto-fit, minmax(220px, 1fr))"
             , HA.style "gap" "var(--spacing-l)"
             ]
             [ Html.button
@@ -5307,6 +5754,7 @@ viewMenuOptions model =
                 ]
                 [ Html.text "Play Local Game" ]
             ]
+        , viewMenuOptionsStats model
         ]
 
 
@@ -5791,6 +6239,153 @@ viewMenuOptionsArchipelago model =
                     ]
                 ]
             ]
+        ]
+
+
+viewMenuOptionsStats : Model -> Html Msg
+viewMenuOptionsStats model =
+    let
+        positions : List ( Int, Int )
+        positions =
+            positionBoards model.blockSize model.boardsPerCluster model.numberOfBoards
+
+        puzzleAreas : PuzzleAreas
+        puzzleAreas =
+            positions
+                |> List.map
+                    (\( startRow, startCol ) ->
+                        buildPuzzleAreasForBoard model.blockSize startRow startCol
+                    )
+                |> joinPuzzleAreas
+
+        locations : Int
+        locations =
+            List.sum
+                [ List.length puzzleAreas.rows
+                , List.length puzzleAreas.cols
+                , List.length puzzleAreas.blocks
+                , List.length puzzleAreas.boards
+                ]
+
+        cells : Int
+        cells =
+            List.concatMap getAreaCells puzzleAreas.boards
+                |> Set.fromList
+                |> Set.size
+
+        progressionItems : Int
+        progressionItems =
+            List.length puzzleAreas.blocks - model.blockSize
+
+        fillerItems : Int
+        fillerItems =
+            locations - progressionItems
+
+        fillerCounts : Dict Int Int
+        fillerCounts =
+            getFillerCounts model (locations - progressionItems)
+
+        preFilledNothings : Int
+        preFilledNothings =
+            Dict.get 99 fillerCounts
+                |> Maybe.withDefault 0
+                |> toFloat
+                |> (*) (toFloat model.preFillNothingsPercent / 100)
+                |> floor
+
+        textDiv : String -> Html Msg
+        textDiv text =
+            Html.div
+                []
+                [ Html.text text ]
+    in
+    Html.div
+        [ HA.class "option-statistics"
+        ]
+        [ Html.div
+            [ HA.class "option-statistics-grid"
+            ]
+            [ Html.h3
+                []
+                [ Html.text "Statistics" ]
+
+            , textDiv "Cells: "
+            , textDiv (String.fromInt cells)
+
+            , textDiv "Locations: "
+            , textDiv (String.fromInt locations)
+
+            , textDiv "Progression Items: "
+            , textDiv
+                (String.concat
+                    [ String.fromInt progressionItems
+                    , " ("
+                    , String.fromInt
+                        (round
+                            ((toFloat progressionItems / toFloat locations) * 100)
+                        )
+                    , "%)"
+                    ]
+                )
+
+            , textDiv "Filler Items: "
+            , textDiv
+                (String.concat
+                    [ String.fromInt fillerItems
+                    , " ("
+                    , String.fromInt
+                        (round
+                            ((toFloat fillerItems / toFloat locations) * 100)
+                        )
+                    , "%)"
+                    ]
+                )
+
+            , textDiv "- Excluding pre-filled: "
+            , textDiv
+                (String.concat
+                    [ String.fromInt <| fillerItems - preFilledNothings
+                    , " ("
+                    , String.fromInt
+                        (round
+                            ((toFloat (fillerItems - preFilledNothings) / toFloat locations) * 100)
+                        )
+                    , "%)"
+                    ]
+                )
+            ]
+        , Html.div
+            [ HA.class "option-statistics-grid"
+            ]
+            (List.append
+                [ Html.h3
+                    []
+                    [ Html.text "Filler Item Counts" ]
+                ]
+                (List.concatMap
+                    (\( item, count ) ->
+                        List.append
+                            [ textDiv <| itemName item ++ ": "
+                            , textDiv <| String.fromInt count
+                            ]
+                            (if item == NothingItem then
+                                [ textDiv "- Excluding pre-filled: "
+                                , textDiv <| String.fromInt (count - preFilledNothings)
+                                ]
+
+                            else
+                                [])
+                    )
+                    (Dict.toList fillerCounts
+                        |> List.map (Tuple.mapFirst itemFromId)
+                        |> List.sortWith
+                            (Order.Extra.byFieldWith
+                                (Order.Extra.explicit fillerItemSortOrder)
+                                Tuple.first
+                            )
+                    )
+                )
+            )
         ]
 
 

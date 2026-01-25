@@ -145,6 +145,41 @@ h1, h2 {
     height: 1.25em;
 }
 
+/*
+    [ HA.class "gap-m"
+    , HA.style "display" "grid"
+    , HA.style "grid-template-columns" "repeat(auto-fit, minmax(220px, 1fr))"
+    , HA.style "align-items" "start"
+    , HA.style "border" "1px solid var(--color-border)"
+    , HA.style "background-color" "var(--color-sub-bg-hover)"
+    , HA.style "padding" "var(--spacing-m)"
+    ]
+ */
+
+.option-statistics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    align-items: start;
+    border: 1px solid var(--color-border);
+    background-color: var(--color-sub-bg-hover);
+    padding: var(--spacing-m);
+    gap: var(--spacing-m);
+    margin-top: var(--spacing-m);
+}
+
+.option-statistics-grid {
+    display: grid;
+    grid-template-columns: max-content auto;
+    gap: var(--spacing-s);
+}
+
+.option-statistics-grid h3 {
+    font-size: 1.25em;
+    font-weight: 700;
+    margin: 0;
+    grid-column: 1 / span 2;
+}
+
 .info-panel {
     background-color: var(--color-sub-bg);
     padding: var(--spacing-l);
@@ -193,6 +228,10 @@ h1, h2 {
 .info-panel-details[open] {
     gap: var(--spacing-m);
     margin-bottom: var(--spacing-m);
+}
+
+.info-panel-details[open]:last-child {
+    margin-bottom: 0;
 }
 
 .info-panel-details summary {

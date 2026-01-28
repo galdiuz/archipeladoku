@@ -2053,6 +2053,7 @@ type LocationScouting
 type EmojiTrapVariant
     = EmojiTrapAnimals
     | EmojiTrapFruits
+    | EmojiTrapShapes
     | EmojiTrapRandom
 
 
@@ -4863,8 +4864,11 @@ updateEmojiTrapMap model =
                 EmojiTrapFruits ->
                     Random.uniform fruitEmojis []
 
+                EmojiTrapShapes ->
+                    Random.uniform shapeEmojis []
+
                 EmojiTrapRandom ->
-                    Random.uniform animalEmojis [ fruitEmojis ]
+                    Random.uniform animalEmojis [ fruitEmojis, shapeEmojis ]
 
         ( emojiTrapMap, newSeed ) =
             Random.step
@@ -4907,6 +4911,13 @@ fruitEmojis =
     ]
 
 
+shapeEmojis : List String
+shapeEmojis =
+    [ "🟢", "⭕", "🌐", "⬜", "🔶", "💎", "⭐", "♣️", "♠️", "♥️"
+    , "♦️", "🔆", "🌙", "💧", "❄️", "⚜️", "🔱", "🧩", "🌀", "🫟"
+    ]
+
+
 emojiTrapVariantToString : EmojiTrapVariant -> String
 emojiTrapVariantToString variant =
     case variant of
@@ -4915,6 +4926,9 @@ emojiTrapVariantToString variant =
 
         EmojiTrapFruits ->
             "fruits"
+
+        EmojiTrapShapes ->
+            "shapes"
 
         EmojiTrapRandom ->
             "random"
@@ -4928,6 +4942,9 @@ emojiTrapVariantFromString str =
 
         "fruits" ->
             EmojiTrapFruits
+
+        "shapes" ->
+            EmojiTrapShapes
 
         _ ->
             EmojiTrapRandom
@@ -7039,6 +7056,11 @@ viewInfoPanelSettings model =
                         , HA.selected (model.emojiTrapVariant == EmojiTrapFruits)
                         ]
                         [ Html.text "Fruits" ]
+                    , Html.option
+                        [ HA.value "shapes"
+                        , HA.selected (model.emojiTrapVariant == EmojiTrapShapes)
+                        ]
+                        [ Html.text "Shapes" ]
                     , Html.option
                         [ HA.value "random"
                         , HA.selected (model.emojiTrapVariant == EmojiTrapRandom)

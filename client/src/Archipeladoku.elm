@@ -83,6 +83,8 @@ type alias Model =
     , discoTrapTimer : Int
     , discoTrapTriggers : Int
     , difficulty : Int
+    , duplicateProgression : Int
+    , duplicateProgressionInput : String
     , emojiTrapMap : Dict Int String
     , emojiTrapRatio : Int
     , emojiTrapRatioInput : String
@@ -177,6 +179,9 @@ type Msg
     | DiscoTrapRatioChanged Int
     | DiscoTrapRatioInputBlurred
     | DiscoTrapRatioInputChanged String
+    | DuplicateProgressionChanged Int
+    | DuplicateProgressionInputBlurred
+    | DuplicateProgressionInputChanged String
     | EmojiTrapRatioChanged Int
     | EmojiTrapRatioInputBlurred
     | EmojiTrapRatioInputChanged String
@@ -299,6 +304,8 @@ init flagsValue =
       , discoTrapTimer = 0
       , discoTrapTriggers = 0
       , difficulty = 2
+      , duplicateProgression = 0
+      , duplicateProgressionInput = "0"
       , emojiTrapMap = Dict.empty
       , emojiTrapRatio = 20
       , emojiTrapRatioInput = "20"
@@ -570,6 +577,40 @@ update msg model =
                     String.toInt value
                         |> Maybe.withDefault model.discoTrapRatio
                 , discoTrapRatioInput = value
+              }
+            , Cmd.none
+            )
+
+        DuplicateProgressionChanged value ->
+            ( { model
+                | duplicateProgression = value
+                , duplicateProgressionInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        DuplicateProgressionInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.duplicateProgressionInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.duplicateProgression
+                        |> clamp 0 100
+            in
+            ( { model
+                | duplicateProgression = value
+                , duplicateProgressionInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        DuplicateProgressionInputChanged value ->
+            ( { model
+                | duplicateProgression =
+                    String.toInt value
+                        |> Maybe.withDefault model.duplicateProgression
+                , duplicateProgressionInput = value
               }
             , Cmd.none
             )
@@ -1095,6 +1136,7 @@ update msg model =
                     , boardsPerCluster = model.boardsPerCluster
                     , difficulty = model.difficulty
                     , discoTrapRatio = model.discoTrapRatio
+                    , duplicateProgression = model.duplicateProgression
                     , emojiTrapRatio = model.emojiTrapRatio
                     , numberOfBoards = model.numberOfBoards
                     , progression = model.progression
@@ -1928,6 +1970,7 @@ type alias GenerateArgs =
     , boardsPerCluster : Int
     , difficulty : Int
     , discoTrapRatio : Int
+    , duplicateProgression : Int
     , emojiTrapRatio : Int
     , numberOfBoards : Int
     , progression : Progression
@@ -2319,6 +2362,7 @@ encodeGenerateArgs args =
         , ( "boardsPerCluster", Encode.int args.boardsPerCluster )
         , ( "difficulty", Encode.int args.difficulty )
         , ( "discoTrapRatio", Encode.int args.discoTrapRatio )
+        , ( "duplicateProgression", Encode.int args.duplicateProgression )
         , ( "emojiTrapRatio", Encode.int args.emojiTrapRatio )
         , ( "numberOfBoards", Encode.int args.numberOfBoards )
         , ( "progression", encodeProgression args.progression )
@@ -5936,8 +5980,62 @@ viewMenuOptionsBoard model =
                 , Html.div
                     [ HA.class "row gap-m wrap"
                     ]
-                    [ viewRadioButton Shuffled model.progression "progression" ProgressionChanged (\_ -> "Shuffled")
-                    , viewRadioButton Fixed model.progression "progression" ProgressionChanged (\_ -> "Fixed")
+                    [ viewRadioButton Fixed model.progression "progression" ProgressionChanged (\_ -> "Fixed")
+                    , viewRadioButton Shuffled model.progression "progression" ProgressionChanged (\_ -> "Shuffled")
+                    ]
+                ]
+            , Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Duplicate Progression Items:"
+                    , viewOptionHint
+                        "duplicate-progression-hint"
+                        (String.join
+                            "\n"
+                            [  "Percent of progression items that should be duplicated."
+                            , "- For Fixed progression higher values may lead to progression being too fast and as such a lower value is recommended."
+                            , "- For Shuffled progression this can safely be set to 100% to make progression a bit faster. The blocks to duplicate are chosen randomly if not 100%, though each block can only be duplicated once."
+                            ]
+                        )
+                    ]
+                , Html.div
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.class "input"
+                        , HA.type_ "number"
+                        , HA.style "width" "3em"
+                        , HA.min "0"
+                        , HA.max "100"
+                        , HA.value model.duplicateProgressionInput
+                        , HE.onBlur DuplicateProgressionInputBlurred
+                        , HE.onInput DuplicateProgressionInputChanged
+                        ]
+                        []
+                    , Html.text "%"
+                    , viewRangeSlider
+                        model.duplicateProgression
+                        0
+                        100
+                        DuplicateProgressionChanged
+                        (Just "duplicate-progression-ticks")
+                    , Html.datalist
+                        [ HA.id "duplicate-progression-ticks"
+                        ]
+                        (List.map
+                            (\tick ->
+                                Html.option
+                                    [ HA.value (String.fromInt tick) ]
+                                    []
+                            )
+                            [ 0, 25, 50, 75, 100 ]
+                        )
                     ]
                 ]
             , Html.div
@@ -6170,7 +6268,7 @@ viewMenuOptionsArchipelago model =
                         (String.join
                             "\n"
                             [ "Percentage of Nothing items that should be pre-filled, forcing them to be placed in an Archipeladoku game and thus excluding them from other games."
-                            , "Caution: This reduces the number of filler items in the item pool. Having few fillers can lead to increased generation times or even generation failures."
+                            , "Caution: This reduces the number of filler items in the item pool. Having few fillers can lead to increased generation times or even generation failures. As long as you don't remove other filler items this shouldn't be an issue though, even at 100%."
                             ]
                         )
                     ]
@@ -6290,9 +6388,15 @@ viewMenuOptionsStats model =
                 |> Set.fromList
                 |> Set.size
 
+        rawProgressionItems : Int
+        rawProgressionItems =
+            List.length puzzleAreas.blocks - model.blockSize
+
         progressionItems : Int
         progressionItems =
-            List.length puzzleAreas.blocks - model.blockSize
+            (toFloat model.duplicateProgression) / 100 + 1
+                |> (*) (toFloat rawProgressionItems)
+                |> floor
 
         fillerItems : Int
         fillerItems =
@@ -6344,6 +6448,9 @@ viewMenuOptionsStats model =
                     , "%)"
                     ]
                 )
+
+            , textDiv "- Duplicates: "
+            , textDiv <| String.fromInt <| progressionItems - rawProgressionItems
 
             , textDiv "Filler Items: "
             , textDiv

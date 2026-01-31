@@ -69,6 +69,19 @@ class Progression(Choice):
     default = "shuffled"
 
 
+class DuplicateProgression(Range):
+    """Percent of progression items that should be duplicated.
+    - For Fixed progression higher values may lead to progression being too fast and as such a
+      lower value is recommended.
+    - For Shuffled progression this can safely be set to 100% to make progression a bit faster.
+      The blocks to duplicate are chosen randomly if not 100%, though each block can only be duplicated once.
+    """
+    display_name = "Duplicate Progression Items"
+    range_start = 0
+    range_end = 100
+    default = 0
+
+
 class LocationScouting(Choice):
     """How scouting of locations is handled.
     - Auto: Locations are scouted automatically when fully revealed.
@@ -139,7 +152,9 @@ class TunnelVisionTrapRatio(Range):
 class PreFillNothingsPercent(Range):
     """Percentage of Nothing items that should be pre-filled, forcing them to be placed in
     an Archipeladoku game and thus excluding them from other games.
-    Caution: This reduces the number of filler items in the item pool. Having few fillers can lead to increased generation times or even generation failures.
+    Caution: This reduces the number of filler items in the item pool. Having few fillers can lead
+    to increased generation times or even generation failures. As long as you don't remove other
+    filler items this shouldn't be an issue though, even at 100%.
     """
     display_name = "Pre-fill Nothings Percentage"
     range_start = 0
@@ -154,6 +169,7 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     number_of_boards: NumberOfBoards
     difficulty: Difficulty
     progression: Progression
+    duplicate_progression: DuplicateProgression
     location_scouting: LocationScouting
     solve_selected_cell_ratio: SolveSelectedCellRatio
     solve_random_cell_ratio: SolveRandomCellRatio

@@ -145,17 +145,6 @@ h1, h2 {
     height: 1.25em;
 }
 
-/*
-    [ HA.class "gap-m"
-    , HA.style "display" "grid"
-    , HA.style "grid-template-columns" "repeat(auto-fit, minmax(220px, 1fr))"
-    , HA.style "align-items" "start"
-    , HA.style "border" "1px solid var(--color-border)"
-    , HA.style "background-color" "var(--color-sub-bg-hover)"
-    , HA.style "padding" "var(--spacing-m)"
-    ]
- */
-
 .option-statistics {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

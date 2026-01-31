@@ -37,6 +37,7 @@ interface GenerateLocalArgs {
     boardsPerCluster?: number
     difficulty: number
     discoTrapRatio: number
+    duplicateProgression: number
     emojiTrapRatio: number
     numberOfBoards: number
     progression: Progression
@@ -555,6 +556,7 @@ function buildUnlocks(
 ): [number[], Map<number, number>] {
     const unlockMap: Map<number, number> = new Map()
     const remainingBlocks: Map<number, Cell> = new Map()
+    const duplicateBlocks: Cell[] = []
     const solvableLocations: Map<number, UnlockLocation> = new Map()
     const lockedClusters: Map<number, UnlockMapCluster> = new Map()
     const clusterOrder: UnlockMapCluster[] = []
@@ -611,6 +613,10 @@ function buildUnlocks(
         }
     }
 
+    for (const block of remainingBlocks.values()) {
+        duplicateBlocks.push(block)
+    }
+
     let sphere = 1
 
     while (lockedClusters.size > 0) {
@@ -661,6 +667,30 @@ function buildUnlocks(
 
         shuffleArray(toAdd, rng)
         blockUnlockOrder.push(...toAdd)
+    }
+
+    if (args.duplicateProgression > 0) {
+        shuffleArray(duplicateBlocks, rng)
+        const toDuplicate = Math.floor(args.duplicateProgression * duplicateBlocks.length / 100.0)
+        duplicateBlocks.length = toDuplicate
+
+        const solvableLocationsArray = Array.from(solvableLocations.values())
+        shuffleArray(solvableLocationsArray, rng)
+
+        for (const location of solvableLocationsArray) {
+            if (duplicateBlocks.length === 0) {
+                break
+            }
+
+            if (unlockMap.has(location.id)) {
+                continue
+            }
+
+            const [row, col] = duplicateBlocks.pop()!
+            const blockId = cellToBlockId(row, col)
+            unlockMap.set(location.id, blockId)
+            solvableLocations.delete(location.id)
+        }
     }
 
     if (args.progression === 'fixed') {

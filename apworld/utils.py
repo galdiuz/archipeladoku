@@ -56,7 +56,7 @@ def get_max_number_of_boards(block_size: int) -> int:
 
 
 def get_total_filler_count(block_size: int, number_of_boards: int) -> int:
-    """Calculate the total number of filler items needed."""
+    """Calculate the total number of filler items needed, without considering duplicate progresssion."""
 
     return sum([
         block_size, # Initial blocks
@@ -65,10 +65,11 @@ def get_total_filler_count(block_size: int, number_of_boards: int) -> int:
     ])
 
 
-def get_filler_counts(options) -> dict[str, int]:
+def get_filler_counts(options, duplicate_progression_count: int) -> dict[str, int]:
     """Calculate the count per filler item."""
 
     total_fillers = get_total_filler_count(options.block_size.value, options.number_of_boards.value)
+    total_fillers -= duplicate_progression_count
 
     ratios = {
         "Solve Random Cell": options.solve_random_cell_ratio.value,

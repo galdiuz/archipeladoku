@@ -2610,6 +2610,7 @@ buildOptionsYaml model =
                     , ( "number_of_boards", yamlRecordValue <| String.fromInt model.numberOfBoards )
                     , ( "difficulty", yamlRecordValue <| difficultyToString model.difficulty )
                     , ( "progression", yamlRecordValue <| progressionToString model.progression )
+                    , ( "duplicate_progression", yamlRecordValue <| String.fromInt model.duplicateProgression )
                     , ( "location_scouting", yamlRecordValue <| locationScoutingToString model.locationScouting )
                     , ( "solve_selected_cell_ratio", yamlRecordValue <| String.fromInt model.solveSelectedCellRatio )
                     , ( "solve_random_cell_ratio", yamlRecordValue <| String.fromInt model.solveRandomCellRatio )

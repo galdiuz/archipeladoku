@@ -10,6 +10,7 @@ interface BoardData {
     colorScheme: string
     discoTrap: boolean
     tunnelVisionTrap: boolean
+    fireworks: boolean
 }
 
 
@@ -276,6 +277,9 @@ const easing = {
     easeOut: (t: number): number => {
         return t * (2 - t)
     },
+    easeOutSin: (t: number): number => {
+        return Math.sin((t * Math.PI) / 2)
+    },
 }
 
 
@@ -296,6 +300,43 @@ interface Spotlight {
     widthAngle: number
     angle: number
     hue: number
+}
+
+
+type FireworkParticle = BlastParticle | TrailParticle
+
+
+interface BlastParticle {
+    id: number
+    x: number
+    y: number
+    startX: number
+    startY: number
+    vx: number
+    vy: number
+    vz: number
+    size: number
+    initialSize: number
+    hue: number
+    progress: number
+    deathT: number
+}
+
+
+interface TrailParticle {
+    id: number
+    x: number
+    y: number
+    startX: number
+    startY: number
+    vx: number
+    vy: number
+    size: number
+    initialSize: number
+    hue: number
+    progress: number
+    spawnT: number
+    deathT: number
 }
 
 
@@ -429,17 +470,33 @@ function shuffleArray<T>(array: T[]): void {
 }
 
 
+function fireworkBezierPoint(t: number, p0x: number, p0y: number, p2x: number, p2y: number): [number, number] {
+    const dx = p0x - p2x
+    const p1x = (p0x + p2x) / 2
+    const p1y = p2y
+    const invT = 1 - t
+
+    return [
+        invT * invT * p0x + 2 * invT * t * p1x + t * t * p2x,
+        invT * invT * p0y + 2 * invT * t * p1y + t * t * p2y,
+    ]
+}
+
+
 class ArchipeladokuBoard extends HTMLElement {
     canvas: HTMLCanvasElement
     ctx: CanvasRenderingContext2D
     spriteCanvas: HTMLCanvasElement
     spriteCtx: CanvasRenderingContext2D
     spriteScale: number = 1
+    renderedDpr: number = 0
     renderedSpriteScale: number = 0
     colHeaderCanvas: HTMLCanvasElement
     colHeaderCtx: CanvasRenderingContext2D
     rowHeaderCanvas: HTMLCanvasElement
     rowHeaderCtx: CanvasRenderingContext2D
+    fireworksCanvas: HTMLCanvasElement
+    fireworksCtx: CanvasRenderingContext2D
     headerCanvasPadding: number = 16
     blockSize: number = 9
     blocks: Area[] = []
@@ -488,6 +545,12 @@ class ArchipeladokuBoard extends HTMLElement {
     candidateSubXMap: Map<number, number> = new Map()
     candidateSubYMap: Map<number, number> = new Map()
     candidateSubSize: number = 0
+    fireworkAnimationCounter: number = 0
+    fireworkFadeCounter: number = 0
+    fireworkParticleCounter: number = 0
+    fireworkParticles: Map<number, FireworkParticle> = new Map()
+    fireworks: boolean = false
+    lastFireworkFadeTime: number = 0
 
 
     constructor() {
@@ -501,6 +564,8 @@ class ArchipeladokuBoard extends HTMLElement {
         this.colHeaderCtx = this.colHeaderCanvas.getContext('2d', { alpha: true } )!
         this.rowHeaderCanvas = document.createElement('canvas')
         this.rowHeaderCtx = this.rowHeaderCanvas.getContext('2d', { alpha: true } )!
+        this.fireworksCanvas = document.createElement('canvas')
+        this.fireworksCtx = this.fireworksCanvas.getContext('2d', { alpha: true } )!
         this.viewport = { x: 60, y: 60, scale: 1 }
 
         const style = document.createElement('style')
@@ -528,7 +593,7 @@ class ArchipeladokuBoard extends HTMLElement {
         this.shadowRoot!.appendChild(this.canvas)
         this.resize()
         window.addEventListener('resize', () => this.resize())
-        this.render()
+        this.render(performance.now())
         requestAnimationFrame(() => {
             this.resize()
         })
@@ -540,6 +605,18 @@ class ArchipeladokuBoard extends HTMLElement {
         this.canvas.addEventListener('wheel', (e: WheelEvent) => this.handleWheel(e), { passive: false })
 
         this.colorScheme = getSystemColorScheme()
+
+        const watchDPR = () => {
+          const dpr = window.devicePixelRatio
+          const mqString = `(resolution: ${dpr}dppx)`
+          const media = window.matchMedia(mqString)
+
+          media.addEventListener("change", () => {
+            this.requestRender()
+            watchDPR()
+          }, { once: true })
+        }
+        watchDPR()
 
         // this.shadowRoot!.appendChild(this.spriteCanvas)
         // this.spriteCanvas.style.position = 'absolute'
@@ -642,6 +719,13 @@ class ArchipeladokuBoard extends HTMLElement {
         } else if (this.tunnelVisionTrap && !value.tunnelVisionTrap) {
             this.tunnelVisionTrap = false
             this.stopTunnelVisionTrapAnimation()
+        }
+
+        if (!this.fireworks && value.fireworks) {
+            this.fireworks = true
+            this.startFireworksTimer()
+        } else if (this.fireworks && !value.fireworks) {
+            this.fireworks = false
         }
 
         this.requestRender()
@@ -963,6 +1047,8 @@ class ArchipeladokuBoard extends HTMLElement {
         this.canvas.height = height * dpr
         this.canvas.style.width = `${width}px`
         this.canvas.style.height = `${height}px`
+        this.fireworksCanvas.width = width
+        this.fireworksCanvas.height = height
 
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
@@ -1240,6 +1326,177 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    startFireworksTimer() {
+        if (!this.fireworks) {
+            return
+        }
+
+        this.startFireworkAnimation()
+
+        this.addAnimation({
+            id: 'fireworks-timer',
+            startTime: performance.now(),
+            duration: 200 + Math.random() * 1300,
+            onUpdate: (progress: number) => {},
+            onComplete: () => {
+                this.startFireworksTimer()
+            },
+        })
+    }
+
+
+    startFireworkAnimation() {
+        this.fireworkAnimationCounter += 1
+
+        const blastParticles: BlastParticle[] = []
+        const trailParticles = new Map<number, TrailParticle>()
+        const hue = Math.floor(Math.random() * 360)
+        const hue2 = hue + 30 + Math.floor(Math.random() * 300)
+        const blastX = this.clientWidth! * Math.random() * 0.8 + this.clientWidth! * 0.1
+        const blastY = this.clientHeight! * Math.random() * 0.5 + this.clientHeight! * 0.1
+        const minBlastSize = Math.pow(this.clientWidth!, 0.45) / 10
+        const maxBlastSize = minBlastSize * 1.5
+        const blastSize = minBlastSize + Math.random() * (maxBlastSize - minBlastSize)
+        const particleCount = Math.floor(60 + blastSize * 120)
+        const startX = Math.min(this.clientWidth!, Math.max(0, blastX - 150 + Math.random() * 300))
+        const startY = this.clientHeight!
+        const colorVariant = Math.floor(Math.random() * 4)
+        const gravity = 100
+        const airResistance = 0.6
+        const dragExp = 10
+        const rocketAngle = Math.atan2(blastY - startY, blastX - startX)
+        const trailAngleVar = Math.floor(Math.random() * Math.PI / 4 - Math.PI / 8)
+        const trailWaveMult = 15 + Math.random() * 20
+        const totalTrailParticles = (this.clientHeight! - blastY) / 2.5
+        const goldenRatio = (1 + Math.sqrt(5)) / 2
+        const rocket = {
+            x: startX,
+            y: startY,
+        }
+        let lastT = 0
+        let progressSinceLast = 0
+
+        for (let i = 0; i < particleCount; i++) {
+            const z = 1 - (i / (particleCount - 1)) * 2
+            const radiusAtZ = Math.sqrt(1 - z * z)
+            const theta = (Math.PI * 2 * goldenRatio) * i
+            const dirX = Math.cos(theta) * radiusAtZ
+            const dirY = Math.sin(theta) * radiusAtZ
+            const dirZ = z
+            const speed = blastSize * (0.98 + Math.random() * 0.04) * 25
+            const baseSize = 1.5 + Math.random()
+
+            this.fireworkParticleCounter += 1
+            const particle = {
+                id: this.fireworkParticleCounter,
+                x: blastX,
+                y: blastY,
+                startX: blastX,
+                startY: blastY,
+                vx: dirX * speed,
+                vy: dirY * speed,
+                vz: dirZ * speed,
+                size: baseSize,
+                initialSize: baseSize,
+                hue: colorVariant == 0 ? hue
+                    : colorVariant == 1 ? (i % 2 === 0 ? hue : hue2)
+                    : colorVariant == 2 ? (Math.abs(dirZ) > 0.7 ? hue : hue2)
+                    : (Math.abs(dirZ) > 0.9 || Math.abs(dirZ) < 0.4 ? hue : hue2),
+                progress: 0,
+                deathT: 0.85 + Math.random() * 0.15,
+            }
+
+            blastParticles.push(particle)
+            this.fireworkParticles.set(particle.id, particle)
+        }
+
+        this.addAnimation({
+            id: 'fireworks-' + this.fireworkAnimationCounter,
+            startTime: performance.now(),
+            duration: 3500,
+            onUpdate: (progress: number) => {
+                const rocketT: number = easing.easeOutSin(mapRange(progress, 0, 0.45))
+
+                const [rocketX, rocketY] = fireworkBezierPoint(rocketT, startX, startY, blastX, blastY)
+
+                progressSinceLast += (rocketT - lastT)
+                const numParticlesToSpawn = Math.floor(totalTrailParticles * progressSinceLast)
+
+                for (let i = 0; i < numParticlesToSpawn; i++) {
+                    progressSinceLast -= 1 / totalTrailParticles
+
+                    const t = lastT + (rocketT - lastT) * (i / numParticlesToSpawn)
+                    const [px, py] = fireworkBezierPoint(t, startX, startY, blastX, blastY)
+                    const speed = this.clientHeight! / 100
+                    const angle = rocketAngle - Math.PI
+                        + (Math.sin(t * trailWaveMult) * trailAngleVar)
+
+                    this.fireworkParticleCounter += 1
+                    const particle = {
+                        id: this.fireworkParticleCounter,
+                        x: px,
+                        y: py,
+                        startX: px,
+                        startY: py,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        size: 2,
+                        initialSize: 2,
+                        hue: (colorVariant == 0 || this.fireworkParticleCounter % 2 === 0) ? hue : hue2,
+                        progress: 0,
+                        spawnT: progress,
+                        deathT: progress + 0.1,
+                    }
+                    trailParticles.set(particle.id, particle)
+                    this.fireworkParticles.set(particle.id, particle)
+                }
+
+                rocket.x = rocketX
+                rocket.y = rocketY
+                lastT = rocketT
+
+                for (const particle of trailParticles.values()) {
+                    const t = mapRange(progress, particle.spawnT, particle.deathT)
+                    particle.x = particle.startX + particle.vx * t
+                    particle.y = particle.startY + particle.vy * t
+                    particle.size = particle.initialSize * (1 - t)
+                    particle.progress = t
+                    if (t >= 1) {
+                        trailParticles.delete(particle.id)
+                        this.fireworkParticles.delete(particle.id)
+                    }
+                }
+
+                for (const particle of blastParticles) {
+                    const t = mapRange(progress, 0.45, 1)
+                    const dragT = (1 - Math.pow(airResistance, t * dragExp)) / (1 - airResistance)
+
+                    const horizontalBlast = particle.vx * dragT
+                    particle.x = particle.startX + horizontalBlast
+
+                    const verticalBlast = particle.vy * dragT
+                    const gravityDrop = 0.5 * gravity * Math.pow(t, 2)
+                    particle.y = particle.startY + verticalBlast + gravityDrop
+
+                    const depthBlast = particle.vz * dragT
+                    const depthFactor = 1 + depthBlast * 0.0015
+                    const fadeFactor = 1 - mapRange(t, 0.5, particle.deathT)
+                    particle.size = particle.initialSize * depthFactor * fadeFactor
+                    particle.progress = t
+                }
+            },
+            onComplete: () => {
+                for (const particle of blastParticles) {
+                    this.fireworkParticles.delete(particle.id)
+                }
+                for (const particle of trailParticles.values()) {
+                    this.fireworkParticles.delete(particle.id)
+                }
+            }
+        })
+    }
+
+
     requestRender() {
         if (this.renderRequested || this.isAnimating) {
             return
@@ -1247,8 +1504,8 @@ class ArchipeladokuBoard extends HTMLElement {
 
         this.renderRequested = true
 
-        requestAnimationFrame(() => {
-            this.render()
+        requestAnimationFrame((timestamp: number) => {
+            this.render(timestamp)
             this.renderRequested = false
         })
     }
@@ -1267,13 +1524,13 @@ class ArchipeladokuBoard extends HTMLElement {
     handleAnimationFrame = (timestamp: number) => {
         if (this.animations.size === 0) {
             this.isAnimating = false
-            this.render()
+            this.render(timestamp)
 
             return
         }
 
         this.updateAnimations(timestamp)
-        this.render()
+        this.render(timestamp)
 
         requestAnimationFrame(this.handleAnimationFrame)
     }
@@ -1306,7 +1563,7 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
-    render() {
+    render(timestamp: number) {
         this.renderSprites()
 
         const { ctx, canvas, viewport } = this
@@ -1458,6 +1715,7 @@ class ArchipeladokuBoard extends HTMLElement {
         }
 
         this.renderGridHeaders(ctx, startRow, endRow, startCol, endCol)
+        this.renderFireworks(ctx, timestamp)
 
         ctx.restore()
     }
@@ -2083,6 +2341,57 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    renderFireworks(
+        ctx: CanvasRenderingContext2D,
+        timestamp: number,
+    ) {
+        const dpr = window.devicePixelRatio || 1
+        const fCtx = this.fireworksCtx
+
+        const fadeDiff = timestamp - this.lastFireworkFadeTime
+        const applyFade = fadeDiff >= 20
+
+        if (applyFade) {
+            this.lastFireworkFadeTime = timestamp - (fadeDiff % 20)
+            this.fireworkFadeCounter += 1
+            const alpha = this.fireworkFadeCounter % 50 == 0 ? 0.5 : 0.3
+            fCtx.globalCompositeOperation = 'destination-out'
+            fCtx.fillStyle = `hsl(0 0 0 / ${alpha})`
+            fCtx.fillRect(0, 0, this.fireworksCanvas.width, this.fireworksCanvas.height)
+        }
+
+        fCtx.globalCompositeOperation = this.colorScheme === 'dark' ? 'lighter' : 'source-over'
+
+        for (const particle of this.fireworkParticles.values()) {
+            if (particle.progress == 0) {
+                continue
+            }
+            const baseLightness = this.colorScheme === 'dark' ? 65 : 55
+            const lightness = baseLightness - (particle.progress * 20)
+            fCtx.fillStyle = `hsl(${particle.hue} 100 ${lightness})`
+            fCtx.fillRect(particle.x, particle.y, particle.size, particle.size / dpr)
+        }
+
+        const viewportX = -this.viewport.x / this.viewport.scale - this.cellGap
+        const viewportY = -this.viewport.y / this.viewport.scale - this.cellGap
+
+        ctx.save()
+        ctx.globalCompositeOperation = this.colorScheme === 'dark' ? 'lighter' : 'source-over'
+        ctx.drawImage(
+            this.fireworksCanvas,
+            0,
+            0,
+            this.fireworksCanvas.width,
+            this.fireworksCanvas.height,
+            viewportX,
+            viewportY,
+            this.canvas.width / this.viewport.scale / dpr,
+            this.canvas.height / this.viewport.scale / dpr,
+        )
+        ctx.restore()
+    }
+
+
     renderGridHeaders(
         ctx: CanvasRenderingContext2D,
         startRow: number,
@@ -2158,17 +2467,18 @@ class ArchipeladokuBoard extends HTMLElement {
 
     renderSprites() {
         this.spriteScale = Math.max(Math.round(this.viewport.scale * 4) / 4, 0.25)
+        const dpr = window.devicePixelRatio || 1
 
-        if (this.renderedSpriteScale === this.spriteScale) {
+        if (this.renderedSpriteScale === this.spriteScale && this.renderedDpr === dpr) {
             return
         }
         this.renderedSpriteScale = this.spriteScale
+        this.renderedDpr = dpr
 
         const ctx = this.spriteCtx
         const canvas = this.spriteCanvas
 
         const cellSize = this.cellSize * this.spriteScale
-        const dpr = window.devicePixelRatio || 1
         const columns = Math.max(this.blockSize, 9)
         const rows = 15
 

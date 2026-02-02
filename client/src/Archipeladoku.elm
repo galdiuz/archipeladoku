@@ -93,6 +93,7 @@ type alias Model =
     , emojiTrapTriggers : Int
     , emojiTrapVariant : EmojiTrapVariant
     , errors : Dict ( Int, Int ) CellError
+    , fireworksTimer : Int
     , generationProgress : ( String, Float )
     , gameIsLocal : Bool
     , gameState : GameState
@@ -254,6 +255,7 @@ type Msg
     | ToggleHighlightModePressed
     | TriggerDiscoTrapPressed
     | TriggerEmojiTrapPressed
+    | TriggerFireworksPressed
     | TriggerTunnelVisionTrapPressed
     | TunnelVisionTrapRatioChanged Int
     | TunnelVisionTrapRatioInputBlurred
@@ -314,6 +316,7 @@ init flagsValue =
       , emojiTrapTriggers = 0
       , emojiTrapVariant = EmojiTrapRandom
       , errors = Dict.empty
+      , fireworksTimer = 0
       , generationProgress = ( "Initializing", 0 )
       , gameIsLocal = False
       , gameState = MainMenu
@@ -406,7 +409,7 @@ subscriptions model =
         , receiveMessage GotMessage
         , receiveOnlineGameSave GotOnlineGameSave
         , receiveSlotData GotSlotData
-        , if model.discoTrapTimer > 0 || model.emojiTrapTimer > 0 || model.tunnelVisionTrapTimer > 0 then
+        , if List.any ((<) 0) (timers model) then
             Time.every 1000 (\_ -> SecondPassed)
 
           else
@@ -455,6 +458,7 @@ update msg model =
             ( { model
                 | discoTrapTimer = 0
                 , emojiTrapTimer = 0
+                , fireworksTimer = 0
                 , tunnelVisionTrapTimer = 0
               }
             , Cmd.none
@@ -1391,6 +1395,12 @@ update msg model =
 
                     else
                         0
+                , fireworksTimer =
+                    if model.fireworksTimer > 0 then
+                        model.fireworksTimer - 1
+
+                    else
+                        0
                 , tunnelVisionTrapTimer =
                     if model.tunnelVisionTrapTimer > 0 then
                         model.tunnelVisionTrapTimer - 1
@@ -1823,6 +1833,11 @@ update msg model =
             , Cmd.none
             )
                 |> andThen triggerEmojiTrap
+
+        TriggerFireworksPressed ->
+            ( { model | fireworksTimer = trapDuration }
+            , Cmd.none
+            )
 
         TriggerTunnelVisionTrapPressed ->
             ( model
@@ -2739,6 +2754,7 @@ encodeData model =
         , ( "colorScheme", Encode.string model.colorScheme )
         , ( "discoTrap", Encode.bool (model.discoTrapTimer > 0) )
         , ( "tunnelVisionTrap", Encode.bool (model.tunnelVisionTrapTimer > 0) )
+        , ( "fireworks", Encode.bool (model.fireworksTimer > 0) )
         ]
 
 
@@ -3644,7 +3660,7 @@ updateStateScoutLocations model =
 updateStateGoal : Model -> ( Model, Cmd Msg )
 updateStateGoal model =
     if List.all (cellIsSolved model) (Dict.keys model.solution) then
-        ( model
+        ( { model | fireworksTimer = 60 }
         , if model.gameIsLocal then
             Cmd.none
 
@@ -4834,6 +4850,15 @@ itemClassification item =
 
         NothingItem ->
             Filler
+
+
+timers : Model -> List Int
+timers model =
+    [ model.discoTrapTimer
+    , model.emojiTrapTimer
+    , model.fireworksTimer
+    , model.tunnelVisionTrapTimer
+    ]
 
 
 trapDuration : Int
@@ -6660,7 +6685,7 @@ viewZoomControls =
 
 viewTrapTimers : Model -> Html Msg
 viewTrapTimers model =
-    if model.discoTrapTimer == 0 && model.emojiTrapTimer == 0 && model.tunnelVisionTrapTimer == 0 then
+    if List.all ((==) 0) (timers model) then
         Html.text ""
 
     else
@@ -6668,8 +6693,8 @@ viewTrapTimers model =
             [ HA.class "trap-timer-panel"
             ]
             (List.map
-                (\trap ->
-                    if trap.timeLeft == 0 then
+                (\timer ->
+                    if timer.timeLeft == 0 then
                         Html.text ""
 
                     else
@@ -6678,9 +6703,9 @@ viewTrapTimers model =
                             ]
                             [ Html.text
                                 (String.concat
-                                    [ trap.label
+                                    [ timer.label
                                     , ": "
-                                    , String.fromInt trap.timeLeft
+                                    , String.fromInt timer.timeLeft
                                     , "s"
                                     ]
                                 )
@@ -6690,7 +6715,7 @@ viewTrapTimers model =
                                     [ HA.class "trap-timer-fill"
                                     , HA.style "width"
                                         (String.fromInt
-                                            (trap.timeLeft * 100 // trapDuration)
+                                            (timer.timeLeft * 100 // trapDuration)
                                             ++ "%"
                                         )
                                     ]
@@ -6706,6 +6731,9 @@ viewTrapTimers model =
                   }
                 , { label = "Tunnel vision trap"
                   , timeLeft = model.tunnelVisionTrapTimer
+                  }
+                , { label = "Fireworks"
+                  , timeLeft = model.fireworksTimer
                   }
                 ]
             )
@@ -7207,6 +7235,11 @@ viewInfoPanelDebug model =
                 , HE.onClick SolveSingleCandidatesPressed
                 ]
                 [ Html.text "Solve single-candidate cells in board" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick TriggerFireworksPressed
+                ]
+                [ Html.text "Trigger Fireworks" ]
             , Html.button
                 [ HA.class "button"
                 , HE.onClick TriggerDiscoTrapPressed

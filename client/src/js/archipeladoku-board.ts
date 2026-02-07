@@ -12,6 +12,7 @@ interface BoardData {
     tunnelVisionTrap: boolean
     fireworks: boolean
     animationsEnabled: boolean
+    candidateLayout: number
 }
 
 
@@ -553,6 +554,7 @@ class ArchipeladokuBoard extends HTMLElement {
     fireworks: boolean = false
     lastFireworkFadeTime: number = 0
     animationsEnabled: boolean = true
+    candidateLayout: number = 0
 
 
     constructor() {
@@ -646,11 +648,18 @@ class ArchipeladokuBoard extends HTMLElement {
         this.blockRows = blockRows
         this.blockCols = blockCols
 
+        if (value.candidateLayout !== this.candidateLayout) {
+            this.candidateLayout = value.candidateLayout
+            this.renderedSpriteScale = 0
+        }
+
         for (let i = 1; i <= this.blockSize; i++) {
             const size = this.cellSize
             const subX = size / blockCols * ((i - 1) % blockCols)
             const subYOffset = blockRows !== blockCols ? size / (blockRows * blockCols * 2) : 0
-            const subY = (size / blockRows) * Math.floor((i - 1) / blockCols) + subYOffset
+            const subY = value.candidateLayout === 0
+                ? ((size / blockRows) * Math.floor((i - 1) / blockCols) + subYOffset)
+                : ((size / blockRows) * (blockRows - 1 - Math.floor((i - 1) / blockCols)) + subYOffset)
             this.candidateSubXMap.set(i, subX)
             this.candidateSubYMap.set(i, subY)
             this.candidateSubSize = size / blockCols
@@ -2655,7 +2664,9 @@ class ArchipeladokuBoard extends HTMLElement {
         const rows = this.blockRows
         const columns = this.blockCols
         const subX = x + size / (columns * 2) + (size / columns) * ((value - 1) % columns)
-        const subY = y + size / (rows * 2) + (size / rows) * Math.floor((value - 1) / columns)
+        const subY = this.candidateLayout === 0
+            ? (y + size / (rows * 2) + (size / rows) * Math.floor((value - 1) / columns))
+            : (y + size - (size / (rows * 2)) - (size / rows) * Math.floor((value - 1) / columns))
 
         ctx.save()
         ctx.shadowColor = colors.cellBg[this.colorScheme]

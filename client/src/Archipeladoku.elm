@@ -68,6 +68,7 @@ type alias Model =
     , blockSize : Int
     , boardData : Encode.Value
     , boardsPerCluster : Int
+    , candidateLayout : Int
     , candidateMode : Bool
     , cellBlocks : Dict ( Int, Int ) (List Area)
     , cellBoards : Dict ( Int, Int ) (List Area)
@@ -170,6 +171,7 @@ type Msg
     | BlockSizeChanged Int
     | BoardsPerClusterChanged Int
     | CancelTrapsPressed
+    | CandidateLayoutChanged String
     | CandidateModeChanged Bool
     | CellSelected ( Int, Int )
     | ClearBoardPressed
@@ -291,6 +293,7 @@ init flagsValue =
       , blockSize = 9
       , boardData = Encode.null
       , boardsPerCluster = 5
+      , candidateLayout = 0
       , candidateMode = False
       , cellBlocks = Dict.empty
       , cellBoards = Dict.empty
@@ -462,6 +465,17 @@ update msg model =
                 , tunnelVisionTrapTimer = 0
               }
             , Cmd.none
+            )
+                |> andThen updateBoardData
+
+        CandidateLayoutChanged stringValue ->
+            let
+                value : Int
+                value =
+                    candidateLayoutFromString stringValue
+            in
+            ( { model | candidateLayout = value }
+            , setLocalStorage ( "apdk-candidate-layout", String.fromInt value )
             )
                 |> andThen updateBoardData
 
@@ -2757,6 +2771,7 @@ encodeData model =
         , ( "tunnelVisionTrap", Encode.bool (model.tunnelVisionTrapTimer > 0) )
         , ( "fireworks", Encode.bool (model.fireworksTimer > 0) )
         , ( "animationsEnabled", Encode.bool model.animationsEnabled )
+        , ( "candidateLayout", Encode.int model.candidateLayout )
         ]
 
 
@@ -3275,6 +3290,13 @@ updateFromLocalStorageValue key value model =
 
         "apdk-auto-remove-invalid-candidates" ->
             ( { model | autoRemoveInvalidCandidates = value == "1" }
+            , Cmd.none
+            )
+
+        "apdk-candidate-layout" ->
+            ( { model
+                | candidateLayout = candidateLayoutFromString value
+              }
             , Cmd.none
             )
 
@@ -5031,6 +5053,19 @@ triggerTunnelVisionTrap model =
     , Cmd.none
     )
         |> andThen updateBoardData
+
+
+candidateLayoutFromString : String -> Int
+candidateLayoutFromString str =
+    case str of
+        "0" ->
+            0
+
+        "1" ->
+            1
+
+        _ ->
+            0
 
 
 monthToString : Time.Month -> String
@@ -7164,6 +7199,24 @@ viewInfoPanelSettings model =
                         , HA.selected (model.colorScheme == "dark")
                         ]
                         [ Html.text "Dark" ]
+                    ]
+                ]
+            , Html.label
+                [ HA.class "row gap-s" ]
+                [ Html.text "Candidate layout:"
+                , Html.select
+                    [ HE.onInput CandidateLayoutChanged
+                    ]
+                    [ Html.option
+                        [ HA.value "0"
+                        , HA.selected (model.candidateLayout == 0)
+                        ]
+                        [ Html.text "Standard (top-to-bottom)" ]
+                    , Html.option
+                        [ HA.value "1"
+                        , HA.selected (model.candidateLayout == 1)
+                        ]
+                        [ Html.text "Numpad (bottom-to-top)" ]
                     ]
                 ]
             , Html.label

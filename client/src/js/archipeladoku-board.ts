@@ -11,6 +11,7 @@ interface BoardData {
     discoTrap: boolean
     tunnelVisionTrap: boolean
     fireworks: boolean
+    animationsEnabled: boolean
 }
 
 
@@ -551,6 +552,7 @@ class ArchipeladokuBoard extends HTMLElement {
     fireworkParticles: Map<number, FireworkParticle> = new Map()
     fireworks: boolean = false
     lastFireworkFadeTime: number = 0
+    animationsEnabled: boolean = true
 
 
     constructor() {
@@ -705,7 +707,22 @@ class ArchipeladokuBoard extends HTMLElement {
             this.renderedSpriteScale = 0
         }
 
-        if (!this.discoTrap && value.discoTrap && this.clientWidth) {
+        if (!value.animationsEnabled && this.animationsEnabled) {
+            this.animations.clear()
+            this.cellShineEffects.clear()
+            this.cellShatterEffects.clear()
+            this.discoTrapSpotlights = []
+            this.tunnelVisionTrapRadius = 0
+            this.tunnelVisionTrapOpacity = 0
+            this.fireworkParticles.clear()
+            this.fireworks = false
+            this.discoTrap = false
+            this.tunnelVisionTrap = false
+            this.fireworksCtx.clearRect(0, 0, this.fireworksCanvas.width, this.fireworksCanvas.height)
+        }
+        this.animationsEnabled = value.animationsEnabled
+
+        if (!this.discoTrap && value.discoTrap && this.clientWidth && this.animationsEnabled) {
             this.discoTrap = true
             this.startDiscoTrapAnimation()
         } else if (this.discoTrap && !value.discoTrap) {
@@ -713,7 +730,7 @@ class ArchipeladokuBoard extends HTMLElement {
             this.stopDiscoTrapAnimation()
         }
 
-        if (!this.tunnelVisionTrap && value.tunnelVisionTrap) {
+        if (!this.tunnelVisionTrap && value.tunnelVisionTrap && this.animationsEnabled) {
             this.tunnelVisionTrap = true
             this.startTunnelVisionTrapAnimation()
         } else if (this.tunnelVisionTrap && !value.tunnelVisionTrap) {
@@ -721,7 +738,7 @@ class ArchipeladokuBoard extends HTMLElement {
             this.stopTunnelVisionTrapAnimation()
         }
 
-        if (!this.fireworks && value.fireworks) {
+        if (!this.fireworks && value.fireworks && this.animationsEnabled) {
             this.fireworks = true
             this.startFireworksTimer()
         } else if (this.fireworks && !value.fireworks) {
@@ -1512,6 +1529,10 @@ class ArchipeladokuBoard extends HTMLElement {
 
 
     addAnimation(animation: GameAnimation) {
+        if (!this.animationsEnabled) {
+            return
+        }
+
         this.animations.set(animation.id, animation)
 
         if (!this.isAnimating) {

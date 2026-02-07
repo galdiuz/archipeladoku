@@ -663,6 +663,7 @@ update msg model =
             ( { model | animationsEnabled = value }
             , setLocalStorage ( "apdk-animations-enabled", if value then "1" else "0" )
             )
+                |> andThen updateBoardData
 
         FillBoardCandidatesPressed ->
             let
@@ -2755,6 +2756,7 @@ encodeData model =
         , ( "discoTrap", Encode.bool (model.discoTrapTimer > 0) )
         , ( "tunnelVisionTrap", Encode.bool (model.tunnelVisionTrapTimer > 0) )
         , ( "fireworks", Encode.bool (model.fireworksTimer > 0) )
+        , ( "animationsEnabled", Encode.bool model.animationsEnabled )
         ]
 
 

@@ -718,7 +718,9 @@ class ArchipeladokuBoard extends HTMLElement {
             this.fireworks = false
             this.discoTrap = false
             this.tunnelVisionTrap = false
-            this.fireworksCtx.clearRect(0, 0, this.fireworksCanvas.width, this.fireworksCanvas.height)
+            if (this.fireworksCanvas.width && this.fireworksCanvas.height) {
+                this.fireworksCtx.clearRect(0, 0, this.fireworksCanvas.width, this.fireworksCanvas.height)
+            }
         }
         this.animationsEnabled = value.animationsEnabled
 
@@ -2366,6 +2368,10 @@ class ArchipeladokuBoard extends HTMLElement {
         ctx: CanvasRenderingContext2D,
         timestamp: number,
     ) {
+        if (!this.canvas.width || !this.canvas.height) {
+            return
+        }
+
         const dpr = window.devicePixelRatio || 1
         const fCtx = this.fireworksCtx
 

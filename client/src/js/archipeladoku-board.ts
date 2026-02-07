@@ -1507,7 +1507,7 @@ class ArchipeladokuBoard extends HTMLElement {
                     particle.y = particle.startY + verticalBlast + gravityDrop
 
                     const depthBlast = particle.vz * dragT
-                    const depthFactor = 1 + depthBlast * 0.0015
+                    const depthFactor = 1 + depthBlast * 0.003
                     const fadeFactor = 1 - mapRange(t, 0.5, particle.deathT)
                     particle.size = particle.initialSize * depthFactor * fadeFactor
                     particle.progress = t

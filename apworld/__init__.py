@@ -199,15 +199,17 @@ class ArchipeladokuWorld(World):
         match self.options.progression:
             case options.Progression.option_fixed:
                 last_cluster_requirement = max(cluster_unlock_requirements.values())
-                victory_location.access_rule = lambda state: \
+                victory_location.access_rule = lambda state, last_cluster_requirement=last_cluster_requirement: \
                     state.has("Progressive Block", self.player, last_cluster_requirement)
 
             case options.Progression.option_shuffled:
-                victory_location.access_rule = lambda state: \
-                    state.has_all(
-                        [utils.block_item_name(row, col) for (row, col) in self.block_unlock_order[initial_unlock_count:] if row > 0],
-                        self.player,
-                    )
+                all_blocks = [
+                    utils.block_item_name(row, col)
+                    for (row, col) in self.block_unlock_order[initial_unlock_count:]
+                    if row > 0
+                ]
+                victory_location.access_rule = lambda state, all_blocks=all_blocks: \
+                    state.has_all(all_blocks, self.player)
 
             case _:
                 raise ValueError("Invalid progression option")

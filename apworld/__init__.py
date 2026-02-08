@@ -17,6 +17,8 @@ class ArchipeladokuWorld(World):
 
     item_name_to_id = utils.item_name_to_id
     location_name_to_id = utils.location_name_to_id
+    item_name_groups = utils.item_name_groups
+    location_name_groups = utils.location_name_groups
 
     block_unlock_order: list[tuple[int, int]]
     clusters: dict[int, Cluster]
@@ -34,7 +36,15 @@ class ArchipeladokuWorld(World):
         self.filler_counts = {}
         self.pre_fill_items = []
         self.target_pre_fill_nothing_count = 0
+        self.item_name_groups = self.__class__.item_name_groups.copy()
+        self.location_name_groups = self.__class__.location_name_groups.copy()
 
+        # To be filled in generate_early based on options
+        self.item_name_groups["Blocks"] = set()
+        self.location_name_groups["Boards"] = set()
+        self.location_name_groups["Rows"] = set()
+        self.location_name_groups["Columns"] = set()
+        self.location_name_groups["Blocks"] = set()
 
     def generate_early(self):
 
@@ -81,6 +91,41 @@ class ArchipeladokuWorld(World):
 
         if pre_fill_nothings > 0 and self.multiworld.players > 1:
             self.target_pre_fill_nothing_count = pre_fill_nothings
+
+        for ( row, col ) in self.block_unlock_order[initial_unlock_count:]:
+            match self.options.progression:
+                case options.Progression.option_fixed:
+                    self.item_name_groups["Blocks"].add("Progressive Block")
+                    break
+
+                case options.Progression.option_shuffled:
+                    self.item_name_groups["Blocks"].add(utils.block_item_name(row, col))
+
+                case _:
+                    raise ValueError("Invalid progression option")
+
+        for cluster in self.clusters.values():
+            for (row, col) in cluster.blocks:
+                self.location_name_groups["Blocks"].add(utils.block_name(row, col))
+
+            for (row, col) in cluster.positions:
+                self.location_name_groups["Boards"].add(utils.board_name(row, col))
+
+                for offset in range(self.options.block_size.value):
+                    self.location_name_groups["Rows"].add(utils.row_name(row + offset, col))
+                    self.location_name_groups["Columns"].add(utils.col_name(row, col + offset))
+
+        unused_blocks = self.__class__.item_name_groups["Blocks"] - self.item_name_groups["Blocks"]
+        if unused_blocks:
+            self.options.local_items.value -= unused_blocks
+            self.options.non_local_items.value -= unused_blocks
+
+        locations_groups = ["Boards", "Rows", "Columns", "Blocks"]
+        for group in locations_groups:
+            unused = self.__class__.location_name_groups[group] - self.location_name_groups[group]
+            if unused:
+                self.options.priority_locations.value -= unused
+                self.options.exclude_locations.value -= unused
 
 
     def create_regions(self) -> None:

@@ -145,6 +145,7 @@ interface ClusterGenerationState {
     allClusters: Cell[][]
     blockSize: number
     blockUnlockOrder: number[]
+    cellAreaIndicesMap: CellIndex[][][]
     cellBlockIndicesMap: CellIndex[][][]
     cellColIndicesMap: CellIndex[][][]
     cellRowIndicesMap: CellIndex[][][]
@@ -247,6 +248,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             blockSize: args.blockSize,
             unlockMap: unlockMap,
             blockUnlockOrder: blockUnlockOrder,
+            cellAreaIndicesMap: cellAreaIndicesMap,
             cellBlockIndicesMap: cellBlockIndicesMap,
             cellColIndicesMap: cellColIndicesMap,
             cellRowIndicesMap: cellRowIndicesMap,
@@ -937,7 +939,7 @@ function propagateSolution(
     possibilitiesMap: PossibilitiesMap,
     solution: Int32Array,
     peerMap: PeerMap,
-    cellIndex: CellIndex
+    cellIndex: CellIndex,
 ): void {
     const number = solution[cellIndex]!
 
@@ -959,9 +961,13 @@ function propagatePossibilities(
     peers: number[],
     number: number,
     possibilitiesMap: PossibilitiesMap,
+    cellIndex?: CellIndex,
+    solution?: Int32Array,
+    cellAreaIndicesMap?: CellIndex[][][],
 ): number[] | null {
     const changes: number[] = []
-    const removeMask = ~(1 << (number - 1))
+    const bitMask = 1 << (number - 1)
+    const removeMask = ~bitMask
 
     for (const peerIndex of peers) {
         const oldVal = possibilitiesMap[peerIndex]!
@@ -977,6 +983,34 @@ function propagatePossibilities(
 
             possibilitiesMap[peerIndex] = newVal
             changes.push(peerIndex)
+
+            if (cellIndex === undefined || solution === undefined || cellAreaIndicesMap === undefined) {
+                continue
+            }
+
+            for (const areaIndices of cellAreaIndicesMap[peerIndex]!) {
+                let possibleSpots = 0
+
+                for (const areaIndex of areaIndices) {
+                    if (solution[areaIndex]! === 0 || areaIndex === cellIndex) {
+                        possibleSpots = -1
+
+                        break
+                    }
+
+                    if (solution[areaIndex]! === 0
+                        && (possibilitiesMap[areaIndex]! & bitMask) !== 0
+                    ) {
+                        possibleSpots++
+                    }
+                }
+
+                if (possibleSpots === 0) {
+                    revertPossibilities(changes, number, possibilitiesMap)
+
+                    return null
+                }
+            }
         }
     }
 
@@ -1044,7 +1078,10 @@ function solveWithBacktracking(
         const changes: number[] | null = propagatePossibilities(
             state.peerMap[bestCell]!,
             number,
-            possibilitiesMap
+            possibilitiesMap,
+            bestCell,
+            solution,
+            state.cellAreaIndicesMap
         )
 
         if (changes === null) {
@@ -1924,6 +1961,7 @@ function getCellIndex(row: number, col: number): CellIndex {
 
 
 function getMaxNumberOfBoards(blockSize: number, boardsPerCluster: number): number {
+    return 100
     switch (blockSize) {
         case 4:
             return 100

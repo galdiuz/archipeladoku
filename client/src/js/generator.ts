@@ -168,6 +168,18 @@ interface SolutionHistory {
 }
 
 
+const bitCountsLookup = new Uint8Array(1 << 16)
+for (let i = 0; i < bitCountsLookup.length; i++) {
+    let count = 0
+    let n = i
+    while (n) {
+        n &= n - 1
+        count++
+    }
+    bitCountsLookup[i] = count
+}
+
+
 const maxWidth: number = 180 // Enough to cover all supported configurations
 const totalArraySize: number = maxWidth * maxWidth
 
@@ -825,6 +837,7 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
             const currentSolution = new Int32Array(boardState.state.solution)
 
             try {
+                console.log(boardState.state.remainingClusters.length, 'clusters remaining')
                 placeNumbersInCluster(cluster, boardState.state)
 
                 boardState.state.solutionHistory.push({
@@ -1054,14 +1067,16 @@ function solveWithBacktracking(
     state: ClusterGenerationState
 ): boolean {
     const candidateCells: CellIndex[] = []
+    const emptyCellLookup: Uint8Array = new Uint8Array(totalArraySize)
 
     for (const cellIndex of clusterCellIndices) {
         if (solution[cellIndex]! === 0) {
             candidateCells.push(cellIndex)
+            emptyCellLookup[cellIndex] = 1
         }
     }
 
-    const bestCell: CellIndex | null = findBestCell(candidateCells, possibilitiesMap)
+    const bestCell: CellIndex | null = findBestCell(candidateCells, possibilitiesMap, state.peerMap, emptyCellLookup)
 
     if (bestCell === null) {
         return true
@@ -1104,9 +1119,15 @@ function solveWithBacktracking(
 }
 
 
-function findBestCell(candidateCells: CellIndex[], possibilitiesMap: PossibilitiesMap): CellIndex | null {
+function findBestCell(
+    candidateCells: CellIndex[],
+    possibilitiesMap: PossibilitiesMap,
+    peerMap: PeerMap,
+    emptyCellLookup: Uint8Array
+): CellIndex | null {
     let bestCell: CellIndex | null = null
     let bestCount: number = Infinity
+    let bestPeers: number = -1
 
     for (const cellIndex of candidateCells) {
         const possibilities = possibilitiesMap[cellIndex]!
@@ -1115,10 +1136,30 @@ function findBestCell(candidateCells: CellIndex[], possibilitiesMap: Possibiliti
         if (count < bestCount) {
             bestCount = count
             bestCell = cellIndex
+            bestPeers = countEmptyPeers(peerMap[cellIndex]!, emptyCellLookup)
+        } else if (count === bestCount) {
+            const peerCount = countEmptyPeers(peerMap[cellIndex]!, emptyCellLookup)
+            if (peerCount > bestPeers) {
+                bestCell = cellIndex
+                bestPeers = peerCount
+            }
         }
     }
 
     return bestCell
+}
+
+
+function countEmptyPeers(peers: CellIndex[], emptyCellLookup: Uint8Array): number {
+    let count = 0
+
+    for (const peerIndex of peers) {
+        if (emptyCellLookup[peerIndex]) {
+            count++
+        }
+    }
+
+    return count
 }
 
 
@@ -1192,6 +1233,7 @@ function removeGivenNumbersLogical(
     indicesToRemove: number[],
 ): void {
     const solutionBuffer: Int32Array = new Int32Array(totalArraySize)
+    const emptyCellLookup: Uint8Array = new Uint8Array(totalArraySize)
 
     const clusterAreasList: PuzzleAreas[] = []
     for (const [row, col] of cluster) {
@@ -1244,7 +1286,7 @@ function removeGivenNumbersLogical(
             }
         }
 
-        const restoreIndex = findBestCell(emptyIndices, possibilitiesMap)!
+        const restoreIndex = findBestCell(emptyIndices, possibilitiesMap, state.peerMap, emptyCellLookup)!
         state.givens[restoreIndex] = state.solution[restoreIndex]!
         indicesToRemove.push(restoreIndex)
     }
@@ -1914,12 +1956,7 @@ function encodeArea(area: Area): [number, number, number, number] {
 
 
 function countSetBits(n: number): number {
-    let count = 0
-    while (n) {
-        count += n & 1
-        n >>= 1
-    }
-    return count
+    return bitCountsLookup[n]!
 }
 
 

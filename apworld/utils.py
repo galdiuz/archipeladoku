@@ -57,11 +57,12 @@ def get_max_number_of_boards(block_size: int) -> int:
 
 def get_total_filler_count(block_size: int, number_of_boards: int) -> int:
     """Calculate the total number of filler items needed, without considering duplicate progresssion."""
+    boards = get_number_of_boards(block_size, number_of_boards)
 
     return sum([
         block_size, # Initial blocks
-        number_of_boards, # One per board
-        number_of_boards * block_size * 2, # One per row and column
+        boards, # One per board
+        boards * block_size * 2, # One per row and column
     ])
 
 

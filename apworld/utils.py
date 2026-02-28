@@ -440,7 +440,7 @@ location_name_groups = {
     "Columns": set(),
     "Boards": set(),
 }
-max_width = 150
+max_width = 170
 for row in range(1, max_width):
     for col in range(1, max_width):
         item_name_to_id[block_item_name(row, col)] = block_id(row, col)

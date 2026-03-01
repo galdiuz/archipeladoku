@@ -1,4 +1,6 @@
+import json
 import math
+import os
 import random
 from dataclasses import dataclass
 from collections import defaultdict
@@ -430,8 +432,8 @@ item_name_groups = {
 }
 location_name_to_id = {
     # 1xxxyyy: Solve Block Locations, row xxx, col yyy, added below
-    # 1xxxyyy: Solve Row Locations, row xxx, col yyy, added below
-    # 1xxxyyy: Solve Column Locations, row xxx, col yyy, added below
+    # 2xxxyyy: Solve Row Locations, row xxx, col yyy, added below
+    # 3xxxyyy: Solve Column Locations, row xxx, col yyy, added below
     # 4xxxyyy: Solve Board Locations, row xxx, col yyy, added below
 }
 location_name_groups = {
@@ -440,16 +442,28 @@ location_name_groups = {
     "Columns": set(),
     "Boards": set(),
 }
+
+valid_locations = set()
+with open(os.path.join(os.path.dirname(__file__), "locations.json"), "r") as f:
+    valid_locations = set(json.load(f))
+
 max_width = 170
-for row in range(1, max_width):
-    for col in range(1, max_width):
-        item_name_to_id[block_item_name(row, col)] = block_id(row, col)
-        item_name_groups["Blocks"].add(block_item_name(row, col))
-        location_name_to_id[block_name(row, col)] = block_id(row, col)
-        location_name_to_id[row_name(row, col)] = row_id(row, col)
-        location_name_to_id[col_name(row, col)] = col_id(row, col)
-        location_name_to_id[board_name(row, col)] = board_id(row, col)
-        location_name_groups["Blocks"].add(block_name(row, col))
-        location_name_groups["Rows"].add(row_name(row, col))
-        location_name_groups["Columns"].add(col_name(row, col))
-        location_name_groups["Boards"].add(board_name(row, col))
+for row in range(1, max_width + 1):
+    for col in range(1, max_width + 1):
+        if block_id(row, col) in valid_locations:
+            item_name_to_id[block_item_name(row, col)] = block_id(row, col)
+            item_name_groups["Blocks"].add(block_item_name(row, col))
+            location_name_to_id[block_name(row, col)] = block_id(row, col)
+            location_name_groups["Blocks"].add(block_name(row, col))
+
+        if row_id(row, col) in valid_locations:
+            location_name_to_id[row_name(row, col)] = row_id(row, col)
+            location_name_groups["Rows"].add(row_name(row, col))
+
+        if col_id(row, col) in valid_locations:
+            location_name_to_id[col_name(row, col)] = col_id(row, col)
+            location_name_groups["Columns"].add(col_name(row, col))
+
+        if board_id(row, col) in valid_locations:
+            location_name_to_id[board_name(row, col)] = board_id(row, col)
+            location_name_groups["Boards"].add(board_name(row, col))

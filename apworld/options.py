@@ -14,21 +14,18 @@ class BlockSize(Choice):
     default = 9
 
 
-class BoardsPerCluster(NamedRange):
+class BoardsPerCluster(Choice):
     """How many boards to put in each cluster of overlapping boards.
-    Recommended values are 1 (no grouping), 5, 8, 13, or 100 (group all).
+    1 creates individual boards without clusters, 100 puts all boards into a
+    single big cluster.
     """
     display_name = "Boards per Cluster"
-    range_start = 1
-    range_end = 100
+    option_1 = 1
+    option_5 = 5
+    option_8 = 8
+    option_13 = 13
+    option_100 = 100
     default = 5
-    special_range_names = {
-        "no_grouping": 1,
-        "square_of_5": 5,
-        "square_of_8": 8,
-        "square_of_13": 13,
-        "group_all": 100,
-    }
 
 
 class NumberOfBoards(Range):

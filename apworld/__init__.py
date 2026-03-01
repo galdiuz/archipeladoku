@@ -46,6 +46,7 @@ class ArchipeladokuWorld(World):
         self.location_name_groups["Columns"] = set()
         self.location_name_groups["Blocks"] = set()
 
+
     def generate_early(self):
 
         board_positions = utils.position_boards(

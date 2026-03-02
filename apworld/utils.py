@@ -1,7 +1,6 @@
-import json
 import math
-import os
 import random
+import importlib.resources
 from dataclasses import dataclass
 from collections import defaultdict
 
@@ -443,9 +442,11 @@ location_name_groups = {
     "Boards": set(),
 }
 
-valid_locations = set()
-with open(os.path.join(os.path.dirname(__file__), "locations.json"), "r") as f:
-    valid_locations = set(json.load(f))
+locations_path = importlib.resources.files(__package__).joinpath("locations.txt")
+valid_locations = {
+    int(line) for line in locations_path.read_text(encoding="utf-8").splitlines()
+    if line.strip()
+}
 
 max_width = 170
 for row in range(1, max_width + 1):

@@ -150,6 +150,7 @@ interface ClusterGenerationState {
     cellRowIndicesMap: CellIndex[][][]
     cellIndicesToRemoveGivensFrom: Set<CellIndex>
     difficulty: number
+    firstClusterRetries: number
     givens: Int32Array
     puzzleAreas: PuzzleAreas
     peerMap: PeerMap
@@ -167,8 +168,19 @@ interface SolutionHistory {
 }
 
 
+interface PropagationChanges {
+    possibilities: [CellIndex, number][]
+    solution: CellIndex[]
+}
+
+
+class BacktrackLimitError extends Error {}
+
+
 const maxWidth: number = 180 // Enough to cover all supported configurations
 const totalArraySize: number = maxWidth * maxWidth
+const backtrackLimit = 5000
+const maxFirstClusterRetries = 10
 
 const solveRandomCellId = 1
 const removeRandomCandidateId = 2
@@ -255,6 +267,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             givens: new Int32Array(totalArraySize),
             puzzleAreas: puzzleAreas,
             peerMap: peerMap,
+            firstClusterRetries: 0,
             rng: rng,
             remainingClusters: clusters.slice(),
             solution: new Int32Array(totalArraySize),
@@ -832,6 +845,18 @@ export function generate(boardState: BoardGenerationState): BoardGenerationState
 
             } catch (e) {
                 if (boardState.state.solutionHistory.length == 0) {
+                    if (e instanceof BacktrackLimitError
+                        && boardState.state.firstClusterRetries < maxFirstClusterRetries
+                    ) {
+                        boardState.state.firstClusterRetries++
+                        boardState.state.remainingClusters.unshift(cluster)
+
+                        return {
+                            type: 'PlacingNumbers',
+                            state: boardState.state,
+                        }
+                    }
+
                     return {
                         type: 'Failed',
                         reason: e instanceof Error ? e.message : 'Unknown error',
@@ -905,9 +930,30 @@ function placeNumbersInCluster(cluster: Cell[], state: ClusterGenerationState): 
 
     const clusterCellIndices: Set<CellIndex> = getClusterCellIndices(state.blockSize, cluster)
 
-    const result: boolean = solveWithBacktracking(state.solution, possibilitiesMap, clusterCellIndices, state)
+    const clusterAreasList: PuzzleAreas[] = []
+    for (const [startRow, startCol] of cluster) {
+        clusterAreasList.push(buildPuzzleAreasForBoard(state.blockSize, startRow, startCol))
+    }
+    const clusterPuzzleAreas: PuzzleAreas = joinPuzzleAreas(clusterAreasList)
+    const clusterAreaIndices: CellIndex[][] = []
+    for (const area of [...clusterPuzzleAreas.blocks, ...clusterPuzzleAreas.rows, ...clusterPuzzleAreas.cols]) {
+        clusterAreaIndices.push(getCellIndicesInArea(area))
+    }
+
+    const counter = { count: 0 }
+    const result: boolean = solveWithBacktracking(
+        state.solution,
+        possibilitiesMap,
+        clusterCellIndices,
+        clusterAreaIndices,
+        state,
+        counter
+    )
 
     if (!result) {
+        if (counter.count >= backtrackLimit) {
+            throw new BacktrackLimitError()
+        }
         throw new Error('Failed to place numbers in cluster')
     }
 }
@@ -997,6 +1043,132 @@ function revertPossibilities(
 }
 
 
+function propagateChained(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    peerMap: PeerMap,
+    cellIndex: CellIndex,
+    number: number,
+    clusterCellIndices: Set<CellIndex>,
+    clusterAreaIndices: CellIndex[][],
+    blockSize: number,
+): PropagationChanges | null {
+    const changes: PropagationChanges = { possibilities: [], solution: [] }
+    const queue: [CellIndex, number][] = [[cellIndex, number]]
+    let failed = false
+    let foundHiddenSingle = false
+
+    outer: do {
+        foundHiddenSingle = false
+
+        while (queue.length > 0) {
+            const [idx, num] = queue.pop()!
+            const bitMask = 1 << (num - 1)
+            const removeMask = ~bitMask
+
+            for (const peerIdx of peerMap[idx]!) {
+                const oldVal = possibilitiesMap[peerIdx]!
+
+                if ((oldVal & bitMask) === 0) {
+                    continue
+                }
+
+                const newVal = oldVal & removeMask
+
+                if (newVal === 0) {
+                    failed = true
+
+                    break outer
+                }
+
+                changes.possibilities.push([peerIdx, oldVal])
+                possibilitiesMap[peerIdx] = newVal
+
+                if (solution[peerIdx] === 0
+                    && clusterCellIndices.has(peerIdx)
+                    && countSetBits(newVal) === 1
+                ) {
+                    const forcedNum = numberFromBits(newVal)
+                    solution[peerIdx] = forcedNum
+                    changes.solution.push(peerIdx)
+                    queue.push([peerIdx, forcedNum])
+                }
+            }
+        }
+
+        for (const areaIndices of clusterAreaIndices) {
+            for (let num = 1; num <= blockSize; num++) {
+                const bitMask = 1 << (num - 1)
+                let count = 0
+                let forcedIdx: CellIndex = -1
+
+                for (const idx of areaIndices) {
+                    if (solution[idx] !== 0) {
+                        continue
+                    }
+                    if ((possibilitiesMap[idx]! & bitMask) !== 0) {
+                        count++
+                        if (count > 1) {
+                            break
+                        }
+                        forcedIdx = idx
+                    }
+                }
+
+                if (count === 0) {
+                    if (!areaIndices.some(idx => solution[idx] === num)) {
+                        failed = true
+
+                        break outer
+                    }
+
+                    continue
+                }
+
+                if (count !== 1) {
+                    continue
+                }
+
+                if (solution[forcedIdx] !== 0) {
+                    if (solution[forcedIdx] !== num) {
+                        failed = true
+
+                        break outer
+                    }
+
+                    continue
+                }
+
+                const oldVal = possibilitiesMap[forcedIdx]!
+                if (oldVal !== bitMask) {
+                    changes.possibilities.push([forcedIdx, oldVal])
+                    possibilitiesMap[forcedIdx] = bitMask
+                }
+
+                solution[forcedIdx] = num
+                changes.solution.push(forcedIdx)
+                queue.push([forcedIdx, num])
+                foundHiddenSingle = true
+            }
+        }
+    } while (foundHiddenSingle)
+
+    if (failed) {
+        for (const index of changes.solution) {
+            solution[index] = 0
+        }
+        for (let i = changes.possibilities.length - 1; i >= 0; i--) {
+            const [changedCell, oldVal] = changes.possibilities[i]!
+            possibilitiesMap[changedCell] = oldVal
+        }
+
+        return null
+    }
+
+    return changes
+}
+
+
 function getClusterCellIndices(blockSize: number, cluster: Cell[]): Set<CellIndex> {
     const clusterCellIndices: Set<CellIndex> = new Set()
 
@@ -1017,8 +1189,14 @@ function solveWithBacktracking(
     solution: Int32Array,
     possibilitiesMap: PossibilitiesMap,
     clusterCellIndices: Set<CellIndex>,
-    state: ClusterGenerationState
+    clusterAreaIndices: CellIndex[][],
+    state: ClusterGenerationState,
+    counter: { count: number }
 ): boolean {
+    if (counter.count >= backtrackLimit) {
+        return false
+    }
+
     const candidateCells: CellIndex[] = []
 
     for (const cellIndex of clusterCellIndices) {
@@ -1041,10 +1219,15 @@ function solveWithBacktracking(
     for (const number of possibleNumbers) {
         solution[bestCell] = number
 
-        const changes: number[] | null = propagatePossibilities(
-            state.peerMap[bestCell]!,
+        const changes = propagateChained(
+            solution,
+            possibilitiesMap,
+            state.peerMap,
+            bestCell,
             number,
-            possibilitiesMap
+            clusterCellIndices,
+            clusterAreaIndices,
+            state.blockSize,
         )
 
         if (changes === null) {
@@ -1053,14 +1236,29 @@ function solveWithBacktracking(
             continue
         }
 
-        const result: boolean = solveWithBacktracking(solution, possibilitiesMap, clusterCellIndices, state)
+        const result: boolean = solveWithBacktracking(
+            solution,
+            possibilitiesMap,
+            clusterCellIndices,
+            clusterAreaIndices,
+            state,
+            counter
+        )
 
         if (result) {
             return true
-        } else {
-            revertPossibilities(changes, number, possibilitiesMap)
-            solution[bestCell] = 0
         }
+
+        counter.count++
+
+        for (const idx of changes.solution) {
+            solution[idx] = 0
+        }
+        for (let i = changes.possibilities.length - 1; i >= 0; i--) {
+            const [changedCell, oldVal] = changes.possibilities[i]!
+            possibilitiesMap[changedCell] = oldVal
+        }
+        solution[bestCell] = 0
     }
 
     return false
@@ -1138,7 +1336,9 @@ function removeGivenNumbersBacktracking(
             solutionBuffer,
             possibilitiesMap,
             clusterCellIndices,
-            state
+            [],
+            state,
+            { count: 0 }
         )
 
         if (hasOtherSolution) {

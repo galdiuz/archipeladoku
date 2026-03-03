@@ -7309,7 +7309,7 @@ viewInfoPanelDebug model =
                 [ HA.class "button"
                 , HE.onClick TriggerTunnelVisionTrapPressed
                 ]
-                [ Html.text "Trigger Trunnel Vision Trap" ]
+                [ Html.text "Trigger Tunnel Vision Trap" ]
             , Html.button
                 [ HA.class "button"
                 , HE.onClick CancelTrapsPressed

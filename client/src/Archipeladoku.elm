@@ -6820,28 +6820,7 @@ viewInfoPanelInput model =
         , Html.div
             [ HA.class "column gap-l"
             ]
-            [ Html.label
-                [ HA.class "column gap-s"
-                ]
-                [ Html.text "Input mode (Toggle [Space], Hold [Shift])"
-                , Html.div
-                    [ HA.class "row gap-m"
-                    ]
-                    [ viewRadioButton
-                        False
-                        (getCandidateMode model)
-                        "input-mode"
-                        CandidateModeChanged
-                        (\_ -> "Number")
-                    , viewRadioButton
-                        True
-                        (getCandidateMode model)
-                        "input-mode"
-                        CandidateModeChanged
-                        (\_ -> "Candidates")
-                    ]
-                ]
-            , Html.div
+            [ Html.div
                 [ HA.class "row gap-m"
                 , HA.class <| "block-" ++ String.fromInt model.blockSize
                 , HA.style "flex-wrap" "wrap"
@@ -6900,6 +6879,27 @@ viewInfoPanelInput model =
                         [ Html.text "×" ]
                     ]
                 )
+            , Html.label
+                [ HA.class "column gap-s"
+                ]
+                [ Html.text "Input mode (Toggle [Space], Hold [Shift])"
+                , Html.div
+                    [ HA.class "row gap-m"
+                    ]
+                    [ viewRadioButton
+                        False
+                        (getCandidateMode model)
+                        "input-mode"
+                        CandidateModeChanged
+                        (\_ -> "Number")
+                    , viewRadioButton
+                        True
+                        (getCandidateMode model)
+                        "input-mode"
+                        CandidateModeChanged
+                        (\_ -> "Candidates")
+                    ]
+                ]
             , Html.div
                 [ HA.class "col gap-s" ]
                 [ Html.text "Highlight mode [Tab]"

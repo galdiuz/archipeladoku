@@ -6940,7 +6940,6 @@ viewInfoPanelSelected : Model -> Html Msg
 viewInfoPanelSelected model =
     Html.details
         [ HA.class "info-panel-details"
-        , HA.attribute "open" "true"
         ]
         [ Html.summary
             []

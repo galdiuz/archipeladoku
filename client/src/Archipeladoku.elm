@@ -141,6 +141,7 @@ type alias Model =
     , seedInput : Int
     , selectedCell : ( Int, Int )
     , shiftDebounce : Int
+    , showInputErrors : Bool
     , solution : Dict ( Int, Int ) Int
     , solveRandomCellRatio : Int
     , solveRandomCellRatioInput : String
@@ -244,6 +245,7 @@ type Msg
     | ShiftDebouncePassed Int
     | ShiftHeld
     | ShiftReleased
+    | ShowInputErrorsChanged Bool
     | SolveRandomCellPressed
     | SolveRandomCellRatioChanged Int
     | SolveRandomCellRatioInputBlurred
@@ -371,6 +373,7 @@ init flagsValue =
       , seedInput = flags.seed
       , selectedCell = ( 1, 1 )
       , shiftDebounce = 0
+      , showInputErrors = True
       , solution = Dict.empty
       , solveRandomCellRatio = 150
       , solveRandomCellRatioInput = "150"
@@ -1557,6 +1560,11 @@ update msg model =
                 |> Task.perform (\_ -> ShiftDebouncePassed model.shiftDebounce)
             )
 
+        ShowInputErrorsChanged value ->
+            ( { model | showInputErrors = value }
+            , setLocalStorage ( "apdk-show-input-errors", if value then "1" else "0" )
+            )
+
         SolveRandomCellPressed ->
             let
                 boardCells : Set ( Int, Int )
@@ -2010,7 +2018,6 @@ type alias GenerateArgs =
     , solveSelectedCellRatio : Int
     , tunnelVisionTrapRatio : Int
     }
-
 
 
 type Progression
@@ -3322,6 +3329,11 @@ updateFromLocalStorageValue key value model =
 
         "apdk-player" ->
             ( { model | player = value }
+            , Cmd.none
+            )
+
+        "apdk-show-input-errors" ->
+            ( { model | showInputErrors = value == "1" }
             , Cmd.none
             )
 
@@ -6856,7 +6868,7 @@ viewInfoPanelInput model =
                                     , HA.class "cell"
                                     , HA.class <| "val-" ++ String.fromInt colorNumber
                                     , HAE.attributeIf
-                                        (not <| Set.member n validCellCandidates)
+                                        (model.showInputErrors && not (Set.member n validCellCandidates))
                                         (HA.class "error")
                                     , HA.style "font-size" "1.5em"
                                     ]
@@ -7230,6 +7242,18 @@ viewInfoPanelSettings model =
                     ]
                     []
                 , Html.text "Enable animations"
+                ]
+            , Html.label
+                [ HA.class "row gap-s"
+                , HA.style "align-items" "center"
+                ]
+                [ Html.input
+                    [ HA.type_ "checkbox"
+                    , HA.checked model.showInputErrors
+                    , HE.onCheck ShowInputErrorsChanged
+                    ]
+                    []
+                , Html.text "Show input errors"
                 ]
             , Html.label
                 [ HA.class "row gap-s" ]

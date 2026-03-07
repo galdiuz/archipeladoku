@@ -6,7 +6,9 @@ import Browser
 import Browser.Dom
 import Browser.Events
 import Dict exposing (Dict)
+import File
 import File.Download
+import File.Select
 import Html exposing (Html)
 import Html.Attributes as HA
 import Html.Attributes.Extra as HAE
@@ -26,6 +28,7 @@ import Set exposing (Set)
 import Set.Extra
 import Task
 import Time
+import Yaml.Decode
 import Yaml.Encode
 
 
@@ -204,6 +207,8 @@ type Msg
     | GotItems (List Int)
     | GotLocalGameSave Decode.Value
     | GotMessage Decode.Value
+    | GotYamlContent String
+    | GotYamlFile File.File
     | GotOnlineGameSave Decode.Value
     | GotSaveGameTime Bool Time.Posix
     | GotSlotData Decode.Value
@@ -211,6 +216,7 @@ type Msg
     | HighlightModeChanged HighlightMode
     | HintItemPressed String
     | HostInputChanged String
+    | LoadYamlPressed
     | LocationScoutingChanged LocationScouting
     | MessageInputChanged String
     | MoveSelectionPressed ( Int, Int )
@@ -758,6 +764,21 @@ update msg model =
                 (buildOptionsYaml model)
             )
 
+        GotYamlContent content ->
+            ( case Yaml.Decode.fromString decodeOptionsYaml content of
+                Ok opts ->
+                    applyYamlOptions opts model
+
+                Err _ ->
+                    model
+            , Cmd.none
+            )
+
+        GotYamlFile file ->
+            ( model
+            , Task.perform GotYamlContent (File.toString file)
+            )
+
         GotCheckedLocations locationIds ->
             ( { model
                 | pendingSolvedBlocks =
@@ -1038,6 +1059,11 @@ update msg model =
         HostInputChanged value ->
             ( { model | host = value }
             , setLocalStorage ( "apdk-host", value )
+            )
+
+        LoadYamlPressed ->
+            ( model
+            , File.Select.file [ "text/yaml", "application/x-yaml", ".yaml" ] GotYamlFile
             )
 
         LocationScoutingChanged value ->
@@ -2178,6 +2204,26 @@ type alias SavedGame =
     }
 
 
+type alias YamlOptions =
+    { playerName : Maybe String
+    , blockSize : Maybe Int
+    , boardsPerCluster : Maybe Int
+    , numberOfBoards : Maybe Int
+    , difficulty : Maybe Int
+    , progression : Maybe Progression
+    , duplicateProgression : Maybe Int
+    , locationScouting : Maybe LocationScouting
+    , solveSelectedCellRatio : Maybe Int
+    , solveRandomCellRatio : Maybe Int
+    , removeRandomCandidateRatio : Maybe Int
+    , emojiTrapRatio : Maybe Int
+    , discoTrapRatio : Maybe Int
+    , tunnelVisionTrapRatio : Maybe Int
+    , preFillNothingsPercent : Maybe Int
+    , progressionBalancing : Maybe Int
+    }
+
+
 ---
 -- Encoding/decoding
 ---
@@ -2697,6 +2743,25 @@ difficultyToString difficulty =
             "unknown"
 
 
+difficultyFromString : String -> Result String Int
+difficultyFromString str =
+    case str of
+        "beginner" ->
+            Ok 1
+
+        "easy" ->
+            Ok 2
+
+        "medium" ->
+            Ok 3
+
+        "hard" ->
+            Ok 4
+
+        _ ->
+            Err ("Unknown difficulty: " ++ str)
+
+
 progressionToString : Progression -> String
 progressionToString progression =
     case progression of
@@ -2705,6 +2770,19 @@ progressionToString progression =
 
         Shuffled ->
             "shuffled"
+
+
+progressionFromString : String -> Result String Progression
+progressionFromString str =
+    case str of
+        "fixed" ->
+            Ok Fixed
+
+        "shuffled" ->
+            Ok Shuffled
+
+        _ ->
+            Err ("Unknown progression: " ++ str)
 
 
 locationScoutingToString : LocationScouting -> String
@@ -2718,6 +2796,121 @@ locationScoutingToString locationScouting =
 
         ScoutingDisabled ->
             "disabled"
+
+
+locationScoutingFromString : String -> Result String LocationScouting
+locationScoutingFromString str =
+    case str of
+        "auto" ->
+            Ok ScoutingAuto
+
+        "manual" ->
+            Ok ScoutingManual
+
+        "disabled" ->
+            Ok ScoutingDisabled
+
+        _ ->
+            Err ("Unknown location scouting: " ++ str)
+
+
+decodeYamlOptionString : Yaml.Decode.Decoder String
+decodeYamlOptionString =
+    Yaml.Decode.oneOf
+        [ Yaml.Decode.string
+        , Yaml.Decode.int
+            |> Yaml.Decode.map String.fromInt
+        , Yaml.Decode.dict Yaml.Decode.value
+            |> Yaml.Decode.map Dict.keys
+            |> yamlAndThenMaybe List.head "Empty record"
+        ]
+
+
+decodeYamlOptionInt : Yaml.Decode.Decoder Int
+decodeYamlOptionInt =
+    decodeYamlOptionString
+        |> Yaml.Decode.andThen
+            (\s ->
+                case String.toInt s of
+                    Just n ->
+                        Yaml.Decode.succeed n
+
+                    Nothing ->
+                        Yaml.Decode.fail ("Not an int: " ++ s)
+            )
+
+
+yamlAndThenMaybe : (a -> Maybe b) -> String -> Yaml.Decode.Decoder a -> Yaml.Decode.Decoder b
+yamlAndThenMaybe maybeFunct errorMsg decoder =
+    decoder
+        |> Yaml.Decode.andThen
+            (\value ->
+                case maybeFunct value of
+                    Just result ->
+                        Yaml.Decode.succeed result
+
+                    Nothing ->
+                        Yaml.Decode.fail errorMsg
+            )
+
+
+yamlAndThenResult : (a -> Result String b) -> Yaml.Decode.Decoder a -> Yaml.Decode.Decoder b
+yamlAndThenResult resultFunct decoder =
+    decoder
+        |> Yaml.Decode.andThen
+            (\value ->
+                case resultFunct value of
+                    Ok result ->
+                        Yaml.Decode.succeed result
+
+                    Err err ->
+                        Yaml.Decode.fail err
+            )
+
+
+decodeOptionsYaml : Yaml.Decode.Decoder YamlOptions
+decodeOptionsYaml =
+    let
+        maybeField : String -> Yaml.Decode.Decoder a -> Yaml.Decode.Decoder (Maybe a)
+        maybeField key decoder =
+            Yaml.Decode.maybe (Yaml.Decode.field key decoder)
+
+        apdkField : String -> Yaml.Decode.Decoder a -> Yaml.Decode.Decoder (Maybe a)
+        apdkField key decoder =
+            Yaml.Decode.maybe (Yaml.Decode.at [ "Archipeladoku", key ] decoder)
+
+        yamlDifficultyDecoder : Yaml.Decode.Decoder Int
+        yamlDifficultyDecoder =
+            decodeYamlOptionString
+                |> yamlAndThenResult difficultyFromString
+
+        yamlProgressionDecoder : Yaml.Decode.Decoder Progression
+        yamlProgressionDecoder =
+            decodeYamlOptionString
+                |> yamlAndThenResult progressionFromString
+
+        yamlLocationScoutingDecoder : Yaml.Decode.Decoder LocationScouting
+        yamlLocationScoutingDecoder =
+            decodeYamlOptionString
+                |> yamlAndThenResult locationScoutingFromString
+    in
+    Yaml.Decode.succeed YamlOptions
+        |> Yaml.Decode.andMap (maybeField "name" Yaml.Decode.string)
+        |> Yaml.Decode.andMap (apdkField "block_size" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "boards_per_cluster" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "number_of_boards" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "difficulty" yamlDifficultyDecoder)
+        |> Yaml.Decode.andMap (apdkField "progression" yamlProgressionDecoder)
+        |> Yaml.Decode.andMap (apdkField "duplicate_progression" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "location_scouting" yamlLocationScoutingDecoder)
+        |> Yaml.Decode.andMap (apdkField "solve_selected_cell_ratio" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "solve_random_cell_ratio" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "remove_random_candidate_ratio" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "emoji_trap_ratio" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "disco_trap_ratio" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "tunnel_vision_trap_ratio" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "pre_fill_nothings_percent" decodeYamlOptionInt)
+        |> Yaml.Decode.andMap (apdkField "progression_balancing" decodeYamlOptionInt)
 
 
 encodeData : Model -> Encode.Value
@@ -5608,6 +5801,65 @@ getFillerCounts model targetTotal =
             (List.range 1 toAdd)
 
 
+applyYamlOptions : YamlOptions -> Model -> Model
+applyYamlOptions opts model =
+    let
+        newBlockSize : Int
+        newBlockSize =
+            opts.blockSize |> Maybe.withDefault model.blockSize
+
+        newNumberOfBoards : Int
+        newNumberOfBoards =
+            opts.numberOfBoards
+                |> Maybe.withDefault model.numberOfBoards
+                |> min (maxNumberOfBoards newBlockSize)
+
+        setIntField : (YamlOptions -> Maybe Int) -> (Model -> Int) -> Int
+        setIntField optsField modelField =
+            optsField opts
+                |> Maybe.withDefault (modelField model)
+
+        setStringField : (YamlOptions -> Maybe String) -> (Model -> String) -> String
+        setStringField optsField modelField =
+            optsField opts
+                |> Maybe.withDefault (modelField model)
+
+        setIntAsStringField : (YamlOptions -> Maybe Int) -> (Model -> String) -> String
+        setIntAsStringField optsField modelField =
+            optsField opts
+                |> Maybe.map String.fromInt
+                |> Maybe.withDefault (modelField model)
+    in
+    { model
+        | playerNameOption = setStringField .playerName .playerNameOption
+        , blockSize = newBlockSize
+        , boardsPerCluster = setIntField .boardsPerCluster .boardsPerCluster
+        , numberOfBoards = newNumberOfBoards
+        , numberOfBoardsInput = String.fromInt newNumberOfBoards
+        , difficulty = setIntField .difficulty .difficulty
+        , progression = opts.progression |> Maybe.withDefault model.progression
+        , duplicateProgression = setIntField .duplicateProgression .duplicateProgression
+        , duplicateProgressionInput = setIntAsStringField .duplicateProgression .duplicateProgressionInput
+        , locationScouting = opts.locationScouting |> Maybe.withDefault model.locationScouting
+        , solveSelectedCellRatio = setIntField .solveSelectedCellRatio .solveSelectedCellRatio
+        , solveSelectedCellRatioInput = setIntAsStringField .solveSelectedCellRatio .solveSelectedCellRatioInput
+        , solveRandomCellRatio = setIntField .solveRandomCellRatio .solveRandomCellRatio
+        , solveRandomCellRatioInput = setIntAsStringField .solveRandomCellRatio .solveRandomCellRatioInput
+        , removeRandomCandidateRatio = setIntField .removeRandomCandidateRatio .removeRandomCandidateRatio
+        , removeRandomCandidateRatioInput = setIntAsStringField .removeRandomCandidateRatio .removeRandomCandidateRatioInput
+        , emojiTrapRatio = setIntField .emojiTrapRatio .emojiTrapRatio
+        , emojiTrapRatioInput = setIntAsStringField .emojiTrapRatio .emojiTrapRatioInput
+        , discoTrapRatio = setIntField .discoTrapRatio .discoTrapRatio
+        , discoTrapRatioInput = setIntAsStringField .discoTrapRatio .discoTrapRatioInput
+        , tunnelVisionTrapRatio = setIntField .tunnelVisionTrapRatio .tunnelVisionTrapRatio
+        , tunnelVisionTrapRatioInput = setIntAsStringField .tunnelVisionTrapRatio .tunnelVisionTrapRatioInput
+        , preFillNothingsPercent = setIntField .preFillNothingsPercent .preFillNothingsPercent
+        , preFillNothingsPercentInput = setIntAsStringField .preFillNothingsPercent .preFillNothingsPercentInput
+        , progressionBalancing = setIntField .progressionBalancing .progressionBalancing
+        , progressionBalancingInput = setIntAsStringField .progressionBalancing .progressionBalancingInput
+    }
+
+
 
 ---
 -- View functions
@@ -5880,6 +6132,11 @@ viewMenuOptions model =
             , HA.style "gap" "var(--spacing-l)"
             ]
             [ Html.button
+                [ HA.class "button"
+                , HE.onClick LoadYamlPressed
+                ]
+                [ Html.text "Load YAML" ]
+            , Html.button
                 [ HA.class "button"
                 , HE.onClick GenerateYamlPressed
                 ]

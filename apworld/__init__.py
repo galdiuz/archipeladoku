@@ -24,7 +24,6 @@ class ArchipeladokuWorld(World):
     clusters: dict[int, Cluster]
     filler_counts: dict[str, int]
     pre_fill_items: list[Item]
-    target_pre_fill_nothing_count: int
 
 
     def __init__(self, multiworld: MultiWorld, player: int):
@@ -35,7 +34,6 @@ class ArchipeladokuWorld(World):
         self.duplicate_progression_count = 0
         self.filler_counts = {}
         self.pre_fill_items = []
-        self.target_pre_fill_nothing_count = 0
         self.item_name_groups = self.__class__.item_name_groups.copy()
         self.location_name_groups = self.__class__.location_name_groups.copy()
 
@@ -88,10 +86,6 @@ class ArchipeladokuWorld(World):
         self.duplicate_progression_count = progression_items * self.options.duplicate_progression.value // 100
 
         self.filler_counts = utils.get_filler_counts(self.options, self.duplicate_progression_count)
-        pre_fill_nothings = self.filler_counts.get("Nothing", 0) * self.options.pre_fill_nothings_percent // 100
-
-        if pre_fill_nothings > 0 and self.multiworld.players > 1:
-            self.target_pre_fill_nothing_count = pre_fill_nothings
 
         for ( row, col ) in self.block_unlock_order[initial_unlock_count:]:
             match self.options.progression:
@@ -292,15 +286,19 @@ class ArchipeladokuWorld(World):
                 item = self.create_item(original_item.name)
                 items.append(item)
 
-        added_pre_fill_nothings = 0
+        pre_fill_nothing_count = 0
+
+        if self.multiworld.players > 1:
+            nothing_count = self.filler_counts.get("Nothing", 0)
+            pre_fill_nothing_count = nothing_count * self.options.pre_fill_nothings_percent // 100
 
         for item_name, count in self.filler_counts.items():
             for _ in range(count):
                 item = self.create_item(item_name)
 
-                if item_name == "Nothing" and added_pre_fill_nothings < self.target_pre_fill_nothing_count:
+                if item_name == "Nothing" and pre_fill_nothing_count > 0:
                     self.pre_fill_items.append(item)
-                    added_pre_fill_nothings += 1
+                    pre_fill_nothing_count -= 1
 
                 else:
                     items.append(item)
@@ -313,65 +311,37 @@ class ArchipeladokuWorld(World):
         return self.pre_fill_items
 
 
-    def pre_fill(self) -> None:
+    @classmethod
+    def stage_pre_fill(cls, multiworld: MultiWorld) -> None:
 
-        if not self.pre_fill_items:
-            return
+        all_pre_fill_items = []
+        all_locations = []
+        empty_state = CollectionState(multiworld)
 
-        if not hasattr(self.multiworld, 'archipeladoku_pre_fill_items'):
-            all_pre_fill_items = []
+        for world in multiworld.get_game_worlds("Archipeladoku"):
+            pre_fill_items = world.get_pre_fill_items()
 
-            for world in self.multiworld.get_game_worlds("Archipeladoku"):
-                all_pre_fill_items.extend(world.get_pre_fill_items())
-
-            self.multiworld.random.shuffle(all_pre_fill_items)
-            self.multiworld.archipeladoku_pre_fill_items = all_pre_fill_items
-
-        # Set up state, copied from ladx
-        partial_all_state = CollectionState(self.multiworld)
-
-        # Collect every item from the item pool and every pre-fill item like MultiWorld.get_all_state, except our own pre-fill items.
-        for item in self.multiworld.itempool:
-            partial_all_state.collect(item, prevent_sweep=True)
-
-        for player in self.multiworld.player_ids:
-            if player == self.player:
-                # Don't collect the items we're about to place.
+            if not pre_fill_items:
                 continue
 
-            world = self.multiworld.worlds[player]
-            for item in world.get_pre_fill_items():
-                partial_all_state.collect(item, prevent_sweep=True)
+            all_pre_fill_items.extend(pre_fill_items)
 
-        partial_all_state.sweep_for_advancements()
+            sphere_one_locs = multiworld.get_reachable_locations(empty_state, world.player)
+            world_locations = [
+                loc for loc in multiworld.get_unfilled_locations(world.player)
+                if loc not in sphere_one_locs
+                and loc.name not in world.options.priority_locations.value
+            ]
+            all_locations.extend(world_locations)
 
-        sphere_zero_locs = self.multiworld.get_reachable_locations(
-            CollectionState(self.multiworld),
-            self.player
-        )
-        locations_to_fill = [
-            loc for loc in self.multiworld.get_unfilled_locations(self.player)
-            if loc not in sphere_zero_locs
-            and loc.name not in self.options.priority_locations.value
-        ]
-        self.random.shuffle(locations_to_fill)
+        if not all_pre_fill_items:
+            return
 
-        items_to_fill = []
-        for _ in range(len(self.pre_fill_items)):
-            if self.multiworld.archipeladoku_pre_fill_items:
-                items_to_fill.append(self.multiworld.archipeladoku_pre_fill_items.pop())
-        self.random.shuffle(items_to_fill)
+        multiworld.random.shuffle(all_pre_fill_items)
+        multiworld.random.shuffle(all_locations)
 
-        Fill.fill_restrictive(
-            self.multiworld,
-            partial_all_state,
-            locations_to_fill,
-            items_to_fill,
-            lock=True,
-            single_player_placement=False,
-            allow_partial=True,
-            name=f"Archipeladoku Pre-Fill for Player {self.player}"
-        )
+        for item in all_pre_fill_items:
+            all_locations.pop().place_locked_item(item)
 
 
     def fill_slot_data(self) -> dict[str, Any]:

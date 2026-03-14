@@ -314,17 +314,19 @@ class ArchipeladokuWorld(World):
     @classmethod
     def stage_pre_fill(cls, multiworld: MultiWorld) -> None:
 
-        all_pre_fill_items = []
-        all_locations = []
+        pre_fill_items = []
+        fill_locations = []
+        backup_locations = []
         empty_state = CollectionState(multiworld)
 
         for world in multiworld.get_game_worlds("Archipeladoku"):
-            pre_fill_items = world.get_pre_fill_items()
+            world_items = world.get_pre_fill_items()
+            world_item_count = len(world_items)
 
-            if not pre_fill_items:
+            if not world_items:
                 continue
 
-            all_pre_fill_items.extend(pre_fill_items)
+            pre_fill_items.extend(world_items)
 
             sphere_one_locs = multiworld.get_reachable_locations(empty_state, world.player)
             world_locations = [
@@ -332,16 +334,32 @@ class ArchipeladokuWorld(World):
                 if loc not in sphere_one_locs
                 and loc.name not in world.options.priority_locations.value
             ]
-            all_locations.extend(world_locations)
+            fill_locations.extend(world_locations[:world_item_count])
+            backup_locations.extend(world_locations[world_item_count:])
 
-        if not all_pre_fill_items:
+        if not pre_fill_items:
             return
 
-        multiworld.random.shuffle(all_pre_fill_items)
-        multiworld.random.shuffle(all_locations)
+        if len(fill_locations) < len(pre_fill_items):
+            needed = len(pre_fill_items)
+            available = len(fill_locations) + len(backup_locations)
 
-        for item in all_pre_fill_items:
-            all_locations.pop().place_locked_item(item)
+            if available < needed:
+                raise OptionError(
+                    f"Archipeladoku: Not enough locations available for pre-fill. Needed {needed},"
+                    f" but only {available} were available. This is likely caused by too many"
+                    f" plando or priority locations."
+                )
+
+            diff = len(pre_fill_items) - len(fill_locations)
+            multiworld.random.shuffle(backup_locations)
+            fill_locations.extend(backup_locations[:diff])
+
+        multiworld.random.shuffle(pre_fill_items)
+        multiworld.random.shuffle(fill_locations)
+
+        for item in pre_fill_items:
+            fill_locations.pop().place_locked_item(item)
 
 
     def fill_slot_data(self) -> dict[str, Any]:

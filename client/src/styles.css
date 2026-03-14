@@ -315,6 +315,31 @@ h1, h2 {
     box-shadow: 1px 1px 4px 2px var(--color-shadow);
 }
 
+.toast-container {
+    position: absolute;
+    font-size: 1rem;
+    bottom: var(--spacing-m);
+    left: var(--spacing-m);
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    gap: var(--spacing-s);
+    max-width: 300px;
+    pointer-events: none;
+    z-index: 50;
+}
+
+.toast-message {
+    background-color: color-mix(in srgb, var(--color-sub-bg) 75%, transparent);
+    padding: var(--spacing-s) var(--spacing-m);
+    opacity: 1;
+    transition: opacity 1s ease-in-out;
+}
+
+.toast-message-fading {
+    opacity: 0;
+}
+
 .trap-timer-panel {
     display: flex;
     flex-direction: column;

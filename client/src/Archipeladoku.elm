@@ -14,6 +14,7 @@ import Html.Attributes as HA
 import Html.Attributes.Extra as HAE
 import Html.Events as HE
 import Html.Extra
+import Html.Keyed
 import Json.Decode as Decode
 import Json.Decode.Extra as DecodeExtra
 import Json.Decode.Field as Field
@@ -114,6 +115,7 @@ type alias Model =
     , localGameSave : Maybe SavedGame
     , locationScouting : LocationScouting
     , lockedBlocks : List ( Int, Int )
+    , messageCounter : Int
     , messageInput : String
     , messages : List Message
     , numberOfBoards : Int
@@ -145,6 +147,7 @@ type alias Model =
     , selectedCell : ( Int, Int )
     , shiftDebounce : Int
     , showInputErrors : Bool
+    , showToastMessages : Bool
     , solution : Dict ( Int, Int ) Int
     , solveRandomCellRatio : Int
     , solveRandomCellRatioInput : String
@@ -156,6 +159,7 @@ type alias Model =
     , solveSelectedCellUsed : Int
     , solvedLocations : Set Int
     , timezone : Time.Zone
+    , toastMessages : List ToastMessage
     , tunnelVisionTrapRatio : Int
     , tunnelVisionTrapRatioInput : String
     , tunnelVisionTrapReceived : Int
@@ -252,6 +256,7 @@ type Msg
     | ShiftHeld
     | ShiftReleased
     | ShowInputErrorsChanged Bool
+    | ShowToastMessagesChanged Bool
     | SolveRandomCellPressed
     | SolveRandomCellRatioChanged Int
     | SolveRandomCellRatioInputBlurred
@@ -344,6 +349,7 @@ init flagsValue =
       , localGameSave = Nothing
       , locationScouting = ScoutingManual
       , lockedBlocks = []
+      , messageCounter = 0
       , messageInput = ""
       , messages = []
       , numberOfBoards = 5
@@ -380,6 +386,7 @@ init flagsValue =
       , selectedCell = ( 1, 1 )
       , shiftDebounce = 0
       , showInputErrors = True
+      , showToastMessages = True
       , solution = Dict.empty
       , solveRandomCellRatio = 150
       , solveRandomCellRatioInput = "150"
@@ -391,6 +398,7 @@ init flagsValue =
       , solveSelectedCellUsed = 0
       , solvedLocations = Set.empty
       , timezone = Time.utc
+      , toastMessages = []
       , tunnelVisionTrapRatio = 20
       , tunnelVisionTrapRatioInput = "20"
       , tunnelVisionTrapReceived = 0
@@ -421,7 +429,7 @@ subscriptions model =
         , receiveMessage GotMessage
         , receiveOnlineGameSave GotOnlineGameSave
         , receiveSlotData GotSlotData
-        , if List.any ((<) 0) (timers model) then
+        , if List.any ((<) 0) (timers model) || not (List.isEmpty model.toastMessages) then
             Time.every 1000 (\_ -> SecondPassed)
 
           else
@@ -846,13 +854,8 @@ update msg model =
 
                         _ ->
                             model.gameState
-                , messages =
-                    if not status && model.gameState == Playing then
-                        addLocalMessage "Disconnected from server." model.messages
-
-                    else
-                        model.messages
               }
+                |> addLocalMessage (not status && model.gameState == Playing) "Disconnected from server."
             , Cmd.none
             )
 
@@ -970,12 +973,7 @@ update msg model =
         GotMessage value ->
             case Decode.decodeValue messageDecoder value of
                 Ok message ->
-                    ( { model
-                        | messages =
-                            (message :: model.messages)
-                                |> List.take maxMessages
-
-                      }
+                    ( addMessage message model
                     , Cmd.none
                     )
 
@@ -1339,29 +1337,26 @@ update msg model =
                         , pendingCellChanges = Set.insert cell model.pendingCellChanges
                         , removeRandomCandidateUsed = model.removeRandomCandidateUsed + 1
                         , seed = newSeed
-                        , messages =
-                            addLocalMessage
-                                (String.concat
-                                    [ "Used Remove Random Candidate item to remove candidate "
-                                    , String.fromInt number
-                                    , " from Cell "
-                                    , rowToLabel (Tuple.first cell)
-                                    , String.fromInt (Tuple.second cell)
-                                    ]
-                                )
-                                model.messages
                       }
+                        |> addLocalMessage
+                            True
+                            (String.concat
+                                [ "Used Remove Random Candidate item to remove candidate "
+                                , String.fromInt number
+                                , " from Cell "
+                                , rowToLabel (Tuple.first cell)
+                                , String.fromInt (Tuple.second cell)
+                                ]
+                            )
                     , Cmd.none
                     )
                         |> andThen (updateState True)
 
                 Nothing ->
-                    ( { model
-                        | messages =
-                            addLocalMessage
-                                "Remove Random Candidate item could not be used because there are no valid candidates to remove in the selected board."
-                                model.messages
-                      }
+                    ( model
+                        |> addLocalMessage
+                            True
+                            "Remove Random Candidate item could not be used because there are no valid candidates to remove in the selected board."
                     , Cmd.none
                     )
 
@@ -1451,6 +1446,16 @@ update msg model =
 
                     else
                         0
+                , toastMessages =
+                    model.toastMessages
+                        |> List.filterMap
+                            (\message ->
+                                if message.timer > 1 then
+                                    Just { message | timer = message.timer - 1 }
+
+                                else
+                                    Nothing
+                            )
               }
             , Cmd.none
             )
@@ -1591,6 +1596,11 @@ update msg model =
             , setLocalStorage ( "apdk-show-input-errors", if value then "1" else "0" )
             )
 
+        ShowToastMessagesChanged value ->
+            ( { model | showToastMessages = value }
+            , setLocalStorage ( "apdk-show-toast-messages", if value then "1" else "0" )
+            )
+
         SolveRandomCellPressed ->
             let
                 boardCells : Set ( Int, Int )
@@ -1629,27 +1639,24 @@ update msg model =
                         , pendingCellChanges = Set.insert targetCell model.pendingCellChanges
                         , seed = newSeed
                         , solveRandomCellUsed = model.solveRandomCellUsed + 1
-                        , messages =
-                            addLocalMessage
-                                (String.concat
-                                    [ "Used Solve Random Cell item at Cell "
-                                    , rowToLabel (Tuple.first targetCell)
-                                    , String.fromInt (Tuple.second targetCell)
-                                    ]
-                                )
-                                model.messages
                       }
+                        |> addLocalMessage
+                            True
+                            (String.concat
+                                [ "Used Solve Random Cell item at Cell "
+                                , rowToLabel (Tuple.first targetCell)
+                                , String.fromInt (Tuple.second targetCell)
+                                ]
+                            )
                     , Cmd.none
                     )
-                    |> andThen (updateState True)
+                        |> andThen (updateState True)
 
                 Nothing ->
-                    ( { model
-                        | messages =
-                            addLocalMessage
-                                "Solve Random Cell item could not be used because there are no unsolved visible cells in the selected board."
-                                model.messages
-                      }
+                    ( model
+                        |> addLocalMessage
+                            True
+                            "Solve Random Cell item could not be used because there are no unsolved visible cells in the selected board."
                     , Cmd.none
                     )
 
@@ -1689,34 +1696,30 @@ update msg model =
 
         SolveSelectedCellPressed ->
             if not (Set.member model.selectedCell model.visibleCells) then
-                ( { model
-                    | messages =
-                        addLocalMessage
-                            (String.concat
-                                [ "Solve Selected Cell item at Cell "
-                                , rowToLabel (Tuple.first model.selectedCell)
-                                , String.fromInt (Tuple.second model.selectedCell)
-                                , " could not be used because the cell isn't unlocked."
-                                ]
-                            )
-                            model.messages
-                  }
+                ( addLocalMessage
+                    True
+                    (String.concat
+                        [ "Solve Selected Cell item at Cell "
+                        , rowToLabel (Tuple.first model.selectedCell)
+                        , String.fromInt (Tuple.second model.selectedCell)
+                        , " could not be used because the cell isn't unlocked."
+                        ]
+                    )
+                    model
                 , Cmd.none
                 )
 
             else if Set.member model.selectedCell model.givens then
-                ( { model
-                    | messages =
-                        addLocalMessage
-                            (String.concat
-                                [ "Solve Selected Cell item at Cell "
-                                , rowToLabel (Tuple.first model.selectedCell)
-                                , String.fromInt (Tuple.second model.selectedCell)
-                                , " could not be used because the cell is already solved."
-                                ]
-                            )
-                            model.messages
-                  }
+                ( addLocalMessage
+                    True
+                    (String.concat
+                        [ "Solve Selected Cell item at Cell "
+                        , rowToLabel (Tuple.first model.selectedCell)
+                        , String.fromInt (Tuple.second model.selectedCell)
+                        , " could not be used because the cell is already solved."
+                        ]
+                    )
+                    model
                 , Cmd.none
                 )
 
@@ -1726,16 +1729,15 @@ update msg model =
                     , givens = Set.insert model.selectedCell model.givens
                     , pendingCellChanges = Set.insert model.selectedCell model.pendingCellChanges
                     , solveSelectedCellUsed = model.solveSelectedCellUsed + 1
-                    , messages =
-                        addLocalMessage
-                            (String.concat
-                                [ "Used Solve Selected Cell item at Cell "
-                                , rowToLabel (Tuple.first model.selectedCell)
-                                , String.fromInt (Tuple.second model.selectedCell)
-                                ]
-                            )
-                            model.messages
                   }
+                    |> addLocalMessage
+                        True
+                        (String.concat
+                            [ "Used Solve Selected Cell item at Cell "
+                            , rowToLabel (Tuple.first model.selectedCell)
+                            , String.fromInt (Tuple.second model.selectedCell)
+                            ]
+                        )
                 , Cmd.none
                 )
                     |> andThen (updateState True)
@@ -2116,6 +2118,26 @@ type alias Message =
     }
 
 
+type alias ToastMessage =
+    { id : Int
+    , message : Message
+    , timer : Int
+    }
+
+
+type alias MessagePlayer =
+    { name : String
+    , alias : String
+    }
+
+
+type alias MessageItem =
+    { name : String
+    , sender : MessagePlayer
+    , receiver : MessagePlayer
+    }
+
+
 type MessageNode
     = ItemMessageNode String
     | LocationMessageNode String
@@ -2126,19 +2148,19 @@ type MessageNode
 
 type MessageExtra
     = AdminCommandMessage
-    | ChatMessage String
-    | CollectedMessage
-    | ConnectedMessage
+    | ChatMessage MessagePlayer
+    | CollectedMessage MessagePlayer
+    | ConnectedMessage MessagePlayer
     | CountdownMessage
-    | DisconnectedMessage
-    | GoaledMessage
-    | ItemCheatedMessage
-    | ItemHintedMessage
-    | ItemSentMessage
+    | DisconnectedMessage MessagePlayer
+    | GoaledMessage MessagePlayer
+    | ItemCheatedMessage MessageItem
+    | ItemHintedMessage MessageItem
+    | ItemSentMessage MessageItem
     | LocalMessage
-    | ReleasedMessage
+    | ReleasedMessage MessagePlayer
     | ServerChatMessage
-    | TagsUpdatedMessage
+    | TagsUpdatedMessage MessagePlayer
     | TutorialMessage
     | UserCommandMessage
 
@@ -2532,40 +2554,49 @@ messageExtraDecoder =
 
                     "chat" ->
                         Decode.map ChatMessage
-                            (Decode.at [ "player", "alias" ] Decode.string)
+                            (Decode.field "player" messagePlayerDecoder)
 
                     "collected" ->
-                        Decode.succeed CollectedMessage
+                        Decode.map CollectedMessage
+                            (Decode.field "player" messagePlayerDecoder)
 
                     "connected" ->
-                        Decode.succeed ConnectedMessage
+                        Decode.map ConnectedMessage
+                            (Decode.field "player" messagePlayerDecoder)
 
                     "countdown" ->
                         Decode.succeed CountdownMessage
 
                     "disconnected" ->
-                        Decode.succeed DisconnectedMessage
+                        Decode.map DisconnectedMessage
+                            (Decode.field "player" messagePlayerDecoder)
 
                     "goaled" ->
-                        Decode.succeed GoaledMessage
+                        Decode.map GoaledMessage
+                            (Decode.field "player" messagePlayerDecoder)
 
                     "itemCheated" ->
-                        Decode.succeed ItemCheatedMessage
+                        Decode.map ItemCheatedMessage
+                            (Decode.field "item" messageItemDecoder)
 
                     "itemHinted" ->
-                        Decode.succeed ItemHintedMessage
+                        Decode.map ItemHintedMessage
+                            (Decode.field "item" messageItemDecoder)
 
                     "itemSent" ->
-                        Decode.succeed ItemSentMessage
+                        Decode.map ItemSentMessage
+                            (Decode.field "item" messageItemDecoder)
 
                     "released" ->
-                        Decode.succeed ReleasedMessage
+                        Decode.map ReleasedMessage
+                            (Decode.field "player" messagePlayerDecoder)
 
                     "serverChat" ->
                         Decode.succeed ServerChatMessage
 
                     "tagsUpdated" ->
-                        Decode.succeed TagsUpdatedMessage
+                        Decode.map TagsUpdatedMessage
+                            (Decode.field "player" messagePlayerDecoder)
 
                     "tutorial" ->
                         Decode.succeed TutorialMessage
@@ -2576,6 +2607,21 @@ messageExtraDecoder =
                     _ ->
                         Decode.fail ("Unknown message type: " ++ msgType)
             )
+
+
+messagePlayerDecoder : Decode.Decoder MessagePlayer
+messagePlayerDecoder =
+    Decode.map2 MessagePlayer
+        (Decode.field "name" Decode.string)
+        (Decode.field "alias" Decode.string)
+
+
+messageItemDecoder : Decode.Decoder MessageItem
+messageItemDecoder =
+    Decode.map3 MessageItem
+        (Decode.field "name" Decode.string)
+        (Decode.field "sender" messagePlayerDecoder)
+        (Decode.field "receiver" messagePlayerDecoder)
 
 
 messageNodeDecoder : Decode.Decoder MessageNode
@@ -3530,6 +3576,11 @@ updateFromLocalStorageValue key value model =
             , Cmd.none
             )
 
+        "apdk-show-toast-messages" ->
+            ( { model | showToastMessages = value == "1" }
+            , Cmd.none
+            )
+
         _ ->
             ( model, Cmd.none )
 
@@ -4154,20 +4205,7 @@ unlockBlock triggerAnimations block model =
             unlockedAreas model.cellCols cellToColId
     in
     ( { model
-        | messages =
-            if model.gameIsLocal then
-                addLocalMessage
-                    (String.concat
-                        [ "Unlocked Block "
-                        , rowToLabel (Tuple.first block)
-                        , String.fromInt (Tuple.second block)
-                        ]
-                    )
-                    model.messages
-
-            else
-                model.messages
-        , pendingCellChanges = Set.union blockCells model.pendingCellChanges
+        | pendingCellChanges = Set.union blockCells model.pendingCellChanges
         , pendingScoutLocations =
             model.pendingScoutLocations
                 |> Set.insert (cellToBlockId block)
@@ -4178,6 +4216,14 @@ unlockBlock triggerAnimations block model =
         , visibleCells = newVisibleCells
       }
         |> autoFillCandidatesOnUnlock (Set.diff blockCells model.visibleCells)
+        |> addLocalMessage
+            model.gameIsLocal
+            (String.concat
+                [ "Unlocked Block "
+                , rowToLabel (Tuple.first block)
+                , String.fromInt (Tuple.second block)
+                ]
+            )
     , if triggerAnimations && model.animationsEnabled then
         triggerAnimation
             (Set.diff blockCells model.visibleCells
@@ -4339,82 +4385,40 @@ updateStateItem item model =
             unlockBlock True block model
 
         SolveSelectedCell ->
-            ( { model
-                | solveSelectedCellReceived = model.solveSelectedCellReceived + 1
-                , messages =
-                    if model.gameIsLocal then
-                        addLocalMessage "Unlocked a Solve Selected Cell." model.messages
-
-                    else
-                        model.messages
-              }
+            ( { model | solveSelectedCellReceived = model.solveSelectedCellReceived + 1 }
+                |> addLocalMessage model.gameIsLocal "Unlocked a Solve Selected Cell."
             , Cmd.none
             )
 
         SolveRandomCell ->
-            ( { model
-                | solveRandomCellReceived = model.solveRandomCellReceived + 1
-                , messages =
-                    if model.gameIsLocal then
-                        addLocalMessage "Unlocked a Solve Random Cell." model.messages
-
-                    else
-                        model.messages
-              }
+            ( { model | solveRandomCellReceived = model.solveRandomCellReceived + 1 }
+                |> addLocalMessage model.gameIsLocal "Unlocked a Solve Random Cell."
             , Cmd.none
             )
 
         RemoveRandomCandidate ->
-            ( { model
-                | removeRandomCandidateReceived = model.removeRandomCandidateReceived + 1
-                , messages =
-                    if model.gameIsLocal then
-                        addLocalMessage "Unlocked a Remove Random Candidate." model.messages
-
-                    else
-                        model.messages
-              }
+            ( { model | removeRandomCandidateReceived = model.removeRandomCandidateReceived + 1 }
+                |> addLocalMessage model.gameIsLocal "Unlocked a Remove Random Candidate."
             , Cmd.none
             )
 
         DiscoTrap ->
-            ( { model
-                | discoTrapReceived = model.discoTrapReceived + 1
-                , messages =
-                    if model.gameIsLocal then
-                        addLocalMessage "Unlocked a Disco Trap." model.messages
-
-                    else
-                        model.messages
-              }
+            ( { model | discoTrapReceived = model.discoTrapReceived + 1 }
+                |> addLocalMessage model.gameIsLocal "Unlocked a Disco Trap."
             , Cmd.none
             )
                 |> andThenIf (model.discoTrapReceived >= model.discoTrapTriggers) triggerDiscoTrap
 
         EmojiTrap ->
-            ( { model
-                | emojiTrapReceived = model.emojiTrapReceived + 1
-                , messages =
-                    if model.gameIsLocal then
-                        addLocalMessage "Unlocked an Emoji Trap." model.messages
-
-                    else
-                        model.messages
-              }
+            ( { model | emojiTrapReceived = model.emojiTrapReceived + 1 }
+                |> addLocalMessage model.gameIsLocal "Unlocked an Emoji Trap."
             , Cmd.none
             )
                 |> andThenIf (model.emojiTrapReceived >= model.emojiTrapTriggers) triggerEmojiTrap
 
         TunnelVisionTrap ->
-            ( { model
-                | tunnelVisionTrapReceived = model.tunnelVisionTrapReceived + 1
-                , messages =
-                    if model.gameIsLocal then
-                        addLocalMessage "Unlocked a Tunnel Vision Trap." model.messages
-
-                    else
-                        model.messages
-              }
+            ( { model | tunnelVisionTrapReceived = model.tunnelVisionTrapReceived + 1 }
+                |> addLocalMessage model.gameIsLocal "Unlocked a Tunnel Vision Trap."
             , Cmd.none
             )
                 |> andThenIf (model.tunnelVisionTrapReceived >= model.tunnelVisionTrapTriggers) triggerTunnelVisionTrap
@@ -4796,22 +4800,102 @@ distanceBetweenCells ( row1, col1 ) ( row2, col2 ) =
         |> sqrt
 
 
-addLocalMessage : String -> List Message -> List Message
-addLocalMessage text messages =
-    let
-        newMessage : Message
-        newMessage =
+addMessage : Message -> Model -> Model
+addMessage message model =
+    { model
+        | messageCounter = model.messageCounter + 1
+        , messages = (message :: model.messages) |> List.take maxMessages
+        , toastMessages =
+            if showAsToast model.player message then
+                { id = model.messageCounter
+                , message = message
+                , timer = toastDuration
+                }
+                    :: model.toastMessages
+                    |> List.take maxToastMessages
+
+            else
+                model.toastMessages
+    }
+
+
+addLocalMessage : Bool -> String -> Model -> Model
+addLocalMessage condition text =
+    if condition then
+        addMessage
             { nodes = [ TextualMessageNode text ]
             , extra = LocalMessage
             }
-    in
-    (newMessage :: messages)
-        |> List.take maxMessages
+
+    else
+        identity
+
+
+showAsToast : String -> Message -> Bool
+showAsToast player message =
+    case message.extra of
+        AdminCommandMessage ->
+            False
+
+        ChatMessage _ ->
+            True
+
+        CollectedMessage messagePlayer ->
+            messagePlayer.name == player
+
+        ConnectedMessage messagePlayer ->
+            messagePlayer.name == player
+
+        CountdownMessage ->
+            True
+
+        DisconnectedMessage messagePlayer ->
+            messagePlayer.name == player
+
+        GoaledMessage messagePlayer ->
+            messagePlayer.name == player
+
+        ItemCheatedMessage item ->
+            item.sender.name == player || item.receiver.name == player
+
+        ItemHintedMessage item ->
+            item.sender.name == player || item.receiver.name == player
+
+        ItemSentMessage item ->
+            item.sender.name == player || item.receiver.name == player
+
+        LocalMessage ->
+            True
+
+        ReleasedMessage messagePlayer ->
+            messagePlayer.name == player
+
+        ServerChatMessage ->
+            True
+
+        TagsUpdatedMessage messagePlayer ->
+            messagePlayer.name == player
+
+        TutorialMessage ->
+            False
+
+        UserCommandMessage ->
+            False
 
 
 maxMessages : Int
 maxMessages =
     500
+
+
+toastDuration : Int
+toastDuration =
+    5
+
+
+maxToastMessages : Int
+maxToastMessages =
+    8
 
 
 maxRatio : Int
@@ -6963,6 +7047,7 @@ viewBoard model =
             []
         , viewZoomControls
         , viewTrapTimers model
+        , viewToastMessages model
         ]
 
 
@@ -7512,6 +7597,18 @@ viewInfoPanelSettings model =
                 , Html.text "Show input errors"
                 ]
             , Html.label
+                [ HA.class "row gap-s"
+                , HA.style "align-items" "center"
+                ]
+                [ Html.input
+                    [ HA.type_ "checkbox"
+                    , HA.checked model.showToastMessages
+                    , HE.onCheck ShowToastMessagesChanged
+                    ]
+                    []
+                , Html.text "Show toast messages"
+                ]
+            , Html.label
                 [ HA.class "row gap-s" ]
                 [ Html.text "Emoji trap variant:"
                 , Html.select
@@ -7603,7 +7700,6 @@ viewInfoPanelMessages : Model -> Html Msg
 viewInfoPanelMessages model =
     Html.details
         [ HA.class "info-panel-details"
-        , HA.attribute "open" "true"
         , HA.style "flex-grow" "1"
         , HA.style "justify-content" "flex-end"
         ]
@@ -7857,6 +7953,31 @@ viewMessage message =
             )
             message.nodes
         )
+
+
+viewToastMessages : Model -> Html Msg
+viewToastMessages model =
+    if List.isEmpty model.toastMessages || not model.showToastMessages then
+        Html.text ""
+
+    else
+        Html.Keyed.node "div"
+            [ HA.class "toast-container"
+            ]
+            (List.map
+                (\message ->
+                    ( String.fromInt message.id
+                    , Html.div
+                        [ HA.classList
+                            [ ( "toast-message", True )
+                            , ( "toast-message-fading", message.timer == 1 )
+                            ]
+                        ]
+                        [ viewMessage message.message ]
+                    )
+                )
+                model.toastMessages
+            )
 
 
 viewDisconnectedOverlay : Model -> Html Msg

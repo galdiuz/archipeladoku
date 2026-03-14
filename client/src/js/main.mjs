@@ -291,7 +291,7 @@ client.messages.on('collected', (text, player, nodes) => {
 })
 
 client.messages.on('connected', (text, player, tags, nodes) => {
-    app.ports.receiveMessage.send({ type: 'connected', nodes: nodes })
+    app.ports.receiveMessage.send({ type: 'connected', player: player, nodes: nodes })
 })
 
 client.messages.on('countdown', (text, value, nodes) => {
@@ -319,7 +319,7 @@ client.messages.on('itemSent', (text, item, nodes) => {
 })
 
 client.messages.on('released', (text, player, nodes) => {
-    app.ports.receiveMessage.send({ type: 'released', nodes: nodes })
+    app.ports.receiveMessage.send({ type: 'released', player: player, nodes: nodes })
 })
 
 client.messages.on('serverChat', (text, nodes) => {

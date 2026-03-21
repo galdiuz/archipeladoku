@@ -2253,12 +2253,14 @@ type alias YamlOptions =
 
 keyDownDecoder : Model -> Decode.Decoder ( Msg, Bool )
 keyDownDecoder model =
-    Decode.field "code" Decode.string
+    Decode.map2 Tuple.pair
+        (Decode.field "code" Decode.string)
+        (Decode.field "key" Decode.string)
         |> Decode.andThen
-            (\code ->
+            (\( code, key ) ->
                 let
-                    keyMap : Dict String Msg
-                    keyMap =
+                    codeMap : Dict String Msg
+                    codeMap =
                         [ ( "ArrowUp", MoveSelectionPressed ( -1, 0 ) )
                         , ( "ArrowDown", MoveSelectionPressed ( 1, 0 ) )
                         , ( "ArrowLeft", MoveSelectionPressed ( 0, -1 ) )
@@ -2275,21 +2277,10 @@ keyDownDecoder model =
                         , ( "Digit8", NumberPressed 8 )
                         , ( "Digit9", NumberPressed 9 )
                         , ( "Digit0", NumberPressed 10 )
-                        , ( "KeyA", NumberPressed 11 )
-                        , ( "KeyB", NumberPressed 12 )
-                        , ( "KeyC", NumberPressed 13 )
-                        , ( "KeyD", NumberPressed 14 )
-                        , ( "KeyE", NumberPressed 15 )
-                        , ( "KeyF", NumberPressed 16 )
-                        , ( "KeyG", SelectSolvableBoardPressed )
                         , ( "KeyH", MoveSelectionPressed ( 0, -1 ) )
                         , ( "KeyJ", MoveSelectionPressed ( 1, 0 ) )
                         , ( "KeyK", MoveSelectionPressed ( -1, 0 ) )
                         , ( "KeyL", MoveSelectionPressed ( 0, 1 ) )
-                        , ( "KeyQ", FillCellCandidatesPressed )
-                        , ( "KeyW", RemoveInvalidCandidatesPressed )
-                        , ( "KeyS", SelectSingleCandidateCellPressed )
-                        , ( "KeyZ", UndoPressed )
                         , ( "Numpad1", NumberPressed 1 )
                         , ( "Numpad2", NumberPressed 2 )
                         , ( "Numpad3", NumberPressed 3 )
@@ -2307,13 +2298,32 @@ keyDownDecoder model =
                         , ( "Space", ToggleCandidateModePressed )
                         , ( "Tab", ToggleHighlightModePressed )
                         ]
-                        |> Dict.fromList
+                            |> Dict.fromList
+
+                    keyMap : Dict String Msg
+                    keyMap =
+                        [ ( "A", NumberPressed 11 )
+                        , ( "B", NumberPressed 12 )
+                        , ( "C", NumberPressed 13 )
+                        , ( "D", NumberPressed 14 )
+                        , ( "E", NumberPressed 15 )
+                        , ( "F", NumberPressed 16 )
+                        , ( "G", SelectSolvableBoardPressed )
+                        , ( "Q", FillCellCandidatesPressed )
+                        , ( "W", RemoveInvalidCandidatesPressed )
+                        , ( "S", SelectSingleCandidateCellPressed )
+                        , ( "Z", UndoPressed )
+                        ]
+                            |> Dict.fromList
                 in
-                case Dict.get code keyMap of
-                    Just msg ->
+                case ( Dict.get code codeMap, Dict.get (String.toUpper key) keyMap ) of
+                    ( Just msg, _ ) ->
                         Decode.succeed ( msg, True )
 
-                    Nothing ->
+                    ( _, Just msg ) ->
+                        Decode.succeed ( msg, True )
+
+                    _ ->
                         Decode.fail code
             )
 

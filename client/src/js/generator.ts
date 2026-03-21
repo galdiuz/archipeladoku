@@ -1472,6 +1472,12 @@ function solveWithLogic(
         functionsToApply.push(() => applyHiddenTriples(solution, possibilitiesMap, areaIndices, state))
     }
 
+    if (state.difficulty >= 5) {
+        functionsToApply.push(() => applyXWing(solution, possibilitiesMap, state, cellIndices))
+        functionsToApply.push(() => applySwordfish(solution, possibilitiesMap, state, cellIndices))
+        functionsToApply.push(() => applyYWing(solution, possibilitiesMap, state, cellIndices))
+    }
+
     while (madeProgress) {
         madeProgress = false
 
@@ -2032,6 +2038,411 @@ function applyHiddenTriples(
 }
 
 
+function applyXWing(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    state: ClusterGenerationState,
+    cellIndices: Set<CellIndex>,
+): boolean {
+    let madeProgress = false
+
+    for (let num = 1; num <= state.blockSize; num++) {
+        const bit = 1 << (num - 1)
+        const removeMask = ~bit
+
+        const byRow = new Map<number, CellIndex[]>()
+        for (const cellIndex of cellIndices) {
+            if (solution[cellIndex]! !== 0) {
+                continue
+            }
+            if (!(possibilitiesMap[cellIndex]! & bit)) {
+                continue
+            }
+            const row = Math.floor(cellIndex / maxWidth)
+            let rowCells = byRow.get(row)
+            if (!rowCells) {
+                rowCells = []
+                byRow.set(row, rowCells)
+            }
+            rowCells.push(cellIndex)
+        }
+
+        const rowsWithTwoCandidates: [CellIndex, CellIndex][] = []
+        for (const [, cells] of byRow) {
+            if (cells.length === 2) {
+                rowsWithTwoCandidates.push([cells[0]!, cells[1]!])
+            }
+        }
+
+        for (let i = 0; i < rowsWithTwoCandidates.length; i++) {
+            for (let j = i + 1; j < rowsWithTwoCandidates.length; j++) {
+                let [row1CellA, row1CellB] = rowsWithTwoCandidates[i]!
+                let [row2CellA, row2CellB] = rowsWithTwoCandidates[j]!
+                if (row1CellA % maxWidth > row1CellB % maxWidth) {
+                    const temp = row1CellA; row1CellA = row1CellB; row1CellB = temp
+                }
+                if (row2CellA % maxWidth > row2CellB % maxWidth) {
+                    const temp = row2CellA; row2CellA = row2CellB; row2CellB = temp
+                }
+                if (row1CellA % maxWidth !== row2CellA % maxWidth
+                    || row1CellB % maxWidth !== row2CellB % maxWidth) {
+                    continue
+                }
+
+                const xwingCells = new Set([row1CellA, row1CellB, row2CellA, row2CellB])
+
+                for (const [cellInCol1, cellInCol2] of [
+                    [row1CellA, row2CellA],
+                    [row1CellB, row2CellB],
+                ] as [CellIndex, CellIndex][]) {
+                    const colLines = state.cellColIndicesMap[cellInCol1]!.filter(
+                        line => state.cellColIndicesMap[cellInCol2]!.includes(line)
+                    )
+                    for (const colLine of colLines) {
+                        for (const cellIndex of colLine) {
+                            if (xwingCells.has(cellIndex)) {
+                                continue
+                            }
+                            if (solution[cellIndex]! !== 0) {
+                                continue
+                            }
+                            const oldPossibilities = possibilitiesMap[cellIndex]!
+                            const newPossibilities = oldPossibilities & removeMask
+                            if (newPossibilities !== oldPossibilities) {
+                                possibilitiesMap[cellIndex] = newPossibilities
+                                madeProgress = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const byCol = new Map<number, CellIndex[]>()
+        for (const cellIndex of cellIndices) {
+            if (solution[cellIndex]! !== 0) {
+                continue
+            }
+            if (!(possibilitiesMap[cellIndex]! & bit)) {
+                continue
+            }
+            const col = cellIndex % maxWidth
+            let colCells = byCol.get(col)
+            if (!colCells) {
+                colCells = []
+                byCol.set(col, colCells)
+            }
+            colCells.push(cellIndex)
+        }
+
+        const colsWithTwoCandidates: [CellIndex, CellIndex][] = []
+        for (const [, cells] of byCol) {
+            if (cells.length === 2) {
+                colsWithTwoCandidates.push([cells[0]!, cells[1]!])
+            }
+        }
+
+        for (let i = 0; i < colsWithTwoCandidates.length; i++) {
+            for (let j = i + 1; j < colsWithTwoCandidates.length; j++) {
+                let [col1CellA, col1CellB] = colsWithTwoCandidates[i]!
+                let [col2CellA, col2CellB] = colsWithTwoCandidates[j]!
+                if (Math.floor(col1CellA / maxWidth) > Math.floor(col1CellB / maxWidth)) {
+                    const temp = col1CellA; col1CellA = col1CellB; col1CellB = temp
+                }
+                if (Math.floor(col2CellA / maxWidth) > Math.floor(col2CellB / maxWidth)) {
+                    const temp = col2CellA; col2CellA = col2CellB; col2CellB = temp
+                }
+                if (Math.floor(col1CellA / maxWidth) !== Math.floor(col2CellA / maxWidth)
+                    || Math.floor(col1CellB / maxWidth) !== Math.floor(col2CellB / maxWidth)) {
+                    continue
+                }
+
+                const xwingCells = new Set([col1CellA, col1CellB, col2CellA, col2CellB])
+
+                for (const [cellInRow1, cellInRow2] of [
+                    [col1CellA, col2CellA],
+                    [col1CellB, col2CellB],
+                ] as [CellIndex, CellIndex][]) {
+                    const rowLines = state.cellRowIndicesMap[cellInRow1]!.filter(
+                        line => state.cellRowIndicesMap[cellInRow2]!.includes(line)
+                    )
+                    for (const rowLine of rowLines) {
+                        for (const cellIndex of rowLine) {
+                            if (xwingCells.has(cellIndex)) {
+                                continue
+                            }
+                            if (solution[cellIndex]! !== 0) {
+                                continue
+                            }
+                            const oldPossibilities = possibilitiesMap[cellIndex]!
+                            const newPossibilities = oldPossibilities & removeMask
+                            if (newPossibilities !== oldPossibilities) {
+                                possibilitiesMap[cellIndex] = newPossibilities
+                                madeProgress = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
+function applySwordfish(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    state: ClusterGenerationState,
+    cellIndices: Set<CellIndex>,
+): boolean {
+    let madeProgress = false
+
+    for (let num = 1; num <= state.blockSize; num++) {
+        const bit = 1 << (num - 1)
+        const removeMask = ~bit
+
+        const byRow = new Map<number, CellIndex[]>()
+        for (const cellIndex of cellIndices) {
+            if (solution[cellIndex]! !== 0) {
+                continue
+            }
+            if (!(possibilitiesMap[cellIndex]! & bit)) {
+                continue
+            }
+            const row = Math.floor(cellIndex / maxWidth)
+            let rowCells = byRow.get(row)
+            if (!rowCells) {
+                rowCells = []
+                byRow.set(row, rowCells)
+            }
+            rowCells.push(cellIndex)
+        }
+
+        const candidateRows: CellIndex[][] = []
+        for (const [, cells] of byRow) {
+            if (cells.length >= 2 && cells.length <= 3) {
+                candidateRows.push(cells)
+            }
+        }
+
+        for (let i = 0; i < candidateRows.length - 2; i++) {
+            for (let j = i + 1; j < candidateRows.length - 1; j++) {
+                for (let k = j + 1; k < candidateRows.length; k++) {
+                    const rowTriple = [candidateRows[i]!, candidateRows[j]!, candidateRows[k]!]
+
+                    const colSet = new Set<number>()
+                    for (const row of rowTriple) {
+                        for (const cellIndex of row) {
+                            colSet.add(cellIndex % maxWidth)
+                        }
+                    }
+
+                    if (colSet.size !== 3) {
+                        continue
+                    }
+
+                    const allRowCells: CellIndex[] = arrayFlat(rowTriple)
+                    const swordfishCells = new Set(allRowCells)
+
+                    for (const lockedCol of colSet) {
+                        const cellsInCol = allRowCells.filter(cellIndex => cellIndex % maxWidth === lockedCol)
+                        let colLines = [...state.cellColIndicesMap[cellsInCol[0]!]!]
+                        for (let idx = 1; idx < cellsInCol.length; idx++) {
+                            colLines = colLines.filter(
+                                line => state.cellColIndicesMap[cellsInCol[idx]!]!.includes(line)
+                            )
+                        }
+                        for (const colLine of colLines) {
+                            for (const cellIndex of colLine) {
+                                if (swordfishCells.has(cellIndex)) {
+                                    continue
+                                }
+                                if (solution[cellIndex]! !== 0) {
+                                    continue
+                                }
+                                const oldPossibilities = possibilitiesMap[cellIndex]!
+                                const newPossibilities = oldPossibilities & removeMask
+                                if (newPossibilities !== oldPossibilities) {
+                                    possibilitiesMap[cellIndex] = newPossibilities
+                                    madeProgress = true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const byCol = new Map<number, CellIndex[]>()
+        for (const cellIndex of cellIndices) {
+            if (solution[cellIndex]! !== 0) {
+                continue
+            }
+            if (!(possibilitiesMap[cellIndex]! & bit)) {
+                continue
+            }
+            const col = cellIndex % maxWidth
+            let colCells = byCol.get(col)
+            if (!colCells) {
+                colCells = []
+                byCol.set(col, colCells)
+            }
+            colCells.push(cellIndex)
+        }
+
+        const candidateCols: CellIndex[][] = []
+        for (const [, cells] of byCol) {
+            if (cells.length >= 2 && cells.length <= 3) {
+                candidateCols.push(cells)
+            }
+        }
+
+        for (let i = 0; i < candidateCols.length - 2; i++) {
+            for (let j = i + 1; j < candidateCols.length - 1; j++) {
+                for (let k = j + 1; k < candidateCols.length; k++) {
+                    const colTriple = [candidateCols[i]!, candidateCols[j]!, candidateCols[k]!]
+
+                    const rowSet = new Set<number>()
+                    for (const col of colTriple) {
+                        for (const cellIndex of col) {
+                            rowSet.add(Math.floor(cellIndex / maxWidth))
+                        }
+                    }
+
+                    if (rowSet.size !== 3) {
+                        continue
+                    }
+
+                    const allColCells: CellIndex[] = arrayFlat(colTriple)
+                    const swordfishCells = new Set(allColCells)
+
+                    for (const lockedRow of rowSet) {
+                        const cellsInRow = allColCells.filter(
+                            cellIndex => Math.floor(cellIndex / maxWidth) === lockedRow
+                        )
+                        let rowLines = [...state.cellRowIndicesMap[cellsInRow[0]!]!]
+                        for (let idx = 1; idx < cellsInRow.length; idx++) {
+                            rowLines = rowLines.filter(
+                                line => state.cellRowIndicesMap[cellsInRow[idx]!]!.includes(line)
+                            )
+                        }
+                        for (const rowLine of rowLines) {
+                            for (const cellIndex of rowLine) {
+                                if (swordfishCells.has(cellIndex)) {
+                                    continue
+                                }
+                                if (solution[cellIndex]! !== 0) {
+                                    continue
+                                }
+                                const oldPossibilities = possibilitiesMap[cellIndex]!
+                                const newPossibilities = oldPossibilities & removeMask
+                                if (newPossibilities !== oldPossibilities) {
+                                    possibilitiesMap[cellIndex] = newPossibilities
+                                    madeProgress = true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
+function applyYWing(
+    solution: Int32Array,
+    possibilitiesMap: PossibilitiesMap,
+    state: ClusterGenerationState,
+    cellIndices: Set<CellIndex>,
+): boolean {
+    let madeProgress = false
+
+    const biValueCells: CellIndex[] = []
+    for (const cellIndex of cellIndices) {
+        if (solution[cellIndex]! !== 0) {
+            continue
+        }
+        if (countSetBits(possibilitiesMap[cellIndex]!) === 2) {
+            biValueCells.push(cellIndex)
+        }
+    }
+
+    for (const pivotCellIndex of biValueCells) {
+        const pivotCandidates = possibilitiesMap[pivotCellIndex]!
+        const pivotNumbers = numbersFromBits(pivotCandidates)
+        const candidateA = pivotNumbers[0]!
+        const candidateB = pivotNumbers[1]!
+        const bitCandidateA = 1 << (candidateA - 1)
+        const bitCandidateB = 1 << (candidateB - 1)
+
+        const wing1s: Array<{ cellIndex: CellIndex, sharedCandidate: number, bitSharedCandidate: number }> = []
+        const wing2s: Array<{ cellIndex: CellIndex, sharedCandidate: number, bitSharedCandidate: number }> = []
+
+        for (const peerCellIndex of state.peerMap[pivotCellIndex]!) {
+            if (solution[peerCellIndex]! !== 0) {
+                continue
+            }
+            const candidates = possibilitiesMap[peerCellIndex]!
+            if (countSetBits(candidates) !== 2) {
+                continue
+            }
+
+            if (candidates & bitCandidateA) {
+                const otherBit = candidates & ~bitCandidateA
+                const sharedCandidate = numberFromBits(otherBit)
+                if (sharedCandidate !== candidateB) {
+                    wing1s.push({ cellIndex: peerCellIndex, sharedCandidate, bitSharedCandidate: otherBit })
+                }
+            }
+
+            if (candidates & bitCandidateB) {
+                const otherBit = candidates & ~bitCandidateB
+                const sharedCandidate = numberFromBits(otherBit)
+                if (sharedCandidate !== candidateA) {
+                    wing2s.push({ cellIndex: peerCellIndex, sharedCandidate, bitSharedCandidate: otherBit })
+                }
+            }
+        }
+
+        for (const wing1 of wing1s) {
+            const removeMask = ~wing1.bitSharedCandidate
+            const wing1PeerSet = new Set(state.peerMap[wing1.cellIndex]!)
+            for (const wing2 of wing2s) {
+                if (wing1.sharedCandidate !== wing2.sharedCandidate || wing1.cellIndex === wing2.cellIndex) {
+                    continue
+                }
+
+
+                for (const cellIndex of state.peerMap[wing2.cellIndex]!) {
+                    if (!wing1PeerSet.has(cellIndex)) {
+                        continue
+                    }
+                    if (cellIndex === pivotCellIndex || cellIndex === wing1.cellIndex || cellIndex === wing2.cellIndex) {
+                        continue
+                    }
+                    if (solution[cellIndex]! !== 0) {
+                        continue
+                    }
+                    const oldPossibilities = possibilitiesMap[cellIndex]!
+                    const newPossibilities = oldPossibilities & removeMask
+                    if (newPossibilities !== oldPossibilities) {
+                        possibilitiesMap[cellIndex] = newPossibilities
+                        madeProgress = true
+                    }
+                }
+            }
+        }
+    }
+
+    return madeProgress
+}
+
+
 function clusterStateToCompleted(state: ClusterGenerationState): Completed {
     const givens: [number, number, number][] = []
     const solution: [number, number, number][] = []
@@ -2107,6 +2518,11 @@ function numbersFromBits(bitmask: number): number[] {
     }
 
     return numbers
+}
+
+
+function arrayFlat<T>(arrays: T[][]): T[] {
+    return ([] as T[]).concat(...arrays)
 }
 
 

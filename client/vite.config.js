@@ -3,7 +3,7 @@ import elmPlugin from 'vite-plugin-elm';
 
 export default defineConfig({
     base: '/archipeladoku/',
-    plugins: [elmPlugin()],
+    plugins: [elmPlugin({debug: false})],
     worker: {
         format: 'es',
         plugins: () => [elmPlugin()],

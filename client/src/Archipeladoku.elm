@@ -1342,7 +1342,7 @@ update msg model =
                             True
                             (String.concat
                                 [ "Used Remove Random Candidate item to remove candidate "
-                                , String.fromInt number
+                                , numberToString { model | emojiTrapTimer = 0 } number
                                 , " from Cell "
                                 , rowToLabel (Tuple.first cell)
                                 , String.fromInt (Tuple.second cell)

@@ -6182,7 +6182,7 @@ viewMenuConnect model =
                 [ Html.text "Password:"
                 , Html.input
                     [ HA.class "input"
-                    , HA.type_ "text"
+                    , HA.type_ "password"
                     , HA.placeholder "Leave blank if no password"
                     , HA.value model.password
                     , HE.onInput PasswordInputChanged

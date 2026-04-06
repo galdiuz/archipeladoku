@@ -79,6 +79,7 @@ type alias Model =
     , cellCols : Dict ( Int, Int ) (List Area)
     , cellRows : Dict ( Int, Int ) (List Area)
     , colorScheme : String
+    , connectionHistory : List ConnectionHistoryEntry
     , current : Dict ( Int, Int ) CellValue
     , discoTrapMap : Dict Int Int
     , discoTrapOffset : Int
@@ -184,6 +185,7 @@ type Msg
     | CellSelected ( Int, Int )
     | ClearBoardPressed
     | ColorSchemeChanged String
+    | ConnectionHistoryQuickFillPressed ConnectionHistoryEntry
     | ConnectPressed
     | DeletePressed
     | DifficultyChanged Int
@@ -313,6 +315,7 @@ init flagsValue =
       , cellCols = Dict.empty
       , cellRows = Dict.empty
       , colorScheme = "light dark"
+      , connectionHistory = []
       , current = Dict.empty
       , discoTrapMap = Dict.empty
       , discoTrapOffset = 0
@@ -541,6 +544,15 @@ update msg model =
             , setLocalStorage ( "apdk-color-scheme", scheme )
             )
                 |> andThen updateBoardData
+
+        ConnectionHistoryQuickFillPressed entry ->
+            ( { model | host = entry.host, password = entry.password, player = entry.player }
+            , Cmd.batch
+                [ setLocalStorage ( "apdk-host", entry.host )
+                , setLocalStorage ( "apdk-password", entry.password )
+                , setLocalStorage ( "apdk-player", entry.player )
+                ]
+            )
 
         ConnectPressed ->
             ( { model | gameState = Connecting }
@@ -858,6 +870,7 @@ update msg model =
                 |> addLocalMessage (not status && model.gameState == Playing) "Disconnected from server."
             , Cmd.none
             )
+                |> andThenIf (status && model.gameState == Connecting) addConnectionHistory
 
         GotGeneratedBoard value ->
             case Decode.decodeValue generatedBoardDecoder value of
@@ -988,6 +1001,7 @@ update msg model =
                     ( loadSavedGame savedGame model
                     , Cmd.none
                     )
+                        |> andThen addConnectionHistory
                         |> andThen (unlockInitialBlocks)
                         |> andThen (updateState False)
 
@@ -2005,6 +2019,13 @@ defaultFlags =
     }
 
 
+type alias ConnectionHistoryEntry =
+    { host : String
+    , password : String
+    , player : String
+    }
+
+
 type alias GeneratedBoard =
     { blockSize : Int
     , blockUnlockOrder : List ( Int, Int )
@@ -2350,6 +2371,29 @@ flagsDecoder =
     Decode.map2 Flags
         (Decode.field "localStorage" (Decode.dict Decode.string))
         (Decode.field "seed" Decode.int)
+
+
+encodeConnectionHistory : List ConnectionHistoryEntry -> Encode.Value
+encodeConnectionHistory history =
+    Encode.list
+        (\entry ->
+            Encode.object
+                [ ( "host", Encode.string entry.host )
+                , ( "password", Encode.string entry.password )
+                , ( "player", Encode.string entry.player )
+                ]
+        )
+        history
+
+
+connectionHistoryDecoder : Decode.Decoder (List ConnectionHistoryEntry)
+connectionHistoryDecoder =
+    Decode.list
+        (Decode.map3 ConnectionHistoryEntry
+            (Decode.field "host" Decode.string)
+            (Decode.field "password" Decode.string)
+            (Decode.field "player" Decode.string)
+        )
 
 
 generatedBoardDecoder : Decode.Decoder GeneratedBoard
@@ -3558,6 +3602,15 @@ updateFromLocalStorageValue key value model =
 
         "apdk-color-scheme" ->
             ( { model | colorScheme = value }
+            , Cmd.none
+            )
+
+        "apdk-connection-history" ->
+            ( { model
+                | connectionHistory =
+                    Decode.decodeString connectionHistoryDecoder value
+                        |> Result.withDefault []
+              }
             , Cmd.none
             )
 
@@ -4808,6 +4861,28 @@ distanceBetweenCells ( row1, col1 ) ( row2, col2 ) =
         ]
         |> toFloat
         |> sqrt
+
+
+addConnectionHistory : Model -> ( Model, Cmd Msg )
+addConnectionHistory model =
+    let
+        newHistory : List ConnectionHistoryEntry
+        newHistory =
+            { host = model.host
+            , password = model.password
+            , player = model.player
+            }
+                :: List.filter
+                    (\e -> not (e.host == model.host && e.player == model.player))
+                    model.connectionHistory
+                |> List.take 5
+    in
+    ( { model | connectionHistory = newHistory }
+    , setLocalStorage
+        ( "apdk-connection-history"
+        , Encode.encode 0 (encodeConnectionHistory newHistory)
+        )
+    )
 
 
 addMessage : Message -> Model -> Model
@@ -6120,6 +6195,28 @@ viewMenuConnect model =
                 ]
                 [ Html.text "Connect"]
             ]
+        , if List.isEmpty model.connectionHistory then
+            Html.text ""
+
+          else
+            Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.text "Previous Connections:"
+                , Html.div
+                    [ HA.class "row gap-s wrap"
+                    ]
+                    (List.map
+                        (\entry ->
+                            Html.button
+                                [ HA.class "button"
+                                , HE.onClick (ConnectionHistoryQuickFillPressed entry)
+                                ]
+                                [ Html.text (entry.player ++ "@" ++ entry.host) ]
+                        )
+                        model.connectionHistory
+                    )
+                ]
         ]
 
 

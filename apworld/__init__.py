@@ -20,6 +20,8 @@ class ArchipeladokuWorld(World):
     item_name_groups = utils.item_name_groups
     location_name_groups = utils.location_name_groups
 
+    ut_can_gen_without_yaml = True
+
     block_unlock_order: list[tuple[int, int]]
     clusters: dict[int, Cluster]
     filler_counts: dict[str, int]
@@ -47,45 +49,74 @@ class ArchipeladokuWorld(World):
 
     def generate_early(self):
 
-        board_positions = utils.position_boards(
-            self.options.block_size.value,
-            self.options.boards_per_cluster.value,
-            utils.get_number_of_boards(
+        re_gen_passthrough = getattr(self.multiworld, "re_gen_passthrough", {})
+        slot_data = re_gen_passthrough.get(self.game, {})
+
+        if slot_data:
+            self.options.block_size = self.options.block_size.from_any(slot_data["blockSize"])
+            self.options.progression = self.options.progression.from_any(slot_data["progression"])
+
+            for list_idx, positions in enumerate(slot_data["clusters"]):
+                cluster_id = list_idx + 1
+                positions_set = set(tuple(pos) for pos in positions)
+                group_blocks = set(
+                    block
+                    for pos in positions_set
+                    for block in utils.build_blocks(self.options.block_size.value, pos)
+                )
+                self.clusters[cluster_id] = utils.Cluster(
+                    id=cluster_id,
+                    blocks=group_blocks,
+                    positions=positions_set,
+                )
+
+            self.block_unlock_order = [tuple(block) for block in slot_data["blockUnlockOrder"]]
+            self.duplicate_progression_count = slot_data["duplicateProgressionCount"]
+            self.filler_counts = slot_data["fillerCounts"]
+
+        else:
+            board_positions = utils.position_boards(
                 self.options.block_size.value,
-                self.options.number_of_boards.value,
-            ),
-        )
-
-        grouped_positions = utils.group_positions(
-            self.options.block_size.value,
-            board_positions,
-        )
-
-        for idx, positions in grouped_positions.items():
-            group_blocks = set([block for pos in positions for block in utils.build_blocks(self.options.block_size.value, pos)])
-            cluster = utils.Cluster(
-                id=idx,
-                blocks=group_blocks,
-                positions=set(positions)
+                self.options.boards_per_cluster.value,
+                utils.get_number_of_boards(
+                    self.options.block_size.value,
+                    self.options.number_of_boards.value,
+                ),
             )
 
-            self.clusters[idx] = cluster
-
-        self.block_unlock_order = utils.build_block_unlock_order(
-            self.options.block_size.value,
-            utils.get_number_of_boards(
+            grouped_positions = utils.group_positions(
                 self.options.block_size.value,
-                self.options.number_of_boards.value,
-            ),
-            self.clusters,
-            self.random
-        )
+                board_positions,
+            )
+
+            for idx, positions in grouped_positions.items():
+                group_blocks = set(
+                    block
+                    for pos in positions
+                    for block in utils.build_blocks(self.options.block_size.value, pos)
+                )
+                self.clusters[idx] = utils.Cluster(
+                    id=idx,
+                    blocks=group_blocks,
+                    positions=set(positions),
+                )
+
+            self.block_unlock_order = utils.build_block_unlock_order(
+                self.options.block_size.value,
+                utils.get_number_of_boards(
+                    self.options.block_size.value,
+                    self.options.number_of_boards.value,
+                ),
+                self.clusters,
+                self.random,
+            )
+
+            initial_unlock_count = self.options.block_size.value
+            progression_items = len(self.block_unlock_order) - initial_unlock_count
+            self.duplicate_progression_count = progression_items * self.options.duplicate_progression.value // 100
+            self.filler_counts = utils.get_filler_counts(self.options, self.duplicate_progression_count)
 
         initial_unlock_count = self.options.block_size.value
-        progression_items = len(self.block_unlock_order) - initial_unlock_count
-        self.duplicate_progression_count = progression_items * self.options.duplicate_progression.value // 100
-
-        self.filler_counts = utils.get_filler_counts(self.options, self.duplicate_progression_count)
 
         for ( row, col ) in self.block_unlock_order[initial_unlock_count:]:
             match self.options.progression:
@@ -372,7 +403,14 @@ class ArchipeladokuWorld(World):
             "locationScouting": self.options.location_scouting.value,
             "progression": self.options.progression.value,
             "seed": self.random.getrandbits(32),
+            "duplicateProgressionCount": self.duplicate_progression_count,
+            "fillerCounts": self.filler_counts,
         }
+
+
+    @staticmethod
+    def interpret_slot_data(slot_data: dict[str, Any]) -> dict[str, Any]:
+        return slot_data
 
 
     def create_item(self, name: str) -> "ArchipeladokuItem":

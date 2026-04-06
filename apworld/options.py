@@ -46,12 +46,14 @@ class Difficulty(Choice):
     - Easy: Pointing pairs, box line reduction.
     - Medium: Naked pairs/triples.
     - Hard: Hidden pairs/triples.
+    - Very Hard: X-Wing, Swordfish, Y-Wing.
     """
     display_name = "Difficulty"
     option_beginner = 1
     option_easy = 2
     option_medium = 3
     option_hard = 4
+    option_very_hard = 5
     default = 2
 
 

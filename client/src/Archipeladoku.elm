@@ -6372,6 +6372,7 @@ viewMenuOptionsBoard model =
                             , " - Easy: Pointing pairs, box line reduction."
                             , " - Medium: Naked pairs/triples."
                             , " - Hard: Hidden pairs/triples."
+                            , " - Very Hard: X-Wing, Swordfish, Y-Wing."
                             ]
                         )
                     ]
@@ -6382,6 +6383,7 @@ viewMenuOptionsBoard model =
                     , viewRadioButton 2 model.difficulty "difficulty" DifficultyChanged (\_ -> "Easy")
                     , viewRadioButton 3 model.difficulty "difficulty" DifficultyChanged (\_ -> "Medium")
                     , viewRadioButton 4 model.difficulty "difficulty" DifficultyChanged (\_ -> "Hard")
+                    , viewRadioButton 5 model.difficulty "difficulty" DifficultyChanged (\_ -> "Very Hard")
                     ]
                 ]
             , Html.div

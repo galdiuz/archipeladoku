@@ -2839,6 +2839,9 @@ difficultyToString difficulty =
         4 ->
             "hard"
 
+        5 ->
+            "very_hard"
+
         _ ->
             "unknown"
 
@@ -2857,6 +2860,9 @@ difficultyFromString str =
 
         "hard" ->
             Ok 4
+
+        "very_hard" ->
+            Ok 5
 
         _ ->
             Err ("Unknown difficulty: " ++ str)

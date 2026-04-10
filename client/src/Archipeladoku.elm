@@ -1974,6 +1974,7 @@ update msg model =
                 ( model
                 , Cmd.none
                 )
+                |> andThen (updateState True)
                 |> andThen updateBoardData
 
         ZoomInPressed ->

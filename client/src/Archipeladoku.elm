@@ -1318,6 +1318,7 @@ update msg model =
                                             if (Dict.get cell model.solution /= Just candidate)
                                                 && Set.member cell boardCells
                                                 && cellIsVisible model cell
+                                                && not (Set.member cell model.givens)
                                             then
                                                 (::) ( cell, candidate )
 

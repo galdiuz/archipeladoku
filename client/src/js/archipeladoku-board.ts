@@ -400,7 +400,12 @@ const rowLabelAlphabet = [
 const rowLabelBase = rowLabelAlphabet.length;
 
 
-function getCellColor(blockSize: number, value: number, scheme: ColorScheme, state: CellState = 'regular'): [string, string] {
+function getCellColor(
+    blockSize: number,
+    value: number,
+    scheme: ColorScheme,
+    state: CellState = 'regular',
+): [string, string] {
     const sizeHues = cellHue[blockSize as keyof typeof cellHue]
     const hue = sizeHues[value as keyof typeof sizeHues]
     const saturation = 60
@@ -555,6 +560,10 @@ class ArchipeladokuBoard extends HTMLElement {
     lastFireworkFadeTime: number = 0
     animationsEnabled: boolean = true
     candidateLayout: number = 0
+    numberAppearProgress: Map<string, number> = new Map()
+    numberDisappearProgress: Map<string, { progress: number, value: number }> = new Map()
+    candidateAppearProgress: Map<string, Map<number, number>> = new Map()
+    candidateDisappearProgress: Map<string, Map<number, number>> = new Map()
 
 
     constructor() {
@@ -665,9 +674,15 @@ class ArchipeladokuBoard extends HTMLElement {
             this.candidateSubSize = size / blockCols
         }
 
+        const oldCells = new Map(this.cells)
+
         this.cells.clear()
         for (const [row, col, cellValue] of value.cells) {
             this.cells.set(`${row},${col}`, cellValue)
+        }
+
+        if (value.animationsEnabled) {
+            this.diffCellsAndAnimate(oldCells)
         }
 
         const numberMap = new Map<number, string>()
@@ -727,6 +742,10 @@ class ArchipeladokuBoard extends HTMLElement {
             this.fireworks = false
             this.discoTrap = false
             this.tunnelVisionTrap = false
+            this.numberAppearProgress.clear()
+            this.numberDisappearProgress.clear()
+            this.candidateAppearProgress.clear()
+            this.candidateDisappearProgress.clear()
             if (this.fireworksCanvas.width && this.fireworksCanvas.height) {
                 this.fireworksCtx.clearRect(0, 0, this.fireworksCanvas.width, this.fireworksCanvas.height)
             }
@@ -1595,6 +1614,135 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    diffCellsAndAnimate(oldCells: Map<string, CellValue>) {
+        if (oldCells.size === 0) {
+            return
+        }
+
+        const now = performance.now()
+        const allKeys = new Set([...oldCells.keys(), ...this.cells.keys()])
+
+        for (const key of allKeys) {
+            const oldCell = oldCells.get(key)
+            const newCell = this.cells.get(key)
+
+            if (oldCell?.type === 'tunnel' || newCell?.type === 'tunnel') {
+                continue
+            }
+
+            const oldNumber = oldCell?.type === 'single' ? oldCell.number : null
+            const newNumber = newCell?.type === 'single' ? newCell.number : null
+            const oldCandidates = oldCell?.type === 'candidates' ? oldCell.numbers : []
+            const newCandidates = newCell?.type === 'candidates' ? newCell.numbers : []
+
+            if (oldNumber !== null && oldNumber !== newNumber) {
+                this.startNumberDisappearAnimation(key, oldNumber, now)
+            }
+
+            if (newNumber !== null && newNumber !== oldNumber) {
+                this.startNumberAppearAnimation(key, now)
+            }
+
+            if (newCell?.type === 'given' && oldCell?.type !== 'given') {
+                this.startNumberAppearAnimation(key, now)
+            }
+
+            for (const number of oldCandidates) {
+                if (!newCandidates.includes(number)) {
+                    this.startCandidateDisappearAnimation(key, number, now)
+                }
+            }
+
+            for (const number of newCandidates) {
+                if (!oldCandidates.includes(number)) {
+                    this.startCandidateAppearAnimation(key, number, now)
+                }
+            }
+        }
+    }
+
+
+    startNumberAppearAnimation(key: string, now: number) {
+        this.numberAppearProgress.set(key, 0)
+        this.addAnimation({
+            id: `numberAppear:${key}`,
+            startTime: now,
+            duration: 150,
+            onUpdate: (progress) => {
+                this.numberAppearProgress.set(key, progress)
+            },
+            onComplete: () => {
+                this.numberAppearProgress.delete(key)
+            },
+        })
+    }
+
+
+    startNumberDisappearAnimation(key: string, value: number, now: number) {
+        this.numberDisappearProgress.set(key, { progress: 0, value })
+        this.addAnimation({
+            id: `numberDisappear:${key}`,
+            startTime: now,
+            duration: 150,
+            onUpdate: (progress) => {
+                const entry = this.numberDisappearProgress.get(key)
+                if (entry) {
+                    entry.progress = progress
+                }
+            },
+            onComplete: () => {
+                this.numberDisappearProgress.delete(key)
+            },
+        })
+    }
+
+
+    startCandidateAppearAnimation(key: string, number: number, now: number) {
+        if (!this.candidateAppearProgress.has(key)) {
+            this.candidateAppearProgress.set(key, new Map())
+        }
+        this.candidateAppearProgress.get(key)!.set(number, 0)
+        this.addAnimation({
+            id: `candidateAppear:${key},${number}`,
+            startTime: now,
+            duration: 150,
+            onUpdate: (progress) => {
+                this.candidateAppearProgress.get(key)?.set(number, progress)
+            },
+            onComplete: () => {
+                const map = this.candidateAppearProgress.get(key)
+                map?.delete(number)
+                if (map?.size === 0) {
+                    this.candidateAppearProgress.delete(key)
+                }
+            },
+        })
+    }
+
+
+    startCandidateDisappearAnimation(key: string, number: number, now: number) {
+        if (!this.candidateDisappearProgress.has(key)) {
+            this.candidateDisappearProgress.set(key, new Map())
+        }
+        this.candidateDisappearProgress.get(key)!.set(number, 0)
+        this.addAnimation({
+            id: `candidateDisappear:${key},${number}`,
+            startTime: now,
+            duration: 150,
+            onUpdate: (progress) => {
+                this.candidateDisappearProgress.get(key)?.set(number, progress)
+            },
+            onComplete: () => {
+                const map = this.candidateDisappearProgress.get(key)
+                map?.delete(number)
+                if (map?.size === 0) {
+                    this.candidateDisappearProgress.delete(key)
+                }
+            },
+        })
+    }
+
+
     render(timestamp: number) {
         this.renderSprites()
 
@@ -1753,6 +1901,152 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    drawScaledImage(
+        ctx: CanvasRenderingContext2D,
+        sourceX: number,
+        sourceY: number,
+        sourceSize: number,
+        destX: number,
+        destY: number,
+        destSize: number,
+        pivotX: number,
+        pivotY: number,
+        scale: number,
+    ) {
+        ctx.save()
+        ctx.translate(pivotX, pivotY)
+        ctx.scale(scale, scale)
+        ctx.translate(-pivotX, -pivotY)
+        ctx.drawImage(this.spriteCanvas, sourceX, sourceY, sourceSize, sourceSize, destX, destY, destSize, destSize)
+        ctx.restore()
+    }
+
+
+    drawDisappearingNumberBg(
+        ctx: CanvasRenderingContext2D,
+        cellKey: string,
+        x: number,
+        y: number,
+        spriteSize: number,
+        colorMap: Map<number, number> | undefined,
+        spriteState: keyof typeof spriteOffsets.state,
+    ) {
+        const entry = this.numberDisappearProgress.get(cellKey)
+        if (!entry) {
+            return
+        }
+        const bgNumber = colorMap?.get(entry.value) ?? entry.value
+        const sourceX = (bgNumber - 1) * spriteSize
+        const sourceY = getSpriteY(spriteSize, 'userValue', spriteState)
+        const cx = x + this.cellSize / 2
+        const cy = y + this.cellSize / 2
+        this.drawScaledImage(
+            ctx,
+            sourceX,
+            sourceY,
+            spriteSize,
+            x,
+            y,
+            this.cellSize,
+            cx,
+            cy,
+            easing.easeIn(1 - entry.progress)
+        )
+    }
+
+
+    drawDisappearingCandidateBgs(
+        ctx: CanvasRenderingContext2D,
+        cellKey: string,
+        x: number,
+        y: number,
+        spriteSize: number,
+        colorMap: Map<number, number> | undefined,
+        spriteState: keyof typeof spriteOffsets.state,
+    ) {
+        const disappearMap = this.candidateDisappearProgress.get(cellKey)
+        if (!disappearMap) {
+            return
+        }
+        for (const [number, progress] of disappearMap) {
+            const bgNumber = colorMap?.get(number) ?? number
+            const sourceX = (bgNumber - 1) * spriteSize
+            const sourceY = getSpriteY(spriteSize, 'userValue', spriteState)
+            const subX = x + this.candidateSubXMap.get(number)!
+            const subY = y + this.candidateSubYMap.get(number)!
+            const cx = subX + this.candidateSubSize / 2
+            const cy = subY + this.candidateSubSize / 2
+            this.drawScaledImage(
+                ctx, sourceX, sourceY, spriteSize,
+                subX, subY, this.candidateSubSize,
+                cx, cy, easing.easeIn(1 - progress)
+            )
+        }
+    }
+
+
+    drawDisappearingNumber(
+        ctx: CanvasRenderingContext2D,
+        cellKey: string,
+        x: number,
+        y: number,
+        spriteSize: number,
+    ) {
+        const entry = this.numberDisappearProgress.get(cellKey)
+        if (!entry) {
+            return
+        }
+        const sourceX = (entry.value - 1) * spriteSize
+        const sourceY = getSpriteY(spriteSize, 'userValueNumber', 'none')
+        const cx = x + this.cellSize / 2
+        const cy = y + this.cellSize / 2
+        this.drawScaledImage(
+            ctx,
+            sourceX,
+            sourceY,
+            spriteSize,
+            x,
+            y,
+            this.cellSize,
+            cx,
+            cy,
+            easing.easeIn(1 - entry.progress)
+        )
+    }
+
+
+    drawDisappearingCandidates(
+        ctx: CanvasRenderingContext2D,
+        cellKey: string,
+        x: number,
+        y: number,
+        spriteSize: number,
+    ) {
+        const disappearMap = this.candidateDisappearProgress.get(cellKey)
+        if (!disappearMap) {
+            return
+        }
+        for (const [number, progress] of disappearMap) {
+            const sourceX = (number - 1) * spriteSize
+            const sourceY = getSpriteY(spriteSize, 'candidateNumber', 'none')
+            const cx = x + this.candidateSubXMap.get(number)! + this.candidateSubSize / 2
+            const cy = y + this.candidateSubYMap.get(number)! + this.candidateSubSize / 2
+            this.drawScaledImage(
+                ctx,
+                sourceX,
+                sourceY,
+                spriteSize,
+                x,
+                y,
+                this.cellSize,
+                cx,
+                cy,
+                easing.easeIn(1 - progress)
+            )
+        }
+    }
+
+
     renderCellBackground(ctx: CanvasRenderingContext2D, row: number, col: number, colorMap?: Map<number, number>) {
         const cell = this.cells.get(`${row},${col}`)
 
@@ -1779,6 +2073,10 @@ class ArchipeladokuBoard extends HTMLElement {
                     : spriteState === 'active' ? colors.cellBgActive[this.colorScheme]
                     : colors.cellBg[this.colorScheme]
                 ctx.fillRect(x, y, this.cellSize, this.cellSize)
+
+                const cellKey = `${row},${col}`
+                this.drawDisappearingNumberBg(ctx, cellKey, x, y, spriteSize, colorMap, spriteState)
+                this.drawDisappearingCandidateBgs(ctx, cellKey, x, y, spriteSize, colorMap, spriteState)
 
                 break
             }
@@ -1812,8 +2110,9 @@ class ArchipeladokuBoard extends HTMLElement {
                 const bgNumber = colorMap?.get(cell.number) ?? cell.number
                 const sourceX = (bgNumber - 1) * spriteSize
                 const sourceY = getSpriteY(spriteSize, spriteType, spriteState)
-                const cellError = this.cellErrors.get(`${row},${col}`)
-                const numberState = cellError ? 'error' : 'none'
+                const cellKey = `${row},${col}`
+                const cx = x + this.cellSize / 2
+                const cy = y + this.cellSize / 2
 
                 if (spriteType === 'userValue' && colorMap != this.oldColorMap) {
                     ctx.fillStyle = spriteState === 'hover' ? colors.cellBgHover[this.colorScheme]
@@ -1822,17 +2121,118 @@ class ArchipeladokuBoard extends HTMLElement {
                     ctx.fillRect(x, y, this.cellSize, this.cellSize)
                 }
 
-                ctx.drawImage(
-                    this.spriteCanvas,
-                    sourceX,
-                    sourceY,
-                    spriteSize,
-                    spriteSize,
-                    x,
-                    y,
-                    this.cellSize,
-                    this.cellSize
-                )
+                if (cell.type === 'single') {
+                    this.drawDisappearingCandidateBgs(ctx, cellKey, x, y, spriteSize, colorMap, spriteState)
+
+                    const disappearEntry = this.numberDisappearProgress.get(cellKey)
+                    const appearProgress = this.numberAppearProgress.get(cellKey)
+
+                    if (disappearEntry) {
+                        const disappearBgNumber = colorMap?.get(disappearEntry.value) ?? disappearEntry.value
+                        const disappearSrcX = (disappearBgNumber - 1) * spriteSize
+                        const disappearSrcY = getSpriteY(spriteSize, 'userValue', spriteState)
+                        ctx.save()
+                        ctx.globalAlpha = easing.easeIn(1 - disappearEntry.progress)
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            disappearSrcX,
+                            disappearSrcY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                        ctx.restore()
+                        ctx.save()
+                        ctx.globalAlpha = easing.easeOut(appearProgress ?? 1)
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                        ctx.restore()
+                    } else if (appearProgress !== undefined) {
+                        this.drawScaledImage(
+                            ctx,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            cx,
+                            cy,
+                            easing.easeOut(appearProgress)
+                        )
+                    } else {
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                    }
+                } else {
+                    const appearProgress = this.numberAppearProgress.get(cellKey)
+                    const disappearEntry = this.numberDisappearProgress.get(cellKey)
+
+                    if (disappearEntry) {
+                        const disappearBgNumber = colorMap?.get(disappearEntry.value) ?? disappearEntry.value
+                        const disappearSourceX = (disappearBgNumber - 1) * spriteSize
+                        const disappearSourceY = getSpriteY(spriteSize, 'userValue', 'none')
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            disappearSourceX,
+                            disappearSourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                    }
+
+                    if (appearProgress !== undefined) {
+                        this.drawScaledImage(
+                            ctx,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            cx,
+                            cy,
+                            easing.easeOut(appearProgress)
+                        )
+                    } else {
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                    }
+                }
 
                 break
             }
@@ -1844,25 +2244,50 @@ class ArchipeladokuBoard extends HTMLElement {
                     ctx.fillRect(x, y, this.cellSize, this.cellSize)
                 }
 
+                const cellKey = `${row},${col}`
+                const appearMap = this.candidateAppearProgress.get(cellKey)
+
+                this.drawDisappearingNumberBg(ctx, cellKey, x, y, spriteSize, colorMap, spriteState)
+
                 for (const number of cell.numbers) {
                     const bgNumber = colorMap?.get(number) ?? number
                     const sourceX = (bgNumber - 1) * spriteSize
                     const sourceY = getSpriteY(spriteSize, 'userValue', spriteState)
                     const subX = x + this.candidateSubXMap.get(number)!
                     const subY = y + this.candidateSubYMap.get(number)!
+                    const subCx = subX + this.candidateSubSize / 2
+                    const subCy = subY + this.candidateSubSize / 2
 
-                    ctx.drawImage(
-                        this.spriteCanvas,
-                        sourceX,
-                        sourceY,
-                        spriteSize,
-                        spriteSize,
-                        subX,
-                        subY,
-                        this.candidateSubSize,
-                        this.candidateSubSize
-                    )
+                    const appearProgress = appearMap?.get(number)
+                    if (appearProgress !== undefined) {
+                        this.drawScaledImage(
+                            ctx,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            subX,
+                            subY,
+                            this.candidateSubSize,
+                            subCx,
+                            subCy,
+                            easing.easeOut(appearProgress)
+                        )
+                    } else {
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            subX,
+                            subY,
+                            this.candidateSubSize,
+                            this.candidateSubSize
+                        )
+                    }
                 }
+
+                this.drawDisappearingCandidateBgs(ctx, cellKey, x, y, spriteSize, colorMap, spriteState)
 
                 break
             }
@@ -1884,6 +2309,10 @@ class ArchipeladokuBoard extends HTMLElement {
 
         switch (cell.type) {
             case 'empty': {
+                const cellKey = `${row},${col}`
+                this.drawDisappearingNumber(ctx, cellKey, x, y, spriteSize)
+                this.drawDisappearingCandidates(ctx, cellKey, x, y, spriteSize)
+
                 if (cell.dimmed) {
                     ctx.fillStyle = colors.cellDimmed[this.colorScheme]
                     ctx.fillRect(x, y, this.cellSize, this.cellSize)
@@ -1906,18 +2335,135 @@ class ArchipeladokuBoard extends HTMLElement {
                 const numberState = cellError ? 'error' : 'none'
                 const sourceX = (cell.number - 1) * spriteSize
                 const sourceY = getSpriteY(spriteSize, spriteType, numberState)
+                const cellKey = `${row},${col}`
+                const cx = x + this.cellSize / 2
+                const cy = y + this.cellSize / 2
 
-                ctx.drawImage(
-                    this.spriteCanvas,
-                    sourceX,
-                    sourceY,
-                    spriteSize,
-                    spriteSize,
-                    x,
-                    y,
-                    this.cellSize,
-                    this.cellSize
-                )
+                if (cell.type === 'single') {
+                    this.drawDisappearingCandidates(ctx, cellKey, x, y, spriteSize)
+
+                    const disappearEntry = this.numberDisappearProgress.get(cellKey)
+                    const appearProgress = this.numberAppearProgress.get(cellKey)
+
+                    if (disappearEntry) {
+                        const disappearSrcX = (disappearEntry.value - 1) * spriteSize
+                        const disappearSrcY = getSpriteY(spriteSize, 'userValueNumber', 'none')
+                        ctx.save()
+                        ctx.globalAlpha = easing.easeIn(1 - disappearEntry.progress)
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            disappearSrcX,
+                            disappearSrcY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                        ctx.restore()
+                        ctx.save()
+                        ctx.globalAlpha = easing.easeOut(appearProgress ?? 1)
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                        ctx.restore()
+                    } else if (appearProgress !== undefined) {
+                        this.drawScaledImage(
+                            ctx,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            cx,
+                            cy,
+                            easing.easeOut(appearProgress)
+                        )
+                    } else {
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                    }
+                } else {
+                    const appearProgress = this.numberAppearProgress.get(cellKey)
+                    const disappearEntry = this.numberDisappearProgress.get(cellKey)
+
+                    if (disappearEntry) {
+                        const disappearSourceX = (disappearEntry.value - 1) * spriteSize
+                        const disappearSourceY = getSpriteY(spriteSize, 'userValueNumber', 'none')
+                        ctx.save()
+                        ctx.globalAlpha = easing.easeIn(1 - disappearEntry.progress)
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            disappearSourceX,
+                            disappearSourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                        ctx.restore()
+                        ctx.save()
+                        ctx.globalAlpha = easing.easeOut(appearProgress ?? 1)
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                        ctx.restore()
+                    } else if (appearProgress !== undefined) {
+                        this.drawScaledImage(
+                            ctx,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            cx,
+                            cy,
+                            easing.easeOut(appearProgress)
+                        )
+                    } else {
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                    }
+                }
 
                 if (cellError) {
                     this.renderCellError(ctx, row, col, cellError)
@@ -1931,23 +2477,46 @@ class ArchipeladokuBoard extends HTMLElement {
                 break
             }
             case 'candidates': {
+                const cellKey = `${row},${col}`
+                const appearMap = this.candidateAppearProgress.get(cellKey)
+
+                this.drawDisappearingNumber(ctx, cellKey, x, y, spriteSize)
+
                 for (const number of cell.numbers) {
                     const cellError = this.cellErrors.get(`${row},${col},${number}`)
                     const numberState = cellError ? 'error' : 'none'
                     const sourceX = (number - 1) * spriteSize
                     const sourceY = getSpriteY(spriteSize, 'candidateNumber', numberState)
+                    const subCx = x + this.candidateSubXMap.get(number)! + this.candidateSubSize / 2
+                    const subCy = y + this.candidateSubYMap.get(number)! + this.candidateSubSize / 2
 
-                    ctx.drawImage(
-                        this.spriteCanvas,
-                        sourceX,
-                        sourceY,
-                        spriteSize,
-                        spriteSize,
-                        x,
-                        y,
-                        this.cellSize,
-                        this.cellSize
-                    )
+                    const appearProgress = appearMap?.get(number)
+                    if (appearProgress !== undefined) {
+                        this.drawScaledImage(
+                            ctx,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            subCx,
+                            subCy,
+                            easing.easeOut(appearProgress)
+                        )
+                    } else {
+                        ctx.drawImage(
+                            this.spriteCanvas,
+                            sourceX,
+                            sourceY,
+                            spriteSize,
+                            spriteSize,
+                            x,
+                            y,
+                            this.cellSize,
+                            this.cellSize
+                        )
+                    }
 
                     if (cellError) {
                         this.renderCandidateError(ctx, row, col, number, cellError)
@@ -1957,6 +2526,8 @@ class ArchipeladokuBoard extends HTMLElement {
                         this.renderCandidateDimmedOverlay(ctx, x, y, number)
                     }
                 }
+
+                this.drawDisappearingCandidates(ctx, cellKey, x, y, spriteSize)
 
                 if (cell.dimmed) {
                     ctx.fillStyle = colors.cellDimmed[this.colorScheme]

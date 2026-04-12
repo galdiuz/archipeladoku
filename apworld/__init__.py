@@ -405,6 +405,7 @@ class ArchipeladokuWorld(World):
             "seed": self.random.getrandbits(32),
             "duplicateProgressionCount": self.duplicate_progression_count,
             "fillerCounts": self.filler_counts,
+            "deathLink": self.options.death_link.value,
         }
 
 

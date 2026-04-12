@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from Options import Choice, NamedRange, PerGameCommonOptions, Range
+import Options
 
 
-class BlockSize(Choice):
+class BlockSize(Options.Choice):
     """The size of a single block (and the width/height of each board)."""
     display_name = "Block Size"
     option_4 = 4
@@ -14,7 +14,7 @@ class BlockSize(Choice):
     default = 9
 
 
-class BoardsPerCluster(Choice):
+class BoardsPerCluster(Options.Choice):
     """How many boards to put in each cluster of overlapping boards.
     1 creates individual boards without clusters, 100 puts all boards into a
     single big cluster.
@@ -28,7 +28,7 @@ class BoardsPerCluster(Choice):
     default = 5
 
 
-class NumberOfBoards(Range):
+class NumberOfBoards(Options.Range):
     """How many boards to generate. Maximum depend on block size:
     - 4-9: 100 boards
     - 12: 64 boards
@@ -40,7 +40,7 @@ class NumberOfBoards(Range):
     default = 5
 
 
-class Difficulty(Choice):
+class Difficulty(Options.Choice):
     """The overall difficulty level. Solving techniques required:
     - Beginner: Naked/hidden singles.
     - Easy: Pointing pairs, box line reduction.
@@ -57,7 +57,7 @@ class Difficulty(Choice):
     default = 2
 
 
-class Progression(Choice):
+class Progression(Options.Choice):
     """How blocks are unlocked during the game.
     - Fixed: Blocks are unlocked by progressive block items in a fixed order. Smoother progression.
     - Shuffled: Blocks are unlocked by specific block items. More chaotic progression.
@@ -68,7 +68,7 @@ class Progression(Choice):
     default = "shuffled"
 
 
-class DuplicateProgression(Range):
+class DuplicateProgression(Options.Range):
     """Percent of progression items that should be duplicated.
     - For Fixed progression higher values may lead to progression being too fast and as such a
       lower value is recommended.
@@ -81,7 +81,7 @@ class DuplicateProgression(Range):
     default = 0
 
 
-class LocationScouting(Choice):
+class LocationScouting(Options.Choice):
     """How scouting of locations is handled.
     - Auto: Locations are scouted automatically when fully revealed.
     - Manual: Locations can be scouted manually.
@@ -94,7 +94,7 @@ class LocationScouting(Choice):
     default = "manual"
 
 
-class SolveSelectedCellRatio(Range):
+class SolveSelectedCellRatio(Options.Range):
     """Ratio of Solve Selected Cell filler items to number of boards, in percent."""
     display_name = "Filler Ratio: Solve Selected Cell"
     range_start = 0
@@ -102,7 +102,7 @@ class SolveSelectedCellRatio(Range):
     default = 100
 
 
-class SolveRandomCellRatio(Range):
+class SolveRandomCellRatio(Options.Range):
     """Ratio of Solve Random Cell filler items to number of boards, in percent."""
     display_name = "Filler Ratio: Solve Random Cell"
     range_start = 0
@@ -110,7 +110,7 @@ class SolveRandomCellRatio(Range):
     default = 150
 
 
-class RemoveRandomCandidateRatio(Range):
+class RemoveRandomCandidateRatio(Options.Range):
     """Ratio of Remove Random Candidate filler items to number of boards, in percent."""
     display_name = "Filler Ratio: Remove Random Candidate"
     range_start = 0
@@ -118,7 +118,7 @@ class RemoveRandomCandidateRatio(Range):
     default = 300
 
 
-class EmojiTrapRatio(Range):
+class EmojiTrapRatio(Options.Range):
     """Ratio of Emoji Trap filler items to number of boards, in percent.
     When received your numbers will be replaced with emojis for a time.
     """
@@ -128,7 +128,7 @@ class EmojiTrapRatio(Range):
     default = 20
 
 
-class DiscoTrapRatio(Range):
+class DiscoTrapRatio(Options.Range):
     """Ratio of Disco Trap filler items to number of boards, in percent.
     When received all cells will shift colors for a time.
     """
@@ -138,7 +138,7 @@ class DiscoTrapRatio(Range):
     default = 20
 
 
-class TunnelVisionTrapRatio(Range):
+class TunnelVisionTrapRatio(Options.Range):
     """Ratio of Tunnel Vision Trap filler items to number of boards, in percent.
     When received you will only be able to see a small area of the board for a time.
     """
@@ -148,7 +148,7 @@ class TunnelVisionTrapRatio(Range):
     default = 20
 
 
-class PreFillNothingsPercent(Range):
+class PreFillNothingsPercent(Options.Range):
     """Percentage of Nothing items that should be pre-filled, forcing them to be placed in
     an Archipeladoku game and thus excluding them from other games.
     Caution: This reduces the number of filler items in the item pool. Having few fillers can lead
@@ -161,8 +161,16 @@ class PreFillNothingsPercent(Range):
     default = 50
 
 
+class DeathLink(Options.DeathLink):
+    """Enable Death Link. When a player with death link enabled dies all other players that also
+    enabled it die as well. Archipeladoku can only receive death links, not send them. When a death
+    link is received all non-given numbers will be cleared. This can also be toggled in the client
+    from the Debug menu.
+    """
+
+
 @dataclass
-class ArchipeladokuOptions(PerGameCommonOptions):
+class ArchipeladokuOptions(Options.PerGameCommonOptions):
     block_size: BlockSize
     boards_per_cluster: BoardsPerCluster
     number_of_boards: NumberOfBoards
@@ -177,3 +185,4 @@ class ArchipeladokuOptions(PerGameCommonOptions):
     disco_trap_ratio: DiscoTrapRatio
     tunnel_vision_trap_ratio: TunnelVisionTrapRatio
     pre_fill_nothings_percent: PreFillNothingsPercent
+    death_link: DeathLink

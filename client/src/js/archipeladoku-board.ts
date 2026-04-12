@@ -13,6 +13,7 @@ interface BoardData {
     fireworks: boolean
     animationsEnabled: boolean
     candidateLayout: number
+    deathLinkTriggers: number
 }
 
 
@@ -325,6 +326,29 @@ interface BlastParticle {
 }
 
 
+interface BlackHoleNumber {
+    key: string
+    number: number
+    isCandidate: boolean
+    startX: number
+    startY: number
+    delay: number
+}
+
+
+interface BlackHole {
+    progress: number
+    holeX: number
+    holeY: number
+    maxRadius: number
+    growDuration: number
+    shrinkStartTime: number
+    travelDuration: number
+    totalDuration: number
+    numbers: BlackHoleNumber[]
+}
+
+
 interface TrailParticle {
     id: number
     x: number
@@ -564,6 +588,8 @@ class ArchipeladokuBoard extends HTMLElement {
     numberDisappearProgress: Map<string, { progress: number, value: number }> = new Map()
     candidateAppearProgress: Map<string, Map<number, number>> = new Map()
     candidateDisappearProgress: Map<string, Map<number, number>> = new Map()
+    deathLinkTriggers: number = 0
+    blackHole: BlackHole | null = null
 
 
     constructor() {
@@ -674,6 +700,9 @@ class ArchipeladokuBoard extends HTMLElement {
             this.candidateSubSize = size / blockCols
         }
 
+        const oldDeathLinkTriggers = this.deathLinkTriggers
+        this.deathLinkTriggers = value.deathLinkTriggers
+
         const oldCells = new Map(this.cells)
 
         this.cells.clear()
@@ -682,7 +711,11 @@ class ArchipeladokuBoard extends HTMLElement {
         }
 
         if (value.animationsEnabled) {
-            this.diffCellsAndAnimate(oldCells)
+            if (value.deathLinkTriggers > oldDeathLinkTriggers) {
+                this.startBlackHoleAnimation(oldCells)
+            } else {
+                this.diffCellsAndAnimate(oldCells)
+            }
         }
 
         const numberMap = new Map<number, string>()
@@ -1544,6 +1577,112 @@ class ArchipeladokuBoard extends HTMLElement {
     }
 
 
+    startBlackHoleAnimation(oldCells: Map<string, CellValue>) {
+        const now = performance.now()
+        const cellSizeWithGap = this.cellSize + this.cellGap
+        const { viewport } = this
+        const dpr = window.devicePixelRatio || 1
+        const width = this.canvas.width / dpr
+        const height = this.canvas.height / dpr
+
+        let minBoardX = Infinity
+        let minBoardY = Infinity
+        let maxBoardX = -Infinity
+        let maxBoardY = -Infinity
+        for (const board of this.boards) {
+            minBoardX = Math.min(minBoardX, (board.startCol - 1) * cellSizeWithGap - this.cellGap)
+            minBoardY = Math.min(minBoardY, (board.startRow - 1) * cellSizeWithGap - this.cellGap)
+            maxBoardX = Math.max(maxBoardX, board.endCol * cellSizeWithGap)
+            maxBoardY = Math.max(maxBoardY, board.endRow * cellSizeWithGap)
+        }
+
+        const viewCenterX = (width / 2 - viewport.x) / viewport.scale
+        const viewTopQuarterY = (height * 0.25 - viewport.y) / viewport.scale
+        const margin = this.cellSize * 4
+
+        const holeX = Math.max(minBoardX - margin, Math.min(maxBoardX + margin, viewCenterX))
+        const holeY = Math.max(minBoardY - margin, Math.min(maxBoardY + margin, viewTopQuarterY))
+        const maxRadius = this.cellSize * 1.5
+
+        const numbers: BlackHoleNumber[] = []
+
+        for (const [key, oldCell] of oldCells) {
+            const [row, col] = key.split(',').map(Number) as [number, number]
+            const cellX = (col - 1) * cellSizeWithGap
+            const cellY = (row - 1) * cellSizeWithGap
+
+            if (this.cells.get(key)?.type !== 'empty') {
+                continue
+            }
+
+            if (oldCell.type === 'single') {
+                const startX = cellX + this.cellSize / 2
+                const startY = cellY + this.cellSize / 2
+                const distSq = (startX - holeX) ** 2 + (startY - holeY) ** 2
+
+                numbers.push({
+                    key,
+                    number: oldCell.number,
+                    isCandidate: false,
+                    startX: startX,
+                    startY: startY,
+                    delay: distSq < maxRadius ** 2 ? 0 : Math.random() * 1000,
+                })
+            } else if (oldCell.type === 'candidates') {
+                for (const n of oldCell.numbers) {
+                    const subX = this.candidateSubXMap.get(n) ?? 0
+                    const subY = this.candidateSubYMap.get(n) ?? 0
+                    const startX = cellX + subX + this.candidateSubSize / 2
+                    const startY = cellY + subY + this.candidateSubSize / 2
+                    const distSq = (startX - holeX) ** 2 + (startY - holeY) ** 2
+
+                    numbers.push({
+                        key,
+                        number: n,
+                        isCandidate: true,
+                        startX: startX,
+                        startY: startY,
+                        delay: distSq < maxRadius ** 2 ? 0 : Math.random() * 1000,
+                    })
+                }
+            }
+        }
+
+        const maxDelay = numbers.length > 0 ? Math.max(...numbers.map(n => n.delay)) : 0
+        const growDuration = 700
+        const travelDuration = 1500
+        const shrinkDuration = 700
+        const shrinkStartTime = maxDelay + travelDuration
+        const totalDuration = shrinkStartTime + shrinkDuration
+
+        this.blackHole = {
+            progress: 0,
+            holeX,
+            holeY,
+            maxRadius,
+            growDuration,
+            shrinkStartTime,
+            travelDuration,
+            totalDuration,
+            numbers,
+        }
+
+        this.addAnimation({
+            id: 'blackHole',
+            startTime: now,
+            duration: totalDuration,
+            onUpdate: (progress) => {
+                if (this.blackHole) {
+                    this.blackHole.progress = progress
+                }
+            },
+            onComplete: () => {
+                this.blackHole = null
+            },
+        })
+    }
+
+
     requestRender() {
         if (this.renderRequested || this.isAnimating) {
             return
@@ -1870,6 +2009,10 @@ class ArchipeladokuBoard extends HTMLElement {
             )
         }
 
+        if (this.blackHole) {
+            this.renderBlackHole(ctx)
+        }
+
         for (const effect of this.cellShatterEffects.values()) {
             if (effect.shardProgress > 0
                 && effect.row >= startRow - 5
@@ -1898,6 +2041,264 @@ class ArchipeladokuBoard extends HTMLElement {
         this.renderFireworks(ctx, timestamp)
 
         ctx.restore()
+    }
+
+
+    renderBlackHole(ctx: CanvasRenderingContext2D) {
+        const blackHole = this.blackHole!
+        const spriteSize = this.getSpriteSize()
+        const elapsed = blackHole.progress * blackHole.totalDuration
+        const { holeX, holeY, maxRadius } = blackHole
+
+        let holeRadius: number
+        if (elapsed < blackHole.growDuration) {
+            holeRadius = easing.easeOut(elapsed / blackHole.growDuration) * maxRadius
+        } else if (elapsed < blackHole.shrinkStartTime) {
+            holeRadius = maxRadius
+        } else {
+            const shrinkProgress = (elapsed - blackHole.shrinkStartTime) / (blackHole.totalDuration - blackHole.shrinkStartTime)
+            holeRadius = (1 - easing.easeIn(shrinkProgress)) * maxRadius
+        }
+
+        if (holeRadius > 0) {
+            const outerRadius = holeRadius * 3
+            const maxTheta = Math.PI * 4
+            const logRatio = Math.log(outerRadius / (holeRadius * 0.1))
+
+            const armSets = [
+                {
+                    numArms: 3,
+                    rotation: (elapsed / 3000) * Math.PI * 2,
+                    angleOffset: 0,
+                    dashPattern: [holeRadius * 0.3, holeRadius * 0.2],
+                    dashOffset: -(elapsed / 200) * (holeRadius * 0.3),
+                    lineWidth: holeRadius * 0.07,
+                    gradientStops: [
+                        { stop: 0,    color: 'hsl(280 80 60 / 0)'   },
+                        { stop: 0.25, color: 'hsl(280 80 60 / 0.9)' },
+                        { stop: 1,    color: 'hsl(280 80 60 / 0.1)' },
+                    ],
+                    k: logRatio / (2.5 * Math.PI * 2),
+                },
+                {
+                    numArms: 4,
+                    rotation: (elapsed / 2000) * Math.PI * 2,
+                    angleOffset: Math.PI / 8,
+                    dashPattern: [holeRadius * 0.2, holeRadius * 0.3],
+                    dashOffset: -(elapsed / 100) * (holeRadius * 0.2),
+                    lineWidth: holeRadius * 0.05,
+                    gradientStops: [
+                        { stop: 0,    color: 'hsl(210 80 70 / 0)'    },
+                        { stop: 0.25, color: 'hsl(210 80 70 / 0.7)'  },
+                        { stop: 1,    color: 'hsl(210 80 70 / 0.05)' },
+                    ],
+                    k: logRatio / (1.5 * Math.PI * 2),
+                },
+            ]
+
+            for (const armSet of armSets) {
+                const gradient = ctx.createRadialGradient(holeX, holeY, holeRadius, holeX, holeY, outerRadius)
+                for (const { stop, color } of armSet.gradientStops) {
+                    gradient.addColorStop(stop, color)
+                }
+
+                for (let arm = 0; arm < armSet.numArms; arm++) {
+                    const armAngle = arm * (Math.PI * 2 / armSet.numArms) + armSet.rotation + armSet.angleOffset
+                    ctx.save()
+                    ctx.beginPath()
+                    let started = false
+                    for (let i = 0; i <= 80; i++) {
+                        const theta = (i / 80) * maxTheta
+                        const r = outerRadius * Math.exp(-armSet.k * theta)
+                        if (r < holeRadius * 0.05) break
+                        const px = holeX + r * Math.cos(theta + armAngle)
+                        const py = holeY + r * Math.sin(theta + armAngle)
+                        if (!started) { ctx.moveTo(px, py); started = true } else { ctx.lineTo(px, py) }
+                    }
+                    ctx.setLineDash(armSet.dashPattern)
+                    ctx.lineDashOffset = armSet.dashOffset
+                    ctx.strokeStyle = gradient
+                    ctx.lineWidth = armSet.lineWidth
+                    ctx.stroke()
+                    ctx.setLineDash([])
+                    ctx.restore()
+                }
+
+            }
+
+            // Colored border circle — orbits slightly off-center so the black circle
+            // masks it unevenly, producing a wobbly border
+            const borderThickness = holeRadius * 0.02
+            const orbitRadius = borderThickness * 0.85
+            const orbitAngle = (elapsed / 1000) * Math.PI * 2
+            const borderHue = 280 + Math.sin(elapsed / 300) * 35
+            ctx.beginPath()
+            ctx.arc(
+                holeX + Math.cos(orbitAngle) * orbitRadius,
+                holeY + Math.sin(orbitAngle) * orbitRadius,
+                holeRadius + borderThickness,
+                0,
+                Math.PI * 2,
+            )
+            ctx.fillStyle = `hsl(${borderHue.toFixed(1)} 80 60)`
+            ctx.fill()
+
+            // Black circle
+            ctx.beginPath()
+            ctx.arc(holeX, holeY, holeRadius, 0, Math.PI * 2)
+            ctx.fillStyle = '#000000'
+            ctx.fill()
+
+            const particleSets = [
+                {
+                    angleOffset: 0,
+                    color: '280 80 90',
+                    speed: 1200,
+                    size: holeRadius * 0.05,
+                    k: logRatio / (1.5 * Math.PI * 2),
+                },
+                {
+                    angleOffset: Math.PI / 8,
+                    color: '210 80 80',
+                    speed: 1500,
+                    size: holeRadius * 0.06,
+                    k: logRatio / (3.0 * Math.PI * 2),
+                },
+            ]
+
+            // Infalling particles — spiral inward, shrink into hole
+            for (const particleSet of particleSets) {
+                const numParticles = 12
+                for (let p = 0; p < numParticles; p++) {
+                    const cycleT = ((p / numParticles) + elapsed / particleSet.speed) % 1
+                    const r = outerRadius * (1 - cycleT)
+                    const clampedR = Math.max(r, holeRadius * 0.02)
+                    const spiralTheta = Math.log(outerRadius / clampedR) / particleSet.k
+                    const baseAngle = (p / numParticles) * Math.PI * 2 + particleSet.angleOffset
+                    const angle = baseAngle + spiralTheta
+
+                    const px = holeX + r * Math.cos(angle)
+                    const py = holeY + r * Math.sin(angle)
+
+                    const sizeScale = r < holeRadius ? r / holeRadius : 1
+                    const size = particleSet.size * sizeScale
+
+                    const outerFade = Math.min(1, (outerRadius - r) / (outerRadius * 0.15))
+                    const innerFade = r < holeRadius ? r / holeRadius : 1
+                    const opacity = outerFade * innerFade
+
+                    if (size <= 0 || opacity <= 0) {
+                        continue
+                    }
+
+                    ctx.beginPath()
+                    ctx.arc(px, py, size, 0, Math.PI * 2)
+                    ctx.fillStyle = `hsl(${particleSet.color} / ${opacity.toFixed(2)})`
+                    ctx.fill()
+                }
+            }
+        }
+
+        // Numbers being sucked in
+        for (const num of blackHole.numbers) {
+            const numElapsed = elapsed - num.delay
+            const t = numElapsed < 0 ? 0 : Math.min(numElapsed / blackHole.travelDuration, 1)
+            const easedT = easing.easeIn(t)
+
+            const currentX = num.startX + (holeX - num.startX) * easedT
+            const currentY = num.startY + (holeY - num.startY) * easedT
+
+            const totalDist = Math.sqrt((holeX - num.startX) ** 2 + (holeY - num.startY) ** 2)
+            const shrinkStartEasedT = totalDist > 0 ? Math.max(0, 1 - maxRadius / totalDist) : 0
+
+            const scale = easedT <= shrinkStartEasedT ? 1
+                : shrinkStartEasedT < 1 ? 1 - (easedT - shrinkStartEasedT) / (1 - shrinkStartEasedT)
+                : 0
+
+            if (scale <= 0) {
+                continue
+            }
+
+            const bgNumber = this.colorMap.get(num.number) ?? num.number
+            const bgSourceX = (bgNumber - 1) * spriteSize
+            const bgSourceY = getSpriteY(spriteSize, 'userValue', 'none')
+
+            if (num.isCandidate) {
+                const subXRel = this.candidateSubXMap.get(num.number) ?? 0
+                const subYRel = this.candidateSubYMap.get(num.number) ?? 0
+                const halfSubSize = this.candidateSubSize / 2
+
+                ctx.save()
+                ctx.translate(currentX, currentY)
+                ctx.scale(scale, scale)
+                ctx.drawImage(
+                    this.spriteCanvas,
+                    bgSourceX,
+                    bgSourceY,
+                    spriteSize,
+                    spriteSize,
+                    -halfSubSize,
+                    -halfSubSize,
+                    this.candidateSubSize,
+                    this.candidateSubSize,
+                )
+                ctx.restore()
+
+                const digitSourceX = (num.number - 1) * spriteSize
+                const digitSourceY = getSpriteY(spriteSize, 'candidateNumber', 'none')
+                ctx.save()
+                ctx.translate(currentX, currentY)
+                ctx.scale(scale, scale)
+                ctx.drawImage(
+                    this.spriteCanvas,
+                    digitSourceX,
+                    digitSourceY,
+                    spriteSize,
+                    spriteSize,
+                    -(subXRel + halfSubSize),
+                    -(subYRel + halfSubSize),
+                    this.cellSize,
+                    this.cellSize,
+                )
+                ctx.restore()
+            } else {
+                const halfSize = this.cellSize / 2
+
+                ctx.save()
+                ctx.translate(currentX, currentY)
+                ctx.scale(scale, scale)
+                ctx.drawImage(
+                    this.spriteCanvas,
+                    bgSourceX,
+                    bgSourceY,
+                    spriteSize,
+                    spriteSize,
+                    -halfSize,
+                    -halfSize,
+                    this.cellSize,
+                    this.cellSize,
+                )
+                ctx.restore()
+
+                const digitSourceX = (num.number - 1) * spriteSize
+                const digitSourceY = getSpriteY(spriteSize, 'userValueNumber', 'none')
+                ctx.save()
+                ctx.translate(currentX, currentY)
+                ctx.scale(scale, scale)
+                ctx.drawImage(
+                    this.spriteCanvas,
+                    digitSourceX,
+                    digitSourceY,
+                    spriteSize,
+                    spriteSize,
+                    -halfSize,
+                    -halfSize,
+                    this.cellSize,
+                    this.cellSize,
+                )
+                ctx.restore()
+            }
+        }
     }
 
 

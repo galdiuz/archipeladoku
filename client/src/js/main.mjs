@@ -97,6 +97,7 @@ app.ports.connect?.subscribe(data => {
     client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
         .then(slotData => {
             app.ports.receiveHintCost.send(client.room.hintCost)
+            app.ports.receiveSlotData.send(slotData)
 
             IDB.get(slotData.seed, store)
                 .then(savedGame => {
@@ -106,7 +107,6 @@ app.ports.connect?.subscribe(data => {
                         app.ports.receiveOnlineGameSave.send(savedGame)
                     } else {
                         app.ports.receiveConnectionStatus.send(true)
-                        app.ports.receiveSlotData.send(slotData)
                         worker.postMessage({ type: 'generateBoard', data: slotData })
                     }
                 })
@@ -114,6 +114,10 @@ app.ports.connect?.subscribe(data => {
                     console.error('Error loading from IndexedDB:', error)
                     app.ports.receiveConnectionStatus.send(false)
                 })
+
+            if (slotData.deathLink === 1) {
+                client.deathLink.enableDeathLink()
+            }
         })
         .catch(error => {
             console.error('Connection error:', error)
@@ -183,6 +187,14 @@ app.ports.sendMessage?.subscribe(text => {
 
 app.ports.sendPlayingStatus?.subscribe(() => {
     client.updateStatus(Archipelago.clientStatuses.playing)
+})
+
+app.ports.setDeathLink?.subscribe(enabled => {
+    if (enabled) {
+        client.deathLink.enableDeathLink()
+    } else {
+        client.deathLink.disableDeathLink()
+    }
 })
 
 app.ports.setLocalStorage?.subscribe(kv => {
@@ -276,6 +288,10 @@ client.items.on('hintReceived', _ => {
         data.push(itemData(hint.item))
     }
     app.ports.receiveHints.send(data)
+})
+
+client.deathLink.on('deathReceived', (source, time, cause) => {
+    app.ports.receiveDeathLink.send({ source: source, time: time, cause: cause })
 })
 
 client.messages.on('adminCommand', (text, nodes) => {

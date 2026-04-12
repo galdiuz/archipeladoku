@@ -45,6 +45,7 @@ port saveGameState : Encode.Value -> Cmd msg
 port scoutLocations : List Int -> Cmd msg
 port sendMessage : String -> Cmd msg
 port sendPlayingStatus : () -> Cmd msg
+port setDeathLink : Bool -> Cmd msg
 port setLocalStorage : (String, String) -> Cmd msg
 port triggerAnimation : Encode.Value -> Cmd msg
 port zoom : Encode.Value -> Cmd msg
@@ -52,6 +53,7 @@ port zoomReset : () -> Cmd msg
 
 port receiveCheckedLocations : (List Int -> msg) -> Sub msg
 port receiveConnectionStatus : (Bool -> msg) -> Sub msg
+port receiveDeathLink : (Decode.Value -> msg) -> Sub msg
 port receiveGeneratedBoard : (Decode.Value -> msg) -> Sub msg
 port receiveGenerationProgress : (Decode.Value -> msg) -> Sub msg
 port receiveHintCost : (Int -> msg) -> Sub msg
@@ -81,6 +83,9 @@ type alias Model =
     , colorScheme : String
     , connectionHistory : List ConnectionHistoryEntry
     , current : Dict ( Int, Int ) CellValue
+    , deathLinkEnabled : Bool
+    , deathLinkInput : Bool
+    , deathLinkTriggers : Int
     , discoTrapMap : Dict Int Int
     , discoTrapOffset : Int
     , discoTrapRatio : Int
@@ -187,6 +192,8 @@ type Msg
     | ColorSchemeChanged String
     | ConnectionHistoryQuickFillPressed ConnectionHistoryEntry
     | ConnectPressed
+    | DeathLinkInputChanged Bool
+    | DeathLinkTriggered Decode.Value
     | DeletePressed
     | DifficultyChanged Int
     | DiscoTrapRatioChanged Int
@@ -200,6 +207,7 @@ type Msg
     | EmojiTrapRatioInputChanged String
     | EmojiTrapVariantChanged String
     | EnableAnimationsChanged Bool
+    | EnableDeathLinkChanged Bool
     | FillBoardCandidatesPressed
     | FillCellCandidatesPressed
     | GenerateYamlPressed
@@ -317,6 +325,9 @@ init flagsValue =
       , colorScheme = "light dark"
       , connectionHistory = []
       , current = Dict.empty
+      , deathLinkEnabled = False
+      , deathLinkInput = False
+      , deathLinkTriggers = 0
       , discoTrapMap = Dict.empty
       , discoTrapOffset = 0
       , discoTrapRatio = 20
@@ -422,6 +433,7 @@ subscriptions model =
     Sub.batch
         [ receiveCheckedLocations GotCheckedLocations
         , receiveConnectionStatus GotConnectionStatus
+        , receiveDeathLink DeathLinkTriggered
         , receiveGeneratedBoard GotGeneratedBoard
         , receiveGenerationProgress GotGenerationProgress
         , receiveHintCost GotHintCost
@@ -534,6 +546,7 @@ update msg model =
                         )
                         model.current
                 , undoStack = pushUndoStack model
+                , deathLinkTriggers = model.deathLinkTriggers + 1
               }
             , Cmd.none
             )
@@ -570,6 +583,47 @@ update msg model =
                     ]
                 )
             )
+
+        DeathLinkInputChanged value ->
+            ( { model | deathLinkInput = value }
+            , Cmd.none
+            )
+
+        DeathLinkTriggered value ->
+            let
+                message : String
+                message =
+                    case Decode.decodeValue deathLinkDecoder value of
+                        Ok deathLink ->
+                            case deathLink.cause of
+                                Just cause ->
+                                    String.concat
+                                        [ "Death Link triggered by "
+                                        , deathLink.source
+                                        , ": "
+                                        , cause
+                                        , "."
+                                        ]
+
+                                Nothing ->
+                                    String.concat
+                                        [ "Death Link triggered by "
+                                        , deathLink.source
+                                        , "."
+                                        ]
+
+                        Err _ ->
+                            "Death Link triggered"
+            in
+            ( { model
+                | current = Dict.empty
+                , deathLinkTriggers = model.deathLinkTriggers + 1
+                , undoStack = []
+              }
+                |> addLocalMessage True message
+            , Cmd.none
+            )
+                |> andThen (updateState True)
 
         DeletePressed ->
             if Set.member model.selectedCell model.visibleCells
@@ -707,6 +761,11 @@ update msg model =
             , setLocalStorage ( "apdk-animations-enabled", if value then "1" else "0" )
             )
                 |> andThen updateBoardData
+
+        EnableDeathLinkChanged value ->
+            ( { model | deathLinkEnabled = value }
+            , setDeathLink value
+            )
 
         FillBoardCandidatesPressed ->
             let
@@ -1039,7 +1098,8 @@ update msg model =
             case Decode.decodeValue slotDataDecoder value of
                 Ok slotData ->
                     ( { model
-                        | locationScouting = slotData.locationScouting
+                        | deathLinkEnabled = slotData.deathLink
+                        , locationScouting = slotData.locationScouting
                         , progression = slotData.progression
                         , seedInput = slotData.seed
                       }
@@ -2135,6 +2195,12 @@ type ItemClass
     | Trap
 
 
+type alias DeathLink =
+    { source : String
+    , cause : Maybe String
+    }
+
+
 type alias Message =
     { nodes : List MessageNode
     , extra : MessageExtra
@@ -2189,7 +2255,8 @@ type MessageExtra
 
 
 type alias SlotData =
-    { locationScouting : LocationScouting
+    { deathLink : Bool
+    , locationScouting : LocationScouting
     , progression : Progression
     , seed : Int
     }
@@ -2592,6 +2659,13 @@ itemClassDecoder =
             )
 
 
+deathLinkDecoder : Decode.Decoder DeathLink
+deathLinkDecoder =
+    Decode.map2 DeathLink
+        (Decode.field "source" Decode.string)
+        (Decode.maybe (Decode.field "cause" Decode.string))
+
+
 messageDecoder : Decode.Decoder Message
 messageDecoder =
     Decode.map2 Message
@@ -2714,11 +2788,13 @@ messageNodeDecoder =
 
 slotDataDecoder : Decode.Decoder SlotData
 slotDataDecoder =
+    Field.optional "deathLink" Decode.int <| \deathLink ->
     Field.optional "locationScouting" locationScoutingDecoder <| \locationScouting ->
     Field.optional "progression" progressionDecoder <| \progression ->
     Field.require "seed" Decode.int <| \seed ->
     Decode.succeed
-        { locationScouting = Maybe.withDefault ScoutingManual locationScouting
+        { deathLink = Maybe.withDefault 0 deathLink == 1
+        , locationScouting = Maybe.withDefault ScoutingManual locationScouting
         , progression = Maybe.withDefault Shuffled progression
         , seed = seed
         }
@@ -2804,6 +2880,7 @@ buildOptionsYaml model =
                     , ( "disco_trap_ratio", yamlRecordValue <| String.fromInt model.discoTrapRatio )
                     , ( "tunnel_vision_trap_ratio", yamlRecordValue <| String.fromInt model.tunnelVisionTrapRatio )
                     , ( "pre_fill_nothings_percent", yamlRecordValue <| String.fromInt model.preFillNothingsPercent )
+                    , ( "death_link", yamlRecordValue (if model.deathLinkInput then "true" else "false") )
                     , ( "local_items", Yaml.Encode.list Yaml.Encode.string [] )
                     , ( "non_local_items", Yaml.Encode.list Yaml.Encode.string [] )
                     , ( "start_inventory", Yaml.Encode.record [] )
@@ -3080,6 +3157,7 @@ encodeData model =
         , ( "fireworks", Encode.bool (model.fireworksTimer > 0) )
         , ( "animationsEnabled", Encode.bool model.animationsEnabled )
         , ( "candidateLayout", Encode.int model.candidateLayout )
+        , ( "deathLinkTriggers", Encode.int model.deathLinkTriggers )
         ]
 
 
@@ -6886,6 +6964,27 @@ viewMenuOptionsArchipelago model =
                         )
                     ]
                 ]
+            , Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Death Link:"
+                    , viewOptionHint
+                        "death-link-hint"
+                        "Enable Death Link. When a player with death link enabled dies all other players that also enabled it die as well. Archipeladoku can only receive death links, not send them. When a death link is received all non-given numbers will be cleared. This can also be toggled in-game from the Debug menu."
+                    ]
+                , Html.div
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ viewRadioButton True model.deathLinkInput "death-link" DeathLinkInputChanged (\_ -> "Enabled")
+                    , viewRadioButton False model.deathLinkInput "death-link" DeathLinkInputChanged (\_ -> "Disabled")
+                    ]
+                ]
             ]
         ]
 
@@ -7643,7 +7742,7 @@ viewInfoPanelSettings model =
         ]
         [ Html.summary
             []
-            [ Html.text "Settings" ]
+            [ Html.text "Client Settings" ]
         , Html.div
             [ HA.class "column gap-m"
             , HA.style "align-items" "flex-start"
@@ -7809,6 +7908,27 @@ viewInfoPanelDebug model =
                 , HE.onClick CancelTrapsPressed
                 ]
                 [ Html.text "Cancel Traps" ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick (DeathLinkTriggered Encode.null)
+                ]
+                [ Html.text "Trigger Death Link" ]
+            , if model.gameIsLocal then
+                Html.text ""
+
+              else
+                Html.label
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.type_ "checkbox"
+                        , HA.checked model.deathLinkEnabled
+                        , HE.onCheck EnableDeathLinkChanged
+                        ]
+                        []
+                    , Html.text "Enable death link"
+                    ]
             ]
         ]
 

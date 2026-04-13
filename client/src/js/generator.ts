@@ -1304,6 +1304,8 @@ function removeGivenNumbers(cluster: Cell[], state: ClusterGenerationState): voi
 
     shuffleArray(indicesToRemove, state.rng)
 
+    const originalIndicesToRemove = [...indicesToRemove]
+
     const solutionBuffer: Int32Array = new Int32Array(totalArraySize)
 
     const clusterAreasList: PuzzleAreas[] = []
@@ -1325,47 +1327,45 @@ function removeGivenNumbers(cluster: Cell[], state: ClusterGenerationState): voi
         clusterLineIndices.push(getCellIndicesInArea(area))
     }
 
-    const originalIndicesToRemove = [...indicesToRemove]
+    // Restore givens until we reach a solvable state (might be unsolvable due to overlapping clusters).
+    while (true) {
+        solutionBuffer.set(state.givens)
+
+        const possibilitiesMap: PossibilitiesMap = createPossibilitiesMap(
+            state.blockSize,
+            state.peerMap,
+            clusterCellIndices,
+            solutionBuffer
+        )
+
+        const isSolvable: boolean = solveWithLogic(
+            solutionBuffer,
+            possibilitiesMap,
+            clusterCellIndices,
+            clusterAreaIndices,
+            clusterBlockIndices,
+            clusterLineIndices,
+            state
+        )
+
+        if (isSolvable) {
+            break
+        }
+
+        const emptyIndices: number[] = []
+        for (const cellIndex of clusterCellIndices) {
+            if (state.givens[cellIndex]! === 0) {
+                emptyIndices.push(cellIndex)
+            }
+        }
+
+        const restoreIndex = findBestCell(emptyIndices, possibilitiesMap)!
+        state.givens[restoreIndex] = state.solution[restoreIndex]!
+    }
+
     let retryCount = 0
 
     while (true) {
-        // Restore givens until we reach a solvable state (might be unsolvable due to overlapping clusters).
-        while (true) {
-            solutionBuffer.set(state.givens)
-
-            const possibilitiesMap: PossibilitiesMap = createPossibilitiesMap(
-                state.blockSize,
-                state.peerMap,
-                clusterCellIndices,
-                solutionBuffer
-            )
-
-            const isSolvable: boolean = solveWithLogic(
-                solutionBuffer,
-                possibilitiesMap,
-                clusterCellIndices,
-                clusterAreaIndices,
-                clusterBlockIndices,
-                clusterLineIndices,
-                state
-            )
-
-            if (isSolvable) {
-                break
-            }
-
-            const emptyIndices: number[] = []
-            for (const cellIndex of clusterCellIndices) {
-                if (state.givens[cellIndex]! === 0) {
-                    emptyIndices.push(cellIndex)
-                }
-            }
-
-            const restoreIndex = findBestCell(emptyIndices, possibilitiesMap)!
-            state.givens[restoreIndex] = state.solution[restoreIndex]!
-            indicesToRemove.push(restoreIndex)
-        }
-
         // Remove as many givens as possible while keeping the cluster solvable.
         for (const cellIndex of indicesToRemove) {
             const originalValue: number = state.solution[cellIndex]!
@@ -1426,7 +1426,7 @@ function removeGivenNumbers(cluster: Cell[], state: ClusterGenerationState): voi
         }
 
         retryCount++
-        for (const cellIndex of clusterCellIndices) {
+        for (const cellIndex of originalIndicesToRemove) {
             state.givens[cellIndex] = state.solution[cellIndex]!
         }
         indicesToRemove.length = 0

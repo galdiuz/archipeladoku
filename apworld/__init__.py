@@ -365,6 +365,7 @@ class ArchipeladokuWorld(World):
                 if loc not in sphere_one_locs
                 and loc.name not in world.options.priority_locations.value
             ]
+            multiworld.random.shuffle(world_locations)
             fill_locations.extend(world_locations[:world_item_count])
             backup_locations.extend(world_locations[world_item_count:])
 

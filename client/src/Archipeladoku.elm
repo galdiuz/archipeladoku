@@ -168,6 +168,7 @@ type alias Model =
     , solvedLocations : Set Int
     , timezone : Time.Zone
     , toastMessages : List ToastMessage
+    , trapDuration : Int
     , tunnelVisionTrapRatio : Int
     , tunnelVisionTrapRatioInput : String
     , tunnelVisionTrapReceived : Int
@@ -281,6 +282,7 @@ type Msg
     | SyncSolvedFromServerPressed
     | ToggleCandidateModePressed
     | ToggleHighlightModePressed
+    | TrapDurationChanged String
     | TriggerDiscoTrapPressed
     | TriggerEmojiTrapPressed
     | TriggerFireworksPressed
@@ -418,6 +420,7 @@ init flagsValue =
       , solvedLocations = Set.empty
       , timezone = Time.utc
       , toastMessages = []
+      , trapDuration = 60
       , tunnelVisionTrapRatio = 20
       , tunnelVisionTrapRatioInput = "20"
       , tunnelVisionTrapReceived = 0
@@ -1932,6 +1935,15 @@ update msg model =
             )
                 |> andThen updateBoardData
 
+        TrapDurationChanged value ->
+            ( { model
+                | trapDuration =
+                    String.toInt value
+                        |> Maybe.withDefault model.trapDuration
+              }
+            , setLocalStorage ( "apdk-trap-duration", value )
+            )
+
         TriggerDiscoTrapPressed ->
             ( model
             , Cmd.none
@@ -1945,7 +1957,7 @@ update msg model =
                 |> andThen triggerEmojiTrap
 
         TriggerFireworksPressed ->
-            ( { model | fireworksTimer = trapDuration }
+            ( { model | fireworksTimer = model.trapDuration }
             , Cmd.none
             )
 
@@ -3714,6 +3726,20 @@ updateFromLocalStorageValue key value model =
             , Cmd.none
             )
 
+        "apdk-trap-duration" ->
+            case String.toInt value of
+                Just duration ->
+                    if duration > 0 then
+                        ( { model | trapDuration = duration }
+                        , Cmd.none
+                        )
+
+                    else
+                        ( model, Cmd.none )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
         _ ->
             ( model, Cmd.none )
 
@@ -5375,16 +5401,11 @@ timers model =
     ]
 
 
-trapDuration : Int
-trapDuration =
-    60
-
-
 triggerDiscoTrap : Model -> ( Model, Cmd Msg )
 triggerDiscoTrap model =
     ( { model
         | discoTrapOffset = 0
-        , discoTrapTimer = trapDuration
+        , discoTrapTimer = model.trapDuration
         , discoTrapTriggers = model.discoTrapTriggers + 1
       }
     , Cmd.none
@@ -5428,7 +5449,7 @@ updateDiscoTrapMap model =
 triggerEmojiTrap : Model -> ( Model, Cmd Msg )
 triggerEmojiTrap model =
     ( { model
-        | emojiTrapTimer = trapDuration
+        | emojiTrapTimer = model.trapDuration
         , emojiTrapTriggers = model.emojiTrapTriggers + 1
       }
     , Cmd.none
@@ -5537,7 +5558,7 @@ emojiTrapVariantFromString str =
 triggerTunnelVisionTrap : Model -> ( Model, Cmd Msg )
 triggerTunnelVisionTrap model =
     ( { model
-        | tunnelVisionTrapTimer = trapDuration
+        | tunnelVisionTrapTimer = model.trapDuration
         , tunnelVisionTrapTriggers = model.tunnelVisionTrapTriggers + 1
       }
     , Cmd.none
@@ -7352,7 +7373,7 @@ viewTrapTimers model =
                                     [ HA.class "trap-timer-fill"
                                     , HA.style "width"
                                         (String.fromInt
-                                            (timer.timeLeft * 100 // trapDuration)
+                                            (timer.timeLeft * 100 // model.trapDuration)
                                             ++ "%"
                                         )
                                     ]
@@ -7878,6 +7899,39 @@ viewInfoPanelSettings model =
                     ]
                     []
                 , Html.text "Show toast messages"
+                ]
+            , Html.label
+                [ HA.class "row gap-s" ]
+                [ Html.text "Trap duration:"
+                , Html.select
+                    [ HE.onInput TrapDurationChanged
+                    ]
+                    [ Html.option
+                        [ HA.value "30"
+                        , HA.selected (model.trapDuration == 30)
+                        ]
+                        [ Html.text "30 seconds" ]
+                    , Html.option
+                        [ HA.value "60"
+                        , HA.selected (model.trapDuration == 60)
+                        ]
+                        [ Html.text "1 minute" ]
+                    , Html.option
+                        [ HA.value "120"
+                        , HA.selected (model.trapDuration == 120)
+                        ]
+                        [ Html.text "2 minutes" ]
+                    , Html.option
+                        [ HA.value "300"
+                        , HA.selected (model.trapDuration == 300)
+                        ]
+                        [ Html.text "5 minutes" ]
+                    , Html.option
+                        [ HA.value "900"
+                        , HA.selected (model.trapDuration == 900)
+                        ]
+                        [ Html.text "15 minutes" ]
+                    ]
                 ]
             , Html.label
                 [ HA.class "row gap-s" ]

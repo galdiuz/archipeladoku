@@ -6714,7 +6714,7 @@ viewMenuOptionsBoard model =
                         (String.join
                             "\n"
                             [  "How scouting of locations (creating a hint) are handled:"
-                            ,  " - Auto: Locations are automatically scouted when fully reavealed."
+                            ,  " - Auto: Locations are automatically scouted when fully revealed."
                             ,  " - Manual: Locations can be scouted when fully revealed by pressing a button."
                             ,  " - Disabled: Locations cannot be scouted."
                             ]

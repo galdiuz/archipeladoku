@@ -739,15 +739,17 @@ function buildUnlocks(
     }
 
     const blockUnlockOrder: number[] = []
+    const emittedLocations: Set<number> = new Set()
 
     for (const cluster of clusterOrder) {
         const toAdd: number[] = []
 
         for (const location of cluster.locations.values()) {
-            if (!unlockMap.has(location.id)) {
+            if (!unlockMap.has(location.id) || emittedLocations.has(location.id)) {
                 continue
             }
 
+            emittedLocations.add(location.id)
             const id = unlockMap.get(location.id)!
             toAdd.push(id)
         }

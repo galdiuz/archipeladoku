@@ -1040,8 +1040,8 @@ update msg model =
                 |> andThenIf (status && model.gameState == Connecting) addConnectionHistory
 
         GotGeneratedBoard value ->
-            case Decode.decodeValue generatedBoardDecoder value of
-                Ok board ->
+            case ( model.gameState, Decode.decodeValue generatedBoardDecoder value ) of
+                ( Generating, Ok board ) ->
                     ( { model
                         | cellBlocks = buildCellAreasMap board.puzzleAreas.blocks
                         , cellBoards = buildCellAreasMap board.puzzleAreas.boards
@@ -1050,11 +1050,12 @@ update msg model =
                         , blockSize = board.blockSize
                         , current = Dict.empty
                         , errors = Dict.empty
-                        , gameState = if model.gameState == Generating then Playing else model.gameState
+                        , gameState = Playing
                         , givens = Set.fromList (Dict.keys board.givens)
                         , lockedBlocks = board.blockUnlockOrder
                         , puzzleAreas = board.puzzleAreas
                         , solution = board.solution
+                        , solvedLocations = Set.empty
                         , unlockedBlocks = Set.empty
                         , unlockMap = board.unlockMap
                         , bundleBlocks =
@@ -1076,16 +1077,16 @@ update msg model =
                             else
                                 model.disabledLocations
                       }
-                    , if not model.gameIsLocal && model.gameState == Generating then
-                        sendPlayingStatus ()
+                    , if model.gameIsLocal then
+                        Cmd.none
 
                       else
-                        Cmd.none
+                        sendPlayingStatus ()
                     )
                         |> andThen (unlockInitialBlocks)
                         |> andThen (updateState True)
 
-                Err err ->
+                _ ->
                     ( model, Cmd.none )
 
         GotGenerationProgress value ->

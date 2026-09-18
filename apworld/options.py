@@ -246,3 +246,4 @@ class ArchipeladokuOptions(Options.PerGameCommonOptions):
     tunnel_vision_trap_ratio: TunnelVisionTrapRatio
     pre_fill_nothings_percent: PreFillNothingsPercent
     death_link: DeathLink
+    start_inventory_from_pool: Options.StartInventoryPool

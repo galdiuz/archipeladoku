@@ -33,6 +33,7 @@ type GenerateArgs = GenerateLocalArgs | GenerateServerArgs
 
 
 interface GenerateLocalArgs {
+    additionalStartingBlocks: number
     blockSize: number
     boardsPerCluster?: number
     bundleSize: number
@@ -60,6 +61,7 @@ interface GenerateServerArgs {
     blockUnlockOrder: number[]
     clusters: Cell[][]
     difficulty: number
+    initialUnlockCount: number
     seed: number
 }
 
@@ -120,6 +122,7 @@ interface Completed {
     solution: EncodedCellValue[]
     puzzleAreas: EncodedPuzzleAreas
     unlockMap: [number, number][]
+    initialUnlockCount: number
 }
 
 
@@ -158,6 +161,7 @@ interface ClusterGenerationState {
     difficulty: number
     firstClusterRetries: number
     givens: Int32Array
+    initialUnlockCount: number
     puzzleAreas: PuzzleAreas
     peerMap: PeerMap
     rng: () => number
@@ -178,6 +182,9 @@ interface PropagationChanges {
     possibilities: [CellIndex, number][]
     solution: CellIndex[]
 }
+
+
+type UnlocksData = [number[], Map<number, number>, Cell[][], string[], number]
 
 
 class BacktrackLimitError extends Error {}
@@ -248,8 +255,8 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
     const clusters: Cell[][] = "clusters" in args
         ? args.clusters
         : buildClusters(positions, rng)
-    const [ blockUnlockOrder, unlockMap, bundles, disabledLocations ]: [number[], Map<number, number>, Cell[][], string[]] = "blockUnlockOrder" in args
-        ? [args.blockUnlockOrder, new Map(), [], []]
+    const [ blockUnlockOrder, unlockMap, bundles, disabledLocations, initialUnlockCount ]: UnlocksData = "blockUnlockOrder" in args
+        ? [args.blockUnlockOrder, new Map(), [], [], args.initialUnlockCount ?? args.blockSize]
         : buildUnlocks(
             args,
             puzzleAreas.blocks,
@@ -274,6 +281,7 @@ export function initGeneration(args: GenerateArgs): BoardGenerationState {
             cellIndicesToRemoveGivensFrom: new Set(cellIndices),
             difficulty: args.difficulty,
             givens: new Int32Array(totalArraySize),
+            initialUnlockCount: initialUnlockCount,
             puzzleAreas: puzzleAreas,
             peerMap: peerMap,
             firstClusterRetries: 0,
@@ -613,18 +621,20 @@ function buildUnlocks(
     allBlocks: Area[],
     clusters: Cell[][],
     rng: () => number,
-): [number[], Map<number, number>, Cell[][], string[]] {
+): UnlocksData {
     const unlockMap: Map<number, number> = new Map()
     const remainingBlocks: Map<number, Cell> = new Map()
     const duplicateBlocks: Cell[] = []
     const solvableLocations: Map<number, UnlockLocation> = new Map()
     const lockedClusters: Map<number, UnlockMapCluster> = new Map()
     const clusterOrder: UnlockMapCluster[] = []
+    const startingBoardBlockIds: number[] = []
 
     const totalBlocks = allBlocks.length
     const boards = clusters.reduce((sum, cluster) => sum + cluster.length, 0)
     const bundleSize = Math.max(1, Math.min(args.bundleSize, args.blockSize))
-    const progressionBlocks = totalBlocks - args.blockSize
+    const initialUnlockCount = Math.min(totalBlocks, args.blockSize + args.additionalStartingBlocks)
+    const progressionBlocks = totalBlocks - initialUnlockCount
     const numBundles = progressionBlocks > 0 ? Math.ceil(progressionBlocks / bundleSize) : 0
     const duplicates = Math.floor(args.duplicateProgression * numBundles / 100)
     const locationCounts: Record<string, number> = {
@@ -696,6 +706,9 @@ function buildUnlocks(
                 for (const blockKey of unlockMapCluster.blocks.keys()) {
                     remainingBlocks.delete(blockKey)
                 }
+                for (const [row, col] of unlockMapCluster.blocks.values()) {
+                    startingBoardBlockIds.push(cellToBlockId(row, col))
+                }
             }
         }
     }
@@ -757,6 +770,22 @@ function buildUnlocks(
         shuffleArray(toAdd, rng)
         blockUnlockOrder.push(...toAdd)
     }
+    blockUnlockOrder.unshift(...startingBoardBlockIds)
+
+    const blockIdToLocation = new Map<number, number>()
+    for (const [locationId, blockId] of unlockMap.entries()) {
+        blockIdToLocation.set(blockId, locationId)
+    }
+
+    // Free additional starting blocks.
+    const additionalStartingBlockIds = new Set(blockUnlockOrder.slice(args.blockSize, initialUnlockCount))
+    for (const blockId of additionalStartingBlockIds) {
+        const locationId = blockIdToLocation.get(blockId)
+        if (locationId !== undefined) {
+            unlockMap.delete(locationId)
+            solvableLocations.set(locationId, { id: locationId, weight: 1 })
+        }
+    }
 
     const usesBundleItems = bundleSize > 1 && args.progression === 'shuffled'
     const bundles: Cell[][] = []
@@ -765,14 +794,10 @@ function buildUnlocks(
         // Base progression currently holds one block per location. Group the blocks into bundles
         // following the unlock order, keep one "leader" location per bundle as the progression
         // item, and free the rest so they become filler.
-        const blockIdToLocation = new Map<number, number>()
-        for (const [locationId, blockId] of unlockMap.entries()) {
-            blockIdToLocation.set(blockId, locationId)
-        }
 
         const keptLocations = new Set<number>()
 
-        for (let start = 0; start < blockUnlockOrder.length; start += bundleSize) {
+        for (let start = initialUnlockCount; start < blockUnlockOrder.length; start += bundleSize) {
             const bundleIndex = bundles.length
             const chunk = blockUnlockOrder.slice(start, start + bundleSize)
             bundles.push(chunk.map(cellFromBlockId))
@@ -798,7 +823,9 @@ function buildUnlocks(
             ? (usesBundleItems
                 ? bundles.map((_bundle, index) => blockBundleId(index))
                 : bundles.map(() => progressiveBlockId))
-            : duplicateBlocks.map(([row, col]) => cellToBlockId(row, col))
+            : duplicateBlocks
+                .filter(([row, col]) => !additionalStartingBlockIds.has(cellToBlockId(row, col)))
+                .map(([row, col]) => cellToBlockId(row, col))
 
         shuffleArray(duplicateItems, rng)
         const toDuplicate = Math.floor(args.duplicateProgression * duplicateItems.length / 100.0)
@@ -829,7 +856,13 @@ function buildUnlocks(
 
     addFillers(args, unlockMap, solvableLocations, rng)
 
-    return [ blockUnlockOrder, unlockMap, usesBundleItems ? bundles : [], [...disabledLocations].sort() ]
+    return [
+        blockUnlockOrder,
+        unlockMap,
+        usesBundleItems ? bundles : [],
+        [...disabledLocations].sort(),
+        initialUnlockCount,
+    ]
 }
 
 
@@ -2588,6 +2621,7 @@ function clusterStateToCompleted(state: ClusterGenerationState): Completed {
         bundles: state.bundles,
         disabledLocations: state.disabledLocations,
         givens: givens,
+        initialUnlockCount: state.initialUnlockCount,
         puzzleAreas: encodedPuzzleAreas,
         solution: solution,
         unlockMap: unlockMap,

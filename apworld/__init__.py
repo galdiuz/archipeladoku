@@ -34,6 +34,7 @@ class ArchipeladokuWorld(World):
     clusters: dict[int, Cluster]
     filler_counts: dict[str, int]
     pre_fill_items: list[Item]
+    initial_unlock_count: int
 
 
     def __init__(self, multiworld: MultiWorld, player: int):
@@ -50,6 +51,7 @@ class ArchipeladokuWorld(World):
         self.uses_bundle_items = False
         self.disabled_locations = set()
         self.pre_fill_items = []
+        self.initial_unlock_count = 0
         self.item_name_groups = self.__class__.item_name_groups.copy()
         self.location_name_groups = self.__class__.location_name_groups.copy()
 
@@ -89,6 +91,7 @@ class ArchipeladokuWorld(World):
             self.filler_counts = slot_data["fillerCounts"]
             self.bundle_size = slot_data["bundleSize"]
             self.disabled_locations = set(slot_data["disabledLocations"])
+            self.initial_unlock_count = slot_data["initialUnlockCount"]
 
         else:
             board_positions = utils.position_boards(
@@ -127,8 +130,11 @@ class ArchipeladokuWorld(World):
                 self.random,
             )
 
-            initial_unlock_count = self.options.block_size.value
-            progression_items = len(self.block_unlock_order) - initial_unlock_count
+            self.initial_unlock_count = min(
+                len(self.block_unlock_order),
+                self.options.block_size.value + self.options.additional_starting_blocks.value
+            )
+            progression_items = len(self.block_unlock_order) - self.initial_unlock_count
             self.bundle_size = min(self.options.bundle_size.value, self.options.block_size.value)
             bundle_count = math.ceil(progression_items / self.bundle_size) if progression_items > 0 else 0
             self.duplicate_progression_count = bundle_count * self.options.duplicate_progression.value // 100
@@ -163,11 +169,9 @@ class ArchipeladokuWorld(World):
                 enabled_locations - progression_item_count,
             )
 
-        initial_unlock_count = self.options.block_size.value
-
         self.bundles, self.block_to_bundle = utils.build_bundles(
             self.block_unlock_order,
-            initial_unlock_count,
+            self.initial_unlock_count,
             self.bundle_size,
         )
         self.bundle_count = len(self.bundles)
@@ -186,7 +190,7 @@ class ArchipeladokuWorld(World):
                     for bundle_index in range(len(self.bundles)):
                         self.item_name_groups["Blocks"].add(utils.bundle_item_name(bundle_index))
                 else:
-                    for (row, col) in self.block_unlock_order[initial_unlock_count:]:
+                    for (row, col) in self.block_unlock_order[self.initial_unlock_count:]:
                         self.item_name_groups["Blocks"].add(utils.block_item_name(row, col))
 
             case _:
@@ -226,12 +230,11 @@ class ArchipeladokuWorld(World):
         menu = Region("Menu", self.player, self.multiworld)
         self.multiworld.regions.append(menu)
 
-        initial_unlock_count = self.options.block_size.value
-        initial_blocks = set(self.block_unlock_order[:initial_unlock_count])
+        initial_blocks = set(self.block_unlock_order[:self.initial_unlock_count])
         cluster_unlock_requirements = utils.calculate_cluster_unlock_requirements(
             self.clusters,
             self.block_unlock_order,
-            initial_unlock_count,
+            self.initial_unlock_count,
         )
 
         block_region_map = {}
@@ -360,7 +363,7 @@ class ArchipeladokuWorld(World):
                 else:
                     all_items = [
                         utils.block_item_name(row, col)
-                        for (row, col) in self.block_unlock_order[initial_unlock_count:]
+                        for (row, col) in self.block_unlock_order[self.initial_unlock_count:]
                         if row > 0
                     ]
                 victory_location.access_rule = lambda state, all_items=all_items: \
@@ -375,7 +378,6 @@ class ArchipeladokuWorld(World):
 
     def create_items(self) -> None:
 
-        initial_unlock_count = self.options.block_size.value
         items = []
 
         match self.options.progression:
@@ -388,7 +390,7 @@ class ArchipeladokuWorld(World):
                     for bundle_index in range(len(self.bundles)):
                         items.append(self.create_item(utils.bundle_item_name(bundle_index)))
                 else:
-                    for (row, col) in self.block_unlock_order[initial_unlock_count:]:
+                    for (row, col) in self.block_unlock_order[self.initial_unlock_count:]:
                         items.append(self.create_item(utils.block_item_name(row, col)))
 
             case _:
@@ -497,6 +499,7 @@ class ArchipeladokuWorld(World):
             "bundleSize": self.bundle_size,
             "bundles": self.bundles if self.uses_bundle_items else [],
             "disabledLocations": sorted(self.disabled_locations),
+            "initialUnlockCount": self.initial_unlock_count,
         }
 
 

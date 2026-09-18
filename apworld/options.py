@@ -85,6 +85,16 @@ class BundleSize(Options.Range):
     default = 1
 
 
+class AdditionalStartingBlocks(Options.Range):
+    """How many additional blocks beyond the regular starting board that start unlocked.
+    This removes that many blocks from the item pool, replacing them with filler items.
+    """
+    display_name = "Additional Starting Blocks"
+    range_start = 0
+    range_end = 1000
+    default = 0
+
+
 class DuplicateProgression(Options.Range):
     """Percent of progression items that should be duplicated.
     - For Fixed progression higher values may lead to progression being too fast and as such a
@@ -207,6 +217,7 @@ option_groups = [
             Difficulty,
             Progression,
             BundleSize,
+            AdditionalStartingBlocks,
             DuplicateProgression,
             DisabledLocations,
             LocationScouting,
@@ -235,6 +246,7 @@ class ArchipeladokuOptions(Options.PerGameCommonOptions):
     difficulty: Difficulty
     progression: Progression
     bundle_size: BundleSize
+    additional_starting_blocks: AdditionalStartingBlocks
     duplicate_progression: DuplicateProgression
     disabled_locations: DisabledLocations
     location_scouting: LocationScouting

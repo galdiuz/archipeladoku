@@ -74,7 +74,9 @@ port receiveSlotData : (Decode.Value -> msg) -> Sub msg
 
 
 type alias Model =
-    { animationsEnabled : Bool
+    { additionalStartingBlocks : Int
+    , additionalStartingBlocksInput : String
+    , animationsEnabled : Bool
     , autoApplyServerChecks : Bool
     , autoFillCandidatesOnUnlock : Bool
     , autoRemoveInvalidCandidates : Bool
@@ -203,6 +205,9 @@ type alias Model =
 
 type Msg
     = AddDebugItemsPressed
+    | AdditionalStartingBlocksChanged Int
+    | AdditionalStartingBlocksInputBlurred
+    | AdditionalStartingBlocksInputChanged String
     | AutoFillCandidatesOnUnlockChanged Bool
     | AutoRemoveInvalidCandidatesChanged Bool
     | BlockSizeChanged Int
@@ -353,7 +358,9 @@ init flagsValue =
             Decode.decodeValue flagsDecoder flagsValue
                 |> Result.withDefault defaultFlags
     in
-    ( { animationsEnabled = True
+    ( { additionalStartingBlocks = 0
+      , additionalStartingBlocksInput = "0"
+      , animationsEnabled = True
       , autoApplyServerChecks = False
       , autoFillCandidatesOnUnlock = False
       , autoRemoveInvalidCandidates = False
@@ -531,6 +538,40 @@ update msg model =
             , Cmd.none
             )
 
+        AdditionalStartingBlocksChanged value ->
+            ( { model
+                | additionalStartingBlocks = value
+                , additionalStartingBlocksInput = String.fromInt value
+              }
+            , Cmd.none
+            )
+
+        AdditionalStartingBlocksInputBlurred ->
+            let
+                value : Int
+                value =
+                    model.additionalStartingBlocksInput
+                        |> String.toInt
+                        |> Maybe.withDefault model.additionalStartingBlocks
+            in
+            ( { model
+                | additionalStartingBlocks = value
+                , additionalStartingBlocksInput = String.fromInt value
+              }
+                |> clampOptions
+            , Cmd.none
+            )
+
+        AdditionalStartingBlocksInputChanged value ->
+            ( { model
+                | additionalStartingBlocks =
+                    String.toInt value
+                        |> Maybe.withDefault model.additionalStartingBlocks
+                , additionalStartingBlocksInput = value
+              }
+            , Cmd.none
+            )
+
         AutoFillCandidatesOnUnlockChanged value ->
             ( { model | autoFillCandidatesOnUnlock = value }
             , setLocalStorage ( "apdk-auto-fill-candidates-on-unlock", if value then "1" else "0" )
@@ -543,18 +584,14 @@ update msg model =
                 |> andThen (updateState True)
 
         BlockSizeChanged size ->
-            ( { model
-                | blockSize = size
-                , numberOfBoards = min model.numberOfBoards (maxNumberOfBoards size)
-                , numberOfBoardsInput = String.fromInt (min model.numberOfBoards (maxNumberOfBoards size))
-                , bundleSize = clamp 1 size model.bundleSize
-                , bundleSizeInput = String.fromInt (clamp 1 size model.bundleSize)
-              }
+            ( { model | blockSize = size }
+                |> clampOptions
             , Cmd.none
             )
 
         BoardsPerClusterChanged value ->
             ( { model | boardsPerCluster = value }
+                |> clampOptions
             , Cmd.none
             )
 
@@ -824,6 +861,7 @@ update msg model =
                 | bundleSize = value
                 , bundleSizeInput = String.fromInt value
               }
+                |> clampOptions
             , Cmd.none
             )
 
@@ -1052,7 +1090,7 @@ update msg model =
                         , errors = Dict.empty
                         , gameState = Playing
                         , givens = Set.fromList (Dict.keys board.givens)
-                        , lockedBlocks = board.blockUnlockOrder
+                        , lockedBlocks = List.drop board.initialUnlockCount board.blockUnlockOrder
                         , puzzleAreas = board.puzzleAreas
                         , solution = board.solution
                         , solvedLocations = Set.empty
@@ -1348,6 +1386,7 @@ update msg model =
                 | numberOfBoards = value
                 , numberOfBoardsInput = String.fromInt value
               }
+                |> clampOptions
             , Cmd.none
             )
 
@@ -1436,7 +1475,8 @@ update msg model =
               }
             , generateBoard
                 (encodeGenerateArgs
-                    { blockSize = model.blockSize
+                    { additionalStartingBlocks = model.additionalStartingBlocks
+                    , blockSize = model.blockSize
                     , boardsPerCluster = model.boardsPerCluster
                     , bundleSize = model.bundleSize
                     , difficulty = model.difficulty
@@ -2327,6 +2367,7 @@ type alias GeneratedBoard =
     , bundles : Dict Int (List ( Int, Int ))
     , disabledLocations : Set String
     , givens : Dict ( Int, Int ) Int
+    , initialUnlockCount : Int
     , puzzleAreas : PuzzleAreas
     , solution : Dict ( Int, Int ) Int
     , unlockMap : Dict Int Item
@@ -2351,7 +2392,8 @@ type alias PuzzleAreas =
 
 
 type alias GenerateArgs =
-    { blockSize : Int
+    { additionalStartingBlocks : Int
+    , blockSize : Int
     , boardsPerCluster : Int
     , bundleSize : Int
     , difficulty : Int
@@ -2569,6 +2611,7 @@ type alias YamlOptions =
     , numberOfBoards : Maybe Int
     , difficulty : Maybe Int
     , progression : Maybe Progression
+    , additionalStartingBlocks : Maybe Int
     , duplicateProgression : Maybe Int
     , bundleSize : Maybe Int
     , disabledLocations : Maybe (Set String)
@@ -2727,15 +2770,16 @@ connectionHistoryDecoder =
 
 generatedBoardDecoder : Decode.Decoder GeneratedBoard
 generatedBoardDecoder =
-    Decode.map8 GeneratedBoard
-        (Decode.field "blockSize" Decode.int)
-        (Decode.field "blockUnlockOrder" (Decode.list blockUnlockOrderDecoder))
-        (Decode.field "bundles" bundlesDecoder)
-        (Decode.field "disabledLocations" (Decode.list Decode.string |> Decode.map Set.fromList))
-        (Decode.field "givens" (cellsDictDecoder Decode.int))
-        (Decode.field "puzzleAreas" puzzleAreasDecoder)
-        (Decode.field "solution" (cellsDictDecoder Decode.int))
-        (Decode.field "unlockMap" unlockMapDecoder)
+    Decode.succeed GeneratedBoard
+        |> DecodeExtra.andMap (Decode.field "blockSize" Decode.int)
+        |> DecodeExtra.andMap (Decode.field "blockUnlockOrder" (Decode.list blockUnlockOrderDecoder))
+        |> DecodeExtra.andMap (Decode.field "bundles" bundlesDecoder)
+        |> DecodeExtra.andMap (Decode.field "disabledLocations" (Decode.list Decode.string |> Decode.map Set.fromList))
+        |> DecodeExtra.andMap (Decode.field "givens" (cellsDictDecoder Decode.int))
+        |> DecodeExtra.andMap (Decode.field "initialUnlockCount" Decode.int)
+        |> DecodeExtra.andMap (Decode.field "puzzleAreas" puzzleAreasDecoder)
+        |> DecodeExtra.andMap (Decode.field "solution" (cellsDictDecoder Decode.int))
+        |> DecodeExtra.andMap (Decode.field "unlockMap" unlockMapDecoder)
 
 
 bundlesDecoder : Decode.Decoder (Dict Int (List ( Int, Int )))
@@ -2891,7 +2935,8 @@ encodeTuple encodeA encodeB ( a, b ) =
 encodeGenerateArgs : GenerateArgs -> Encode.Value
 encodeGenerateArgs args =
     Encode.object
-        [ ( "blockSize", Encode.int args.blockSize )
+        [ ( "additionalStartingBlocks", Encode.int args.additionalStartingBlocks )
+        , ( "blockSize", Encode.int args.blockSize )
         , ( "boardsPerCluster", Encode.int args.boardsPerCluster )
         , ( "bundleSize", Encode.int args.bundleSize )
         , ( "difficulty", Encode.int args.difficulty )
@@ -3186,6 +3231,7 @@ buildOptionsYaml model =
                     , ( "difficulty", yamlRecordValue <| difficultyToString model.difficulty )
                     , ( "progression", yamlRecordValue <| progressionToString model.progression )
                     , ( "bundle_size", yamlRecordValue <| String.fromInt model.bundleSize )
+                    , ( "additional_starting_blocks", yamlRecordValue <| String.fromInt model.additionalStartingBlocks )
                     , ( "duplicate_progression", yamlRecordValue <| String.fromInt model.duplicateProgression )
                     , ( "disabled_locations", Yaml.Encode.list Yaml.Encode.string (Set.toList model.disabledLocationsChecked) )
                     , ( "location_scouting", yamlRecordValue <| locationScoutingToString model.locationScouting )
@@ -3402,6 +3448,7 @@ decodeOptionsYaml =
         |> Yaml.Decode.andMap (apdkField "number_of_boards" decodeYamlOptionInt)
         |> Yaml.Decode.andMap (apdkField "difficulty" yamlDifficultyDecoder)
         |> Yaml.Decode.andMap (apdkField "progression" yamlProgressionDecoder)
+        |> Yaml.Decode.andMap (apdkField "additional_starting_blocks" decodeYamlOptionInt)
         |> Yaml.Decode.andMap (apdkField "duplicate_progression" decodeYamlOptionInt)
         |> Yaml.Decode.andMap (apdkField "bundle_size" decodeYamlOptionInt)
         |> Yaml.Decode.andMap (apdkField "disabled_locations" (Yaml.Decode.list Yaml.Decode.string |> Yaml.Decode.map Set.fromList))
@@ -4765,9 +4812,7 @@ unlockInitialBlocks model =
         (unlockBlock False)
         (List.filterMap
             (\block ->
-                if (block.endRow <= model.blockSize && block.endCol <= model.blockSize)
-                    || (not (Set.member ( block.startRow, block.startCol ) lockedBlocksSet))
-                then
+                if (not (Set.member ( block.startRow, block.startCol ) lockedBlocksSet)) then
                     Just ( block.startRow, block.startCol )
 
                 else
@@ -6242,6 +6287,53 @@ loadSavedGame save model =
         |> restoreScoutedItems
 
 
+clampOptions : Model -> Model
+clampOptions model =
+    let
+        bundleSize : Int
+        bundleSize =
+            clamp 1 model.blockSize model.bundleSize
+
+        numberOfBoards : Int
+        numberOfBoards =
+            min model.numberOfBoards (maxNumberOfBoards model.blockSize)
+
+        maxAdditionalStartingBlocks : Int
+        maxAdditionalStartingBlocks =
+            maxAdditionalStartingBlocksForBlocks
+                model.blockSize
+                (boardPuzzleAreas model.blockSize model.boardsPerCluster numberOfBoards)
+
+        additionalStartingBlocks : Int
+        additionalStartingBlocks =
+            clamp 0 maxAdditionalStartingBlocks model.additionalStartingBlocks
+    in
+    { model
+        | bundleSize = bundleSize
+        , bundleSizeInput = String.fromInt bundleSize
+        , numberOfBoards = numberOfBoards
+        , numberOfBoardsInput = String.fromInt numberOfBoards
+        , additionalStartingBlocks = additionalStartingBlocks
+        , additionalStartingBlocksInput = String.fromInt additionalStartingBlocks
+    }
+
+
+boardPuzzleAreas : Int -> Int -> Int -> PuzzleAreas
+boardPuzzleAreas blockSize boardsPerCluster numberOfBoards =
+    positionBoards blockSize boardsPerCluster numberOfBoards
+        |> List.map
+            (\( startRow, startCol ) ->
+                buildPuzzleAreasForBoard blockSize startRow startCol
+            )
+        |> joinPuzzleAreas
+
+
+maxAdditionalStartingBlocksForBlocks : Int -> PuzzleAreas -> Int
+maxAdditionalStartingBlocksForBlocks blockSize puzzleAreas =
+    List.length puzzleAreas.blocks - blockSize
+        |> max 0
+
+
 visibleLocations : Model -> Set Int
 visibleLocations model =
     [ ( "blocks", model.puzzleAreas.blocks, cellToBlockId )
@@ -6769,6 +6861,8 @@ applyYamlOptions opts model =
         , bundleSize = setIntField .bundleSize .bundleSize
         , disabledLocationsChecked = Maybe.withDefault model.disabledLocationsChecked opts.disabledLocations
         , bundleSizeInput = setIntAsStringField .bundleSize .bundleSizeInput
+        , additionalStartingBlocks = setIntField .additionalStartingBlocks .additionalStartingBlocks
+        , additionalStartingBlocksInput = setIntAsStringField .additionalStartingBlocks .additionalStartingBlocksInput
         , locationScouting = opts.locationScouting |> Maybe.withDefault model.locationScouting
         , solveSelectedCellRatio = setIntField .solveSelectedCellRatio .solveSelectedCellRatio
         , solveSelectedCellRatioInput = setIntAsStringField .solveSelectedCellRatio .solveSelectedCellRatioInput
@@ -7454,6 +7548,15 @@ viewDateTime model posix =
 
 viewMenuOptions : Model -> Html Msg
 viewMenuOptions model =
+    let
+        puzzleAreas : PuzzleAreas
+        puzzleAreas =
+            boardPuzzleAreas model.blockSize model.boardsPerCluster model.numberOfBoards
+
+        maxAdditionalStartingBlocks : Int
+        maxAdditionalStartingBlocks =
+            maxAdditionalStartingBlocksForBlocks model.blockSize puzzleAreas
+    in
     Html.div
         [ HA.class "main-menu-panel"
         ]
@@ -7465,7 +7568,7 @@ viewMenuOptions model =
             , HA.style "grid-template-columns" "repeat(auto-fit, minmax(300px, 1fr))"
             , HA.style "gap" "var(--spacing-l)"
             ]
-            [ viewMenuOptionsBoard model
+            [ viewMenuOptionsBoard model maxAdditionalStartingBlocks
             , viewMenuOptionsFiller model
             , viewMenuOptionsArchipelago model
             , viewMenuOptionsLocalPlay model
@@ -7491,12 +7594,12 @@ viewMenuOptions model =
                 ]
                 [ Html.text "Play Local Game" ]
             ]
-        , viewMenuOptionsStats model
+        , viewMenuOptionsStats model puzzleAreas
         ]
 
 
-viewMenuOptionsBoard : Model -> Html Msg
-viewMenuOptionsBoard model =
+viewMenuOptionsBoard : Model -> Int -> Html Msg
+viewMenuOptionsBoard model maxAdditionalStartingBlocks =
     Html.details
         [ HA.class "info-panel-details"
         , HA.attribute "open" "true"
@@ -7702,6 +7805,47 @@ viewMenuOptionsBoard model =
                         1
                         model.blockSize
                         BundleSizeChanged
+                        Nothing
+                    ]
+                ]
+            , Html.div
+                [ HA.class "column gap-s"
+                ]
+                [ Html.div
+                    [ HA.class "row gap-m"
+                    , HA.style "align-items" "center"
+                    , HA.style "justify-content" "space-between"
+                    ]
+                    [ Html.text "Additional Starting Blocks"
+                    , viewOptionHint
+                        "additional-starting-blocks-hint"
+                        (String.join
+                            "\n"
+                            [ "How many additional blocks beyond the regular starting board that start unlocked."
+                            , "This removes that many blocks from the item pool, replacing them with filler items."
+                            ]
+                        )
+                    ]
+                , Html.div
+                    [ HA.class "row gap-s"
+                    , HA.style "align-items" "center"
+                    ]
+                    [ Html.input
+                        [ HA.class "input"
+                        , HA.type_ "number"
+                        , HA.style "width" "3em"
+                        , HA.min "0"
+                        , HA.max (String.fromInt maxAdditionalStartingBlocks)
+                        , HA.value model.additionalStartingBlocksInput
+                        , HE.onBlur AdditionalStartingBlocksInputBlurred
+                        , HE.onInput AdditionalStartingBlocksInputChanged
+                        ]
+                        []
+                    , viewRangeSlider
+                        model.additionalStartingBlocks
+                        0
+                        maxAdditionalStartingBlocks
+                        AdditionalStartingBlocksChanged
                         Nothing
                     ]
                 ]
@@ -8139,22 +8283,9 @@ viewMenuOptionsArchipelago model =
         ]
 
 
-viewMenuOptionsStats : Model -> Html Msg
-viewMenuOptionsStats model =
+viewMenuOptionsStats : Model -> PuzzleAreas -> Html Msg
+viewMenuOptionsStats model puzzleAreas =
     let
-        positions : List ( Int, Int )
-        positions =
-            positionBoards model.blockSize model.boardsPerCluster model.numberOfBoards
-
-        puzzleAreas : PuzzleAreas
-        puzzleAreas =
-            positions
-                |> List.map
-                    (\( startRow, startCol ) ->
-                        buildPuzzleAreasForBoard model.blockSize startRow startCol
-                    )
-                |> joinPuzzleAreas
-
         cells : Int
         cells =
             List.concatMap .cells puzzleAreas.boards
@@ -8172,7 +8303,8 @@ viewMenuOptionsStats model =
 
         progressionBlocks : Int
         progressionBlocks =
-            List.length puzzleAreas.blocks - model.blockSize
+            List.length puzzleAreas.blocks - model.blockSize - model.additionalStartingBlocks
+                |> max 0
 
         effectiveBundleSize : Int
         effectiveBundleSize =

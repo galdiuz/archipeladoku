@@ -4812,7 +4812,9 @@ unlockInitialBlocks model =
         (unlockBlock False)
         (List.filterMap
             (\block ->
-                if (not (Set.member ( block.startRow, block.startCol ) lockedBlocksSet)) then
+                if (not (Set.member ( block.startRow, block.startCol ) lockedBlocksSet))
+                    || (block.endRow <= model.blockSize && block.endCol <= model.blockSize)
+                then
                     Just ( block.startRow, block.startCol )
 
                 else

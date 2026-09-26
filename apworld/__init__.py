@@ -1,14 +1,22 @@
 import logging
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 from . import options, utils
 from BaseClasses import CollectionState, Item, ItemClassification, Location, Region, MultiWorld
 from Options import OptionError
 from collections import defaultdict
+from settings import Group
 from worlds.AutoWorld import World, WebWorld
 from .utils import Cluster
 import Fill
+
+
+class ArchipeladokuSettings(Group):
+    class MinPreFillNothingsPercent(int):
+        """Overrides pre_fill_nothings_percent for any player whose value is lower than this."""
+
+    min_pre_fill_nothings_percent: MinPreFillNothingsPercent = MinPreFillNothingsPercent(0)
 
 
 class ArchipeladokuWeb(WebWorld):
@@ -19,6 +27,8 @@ class ArchipeladokuWorld(World):
     game = "Archipeladoku"
 
     web = ArchipeladokuWeb()
+
+    settings: ClassVar[ArchipeladokuSettings]
 
     options_dataclass = options.ArchipeladokuOptions
     options: options.ArchipeladokuOptions
@@ -154,7 +164,7 @@ class ArchipeladokuWorld(World):
             )
             if reenabled:
                 logging.warning(
-                    "Archipeladoku (%s): re-enabled location type(s) %s to keep enough locations "
+                    "Archipeladoku (%s): Re-enabled location type(s) %s to keep enough locations "
                     "for progression items.",
                     self.multiworld.get_player_name(self.player),
                     ", ".join(sorted(reenabled)),
@@ -168,6 +178,18 @@ class ArchipeladokuWorld(World):
                 self.options,
                 enabled_locations - progression_item_count,
             )
+
+            min_pre_fill_nothings_percent = max(0, min(100, self.settings.min_pre_fill_nothings_percent))
+
+            if self.options.pre_fill_nothings_percent < min_pre_fill_nothings_percent:
+                logging.warning(
+                    "Archipeladoku (%s): Raised pre_fill_nothings_percent from %s to the "
+                    "host-enforced minimum of %s.",
+                    self.multiworld.get_player_name(self.player),
+                    self.options.pre_fill_nothings_percent.value,
+                    min_pre_fill_nothings_percent,
+                )
+                self.options.pre_fill_nothings_percent.value = min_pre_fill_nothings_percent
 
         self.bundles, self.block_to_bundle = utils.build_bundles(
             self.block_unlock_order,

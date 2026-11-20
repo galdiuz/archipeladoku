@@ -117,9 +117,22 @@ app.ports.clearSavedGames?.subscribe(() => {
     IDB.clear(store)
 })
 
+let loginAttempt = 0
+let loginPending = false
+
 app.ports.connect?.subscribe(data => {
+    loginAttempt += 1
+    loginPending = false
+    const attempt = loginAttempt
+
     client.login(data.host, data.player, 'Archipeladoku', { password: data.password })
         .then(slotData => {
+            if (attempt !== loginAttempt) {
+                return
+            }
+
+            loginPending = false
+
             app.ports.receiveHintCost.send(client.room.hintCost)
             app.ports.receiveSlotData.send(slotData)
 
@@ -148,7 +161,7 @@ app.ports.connect?.subscribe(data => {
                 })
                 .catch(error => {
                     console.error('Error loading from IndexedDB:', error)
-                    app.ports.receiveConnectionStatus.send(false)
+                    app.ports.receiveConnectionError.send('Storage')
                 })
 
             if (slotData.deathLink === 1) {
@@ -156,9 +169,24 @@ app.ports.connect?.subscribe(data => {
             }
         })
         .catch(error => {
+            if (attempt !== loginAttempt) {
+                return
+            }
+
+            loginPending = false
             console.error('Connection error:', error)
-            app.ports.receiveConnectionStatus.send(false)
+
+            if (error instanceof Archipelago.LoginError) {
+                app.ports.receiveConnectionError.send(error.errors[0] ?? 'Unknown')
+            } else {
+                app.ports.receiveConnectionError.send('Unreachable')
+            }
         })
+
+    // Set after the call, since login() tears down any previous connection
+    // synchronously and that emits a disconnect that shouldn't be treated as a
+    // failure of this attempt.
+    loginPending = true
 })
 
 app.ports.generateBoard?.subscribe(data => {
@@ -330,6 +358,15 @@ sendKeyboardLayout()
 navigator.keyboard?.addEventListener?.('layoutchange', sendKeyboardLayout)
 
 client.socket.on('disconnected', () => {
+    if (loginPending) {
+        // The login promise doesn't settle when the socket closes, so report
+        // the failure now and discard the attempt's eventual timeout.
+        loginPending = false
+        loginAttempt += 1
+        app.ports.receiveConnectionError.send('Unreachable')
+        return
+    }
+
     app.ports.receiveConnectionStatus.send(false)
 })
 

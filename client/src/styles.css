@@ -124,6 +124,10 @@ h1, h2, h3, p {
     margin-bottom: var(--spacing-m);
 }
 
+.connection-error {
+    color: var(--color-text-error);
+}
+
 .keybindings-panel {
     width: 500px;
     max-width: 90vw;

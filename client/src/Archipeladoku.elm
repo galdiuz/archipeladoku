@@ -57,6 +57,7 @@ port zoom : Encode.Value -> Cmd msg
 port zoomReset : () -> Cmd msg
 
 port receiveCheckedLocations : (List Int -> msg) -> Sub msg
+port receiveConnectionError : (String -> msg) -> Sub msg
 port receiveConnectionStatus : (Bool -> msg) -> Sub msg
 port receiveDeathLink : (Decode.Value -> msg) -> Sub msg
 port receiveGeneratedBoard : (Decode.Value -> msg) -> Sub msg
@@ -94,6 +95,7 @@ type alias Model =
     , cellCols : Dict ( Int, Int ) (List Area)
     , cellRows : Dict ( Int, Int ) (List Area)
     , colorScheme : String
+    , connectionError : Maybe String
     , connectionHistory : List ConnectionHistoryEntry
     , createHintsWhenScouting : Bool
     , current : Dict ( Int, Int ) CellValue
@@ -165,6 +167,7 @@ type alias Model =
     , progressionBalancing : Int
     , progressionBalancingInput : String
     , puzzleAreas : PuzzleAreas
+    , reconnecting : Bool
     , removeRandomCandidateRatio : Int
     , removeRandomCandidateRatioInput : String
     , removeRandomCandidateReceived : Int
@@ -221,6 +224,7 @@ type Msg
     | ClearConnectionHistoryPressed
     | ClearSavedGamesPressed
     | ColorSchemeChanged String
+    | ConnectionErrorDismissed
     | ConnectionHistoryQuickFillPressed ConnectionHistoryEntry
     | ConnectPressed
     | DeathLinkInputChanged Bool
@@ -248,6 +252,7 @@ type Msg
     | FireworkOnNothingChanged Bool
     | GenerateYamlPressed
     | GotCheckedLocations (List Int)
+    | GotConnectionError String
     | GotConnectionStatus Bool
     | GotGeneratedBoard Decode.Value
     | GotGenerationProgress Decode.Value
@@ -378,6 +383,7 @@ init flagsValue =
       , cellCols = Dict.empty
       , cellRows = Dict.empty
       , colorScheme = "light dark"
+      , connectionError = Nothing
       , connectionHistory = []
       , createHintsWhenScouting = True
       , current = Dict.empty
@@ -454,6 +460,7 @@ init flagsValue =
             , rows = []
             , cols = []
             }
+      , reconnecting = False
       , removeRandomCandidateRatio = 300
       , removeRandomCandidateRatioInput = "300"
       , removeRandomCandidateReceived = 0
@@ -499,6 +506,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ receiveCheckedLocations GotCheckedLocations
+        , receiveConnectionError GotConnectionError
         , receiveConnectionStatus GotConnectionStatus
         , receiveDeathLink DeathLinkTriggered
         , receiveGeneratedBoard GotGeneratedBoard
@@ -704,9 +712,16 @@ update msg model =
                 ]
             )
 
+        ConnectionErrorDismissed ->
+            ( { model | connectionError = Nothing }
+            , Cmd.none
+            )
+
         ConnectPressed ->
             ( { model
                 | gameState = Connecting
+                , connectionError = Nothing
+                , reconnecting = model.gameState == Disconnected
                 , autoApplyServerChecks = False
                 , serverCheckedLocations = Set.empty
               }
@@ -1047,9 +1062,32 @@ update msg model =
             )
                 |> andThen (updateState True)
 
+        GotConnectionError kind ->
+            ( { model
+                | connectionError = Just (connectionErrorMessage model kind)
+                , gameState =
+                    case model.gameState of
+                        Connecting ->
+                            if model.reconnecting then
+                                Disconnected
+
+                            else
+                                MainMenu
+
+                        Generating ->
+                            MainMenu
+
+                        _ ->
+                            model.gameState
+                , reconnecting = False
+              }
+            , Cmd.none
+            )
+
         GotConnectionStatus status ->
             ( { model
-                | autoApplyServerChecks =
+                | reconnecting = model.reconnecting && not status
+                , autoApplyServerChecks =
                     if status && model.gameState == Connecting then
                         True
 
@@ -1061,7 +1099,11 @@ update msg model =
                             Generating
 
                         ( False, Connecting ) ->
-                            MainMenu
+                            if model.reconnecting then
+                                Disconnected
+
+                            else
+                                MainMenu
 
                         ( False, Generating ) ->
                             MainMenu
@@ -5578,6 +5620,31 @@ distanceBetweenCells ( row1, col1 ) ( row2, col2 ) =
         |> sqrt
 
 
+connectionErrorMessage : Model -> String -> String
+connectionErrorMessage model kind =
+    case kind of
+        "InvalidSlot" ->
+            "The slot \"" ++ model.player ++ "\" doesn't exist on this server. Check the slot name."
+
+        "InvalidPassword" ->
+            "Incorrect password."
+
+        "InvalidGame" ->
+            "The slot \"" ++ model.player ++ "\" is not an Archipeladoku slot."
+
+        "IncompatibleVersion" ->
+            "The server version is incompatible with this client."
+
+        "Unreachable" ->
+            "Could not reach the server at \"" ++ model.host ++ "\". Check the address and that the server is running."
+
+        "Storage" ->
+            "Could not load saved game data from the browser."
+
+        _ ->
+            "Could not connect to the server."
+
+
 addConnectionHistory : Model -> ( Model, Cmd Msg )
 addConnectionHistory model =
     let
@@ -7272,6 +7339,7 @@ view model =
                 [ HA.class "row"
                 ]
                 [ viewMenu model
+                , Html.Extra.viewMaybe viewConnectionErrorOverlay model.connectionError
                 , viewColorScheme model
                 ]
 
@@ -9909,6 +9977,29 @@ viewToastMessages model =
             )
 
 
+viewConnectionErrorOverlay : String -> Html Msg
+viewConnectionErrorOverlay message =
+    Html.div
+        [ HA.class "overlay"
+        ]
+        [ Html.div
+            [ HA.class "main-menu-panel"
+            ]
+            [ Html.h2
+                []
+                [ Html.text "Connection Failed" ]
+            , Html.div
+                []
+                [ Html.text message ]
+            , Html.button
+                [ HA.class "button"
+                , HE.onClick ConnectionErrorDismissed
+                ]
+                [ Html.text "Close" ]
+            ]
+        ]
+
+
 viewDisconnectedOverlay : Model -> Html Msg
 viewDisconnectedOverlay model =
     Html.div
@@ -9924,6 +10015,14 @@ viewDisconnectedOverlay model =
                 []
                 [ Html.text "You have been disconnected from the Archipelago server."
                 ]
+            , Html.Extra.viewMaybe
+                (\message ->
+                    Html.div
+                        [ HA.class "connection-error"
+                        ]
+                        [ Html.text message ]
+                )
+                model.connectionError
             , Html.button
                 [ HA.class "button"
                 , HE.onClick ConnectPressed

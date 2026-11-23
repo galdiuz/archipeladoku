@@ -1,4 +1,5 @@
 {
     "game": "Archipeladoku",
+    "minimum_ap_version": "0.6.7",
     "authors": ["Galdiuz"]
 }

@@ -6,6 +6,7 @@ from . import options, utils
 from BaseClasses import CollectionState, Item, ItemClassification, Location, Region, MultiWorld
 from Options import OptionError
 from collections import defaultdict
+from rule_builder.rules import Has, HasAll
 from settings import Group
 from worlds.AutoWorld import World, WebWorld
 from .utils import Cluster
@@ -276,8 +277,7 @@ class ArchipeladokuWorld(World):
                     unlock_req = cluster_unlock_requirements[cluster.id]
                     bundle_req = math.ceil(unlock_req / self.bundle_size)
                     if bundle_req > 0:
-                        connection.access_rule = lambda state, bundle_req=bundle_req: \
-                            state.has("Progressive Block", self.player, bundle_req)
+                        self.set_rule(connection, Has("Progressive Block", bundle_req))
 
                 case options.Progression.option_shuffled:
                     cluster_blocks = cluster.blocks.difference(initial_blocks)
@@ -290,8 +290,7 @@ class ArchipeladokuWorld(World):
                     else:
                         item_names = [utils.block_item_name(row, col) for (row, col) in cluster_blocks]
 
-                    connection.access_rule = lambda state, item_names=item_names: \
-                        state.has_all(item_names, self.player)
+                    self.set_rule(connection, HasAll(*item_names))
 
                 case _:
                     raise ValueError("Invalid progression option")
@@ -376,8 +375,7 @@ class ArchipeladokuWorld(World):
             case options.Progression.option_fixed:
                 last_cluster_requirement = max(cluster_unlock_requirements.values())
                 bundle_req = math.ceil(last_cluster_requirement / self.bundle_size)
-                victory_location.access_rule = lambda state, bundle_req=bundle_req: \
-                    state.has("Progressive Block", self.player, bundle_req)
+                self.set_rule(victory_location, Has("Progressive Block", bundle_req))
 
             case options.Progression.option_shuffled:
                 if self.uses_bundle_items:
@@ -388,14 +386,12 @@ class ArchipeladokuWorld(World):
                         for (row, col) in self.block_unlock_order[self.initial_unlock_count:]
                         if row > 0
                     ]
-                victory_location.access_rule = lambda state, all_items=all_items: \
-                    state.has_all(all_items, self.player)
+                self.set_rule(victory_location, HasAll(*all_items))
 
             case _:
                 raise ValueError("Invalid progression option")
 
-        self.multiworld.completion_condition[self.player] = lambda state: \
-            state.has(victory_item.name, self.player)
+        self.set_completion_rule(Has(victory_item.name))
 
 
     def create_items(self) -> None:

@@ -77,6 +77,7 @@ port receiveSlotData : (Decode.Value -> msg) -> Sub msg
 type alias Model =
     { additionalStartingBlocks : Int
     , additionalStartingBlocksInput : String
+    , additiveTraps : Bool
     , animationsEnabled : Bool
     , autoApplyServerChecks : Bool
     , autoFillCandidatesOnUnlock : Bool
@@ -105,6 +106,7 @@ type alias Model =
     , disabledLocations : Set String
     , disabledLocationsChecked : Set String
     , discoTrapMap : Dict Int Int
+    , discoTrapMax : Int
     , discoTrapOffset : Int
     , discoTrapRatio : Int
     , discoTrapRatioInput : String
@@ -115,6 +117,7 @@ type alias Model =
     , duplicateProgression : Int
     , duplicateProgressionInput : String
     , emojiTrapMap : Dict Int String
+    , emojiTrapMax : Int
     , emojiTrapRatio : Int
     , emojiTrapRatioInput : String
     , emojiTrapReceived : Int
@@ -140,6 +143,7 @@ type alias Model =
     , inputModifierDebounce : Int
     , keyBindings : Dict String (List String)
     , keyboardLayout : Dict String String
+    , lastActivity : Maybe Time.Posix
     , lastSaveTime : Int
     , listeningForBinding : Maybe ( BindableAction, Int )
     , localGameSave : Maybe SavedGame
@@ -150,6 +154,7 @@ type alias Model =
     , messages : List Message
     , numberOfBoards : Int
     , numberOfBoardsInput : String
+    , pageVisible : Bool
     , password : String
     , pendingCellChanges : Set ( Int, Int )
     , pendingCheckLocations : Set Int
@@ -193,6 +198,8 @@ type alias Model =
     , timezone : Time.Zone
     , toastMessages : List ToastMessage
     , trapDuration : Int
+    , trapsWaitForActivity : Bool
+    , tunnelVisionTrapMax : Int
     , tunnelVisionTrapRatio : Int
     , tunnelVisionTrapRatioInput : String
     , tunnelVisionTrapReceived : Int
@@ -207,10 +214,12 @@ type alias Model =
 
 
 type Msg
-    = AddDebugItemsPressed
+    = ActivityRegistered Time.Posix
+    | AddDebugItemsPressed
     | AdditionalStartingBlocksChanged Int
     | AdditionalStartingBlocksInputBlurred
     | AdditionalStartingBlocksInputChanged String
+    | AdditiveTrapsChanged Bool
     | AutoFillCandidatesOnUnlockChanged Bool
     | AutoRemoveInvalidCandidatesChanged Bool
     | BlockSizeChanged Int
@@ -287,6 +296,7 @@ type Msg
     | NumberOfBoardsInputBlurred
     | NumberOfBoardsInputChanged String
     | NumberPressed Int
+    | PageVisibilityChanged Browser.Events.Visibility
     | PasswordInputChanged String
     | PlayLocalPressed
     | PlayerInputChanged String
@@ -331,6 +341,8 @@ type Msg
     | ToggleHighlightModePressed
     | ToggleKeybindingsMenuPressed
     | TrapDurationChanged String
+    | TrapGateChecked Time.Posix
+    | TrapsWaitForActivityChanged Bool
     | TriggerDiscoTrapPressed
     | TriggerEmojiTrapPressed
     | TriggerFireworksPressed
@@ -350,7 +362,7 @@ main =
     Browser.element
         { init = init
         , subscriptions = subscriptions
-        , update = update
+        , update = \msg -> update msg >> trackActivity msg
         , view = view
         }
 
@@ -365,6 +377,7 @@ init flagsValue =
     in
     ( { additionalStartingBlocks = 0
       , additionalStartingBlocksInput = "0"
+      , additiveTraps = True
       , animationsEnabled = True
       , autoApplyServerChecks = False
       , autoFillCandidatesOnUnlock = False
@@ -393,6 +406,7 @@ init flagsValue =
       , disabledLocations = Set.empty
       , disabledLocationsChecked = Set.empty
       , discoTrapMap = Dict.empty
+      , discoTrapMax = 0
       , discoTrapOffset = 0
       , discoTrapRatio = 20
       , discoTrapRatioInput = "20"
@@ -403,6 +417,7 @@ init flagsValue =
       , duplicateProgression = 0
       , duplicateProgressionInput = "0"
       , emojiTrapMap = Dict.empty
+      , emojiTrapMax = 0
       , emojiTrapRatio = 20
       , emojiTrapRatioInput = "20"
       , emojiTrapReceived = 0
@@ -428,6 +443,7 @@ init flagsValue =
       , inputModifierDebounce = 0
       , keyBindings = defaultKeyBindings
       , keyboardLayout = Dict.empty
+      , lastActivity = Nothing
       , lastSaveTime = 0
       , listeningForBinding = Nothing
       , localGameSave = Nothing
@@ -438,6 +454,7 @@ init flagsValue =
       , messages = []
       , numberOfBoards = 5
       , numberOfBoardsInput = "5"
+      , pageVisible = True
       , password = ""
       , pendingCellChanges = Set.empty
       , pendingCheckLocations = Set.empty
@@ -486,6 +503,8 @@ init flagsValue =
       , timezone = Time.utc
       , toastMessages = []
       , trapDuration = 60
+      , trapsWaitForActivity = True
+      , tunnelVisionTrapMax = 0
       , tunnelVisionTrapRatio = 20
       , tunnelVisionTrapRatioInput = "20"
       , tunnelVisionTrapReceived = 0
@@ -521,6 +540,7 @@ subscriptions model =
         , receiveOnlineGameSave GotOnlineGameSave
         , receiveScoutedItems GotScoutedItems
         , receiveSlotData GotSlotData
+        , Browser.Events.onVisibilityChange PageVisibilityChanged
         , if List.any ((<) 0) (timers model) || not (List.isEmpty model.toastMessages) then
             Time.every 1000 (\_ -> SecondPassed)
 
@@ -537,6 +557,12 @@ subscriptions model =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        ActivityRegistered now ->
+            ( { model | lastActivity = Just now }
+            , Cmd.none
+            )
+                |> andThenIf model.pageVisible releasePendingTraps
+
         AddDebugItemsPressed ->
             ( { model
                 | removeRandomCandidateReceived = model.removeRandomCandidateReceived + 1000
@@ -578,6 +604,11 @@ update msg model =
                 , additionalStartingBlocksInput = value
               }
             , Cmd.none
+            )
+
+        AdditiveTrapsChanged value ->
+            ( { model | additiveTraps = value }
+            , setLocalStorage ( "apdk-additive-traps", if value then "1" else "0" )
             )
 
         AutoFillCandidatesOnUnlockChanged value ->
@@ -1123,7 +1154,8 @@ update msg model =
             case ( model.gameState, Decode.decodeValue generatedBoardDecoder value ) of
                 ( Generating, Ok board ) ->
                     ( { model
-                        | cellBlocks = buildCellAreasMap board.puzzleAreas.blocks
+                        | lastActivity = Nothing
+                        , cellBlocks = buildCellAreasMap board.puzzleAreas.blocks
                         , cellBoards = buildCellAreasMap board.puzzleAreas.boards
                         , cellCols = buildCellAreasMap board.puzzleAreas.cols
                         , cellRows = buildCellAreasMap board.puzzleAreas.rows
@@ -1505,6 +1537,11 @@ update msg model =
                 , Cmd.none
                 )
 
+        PageVisibilityChanged visibility ->
+            ( { model | pageVisible = visibility == Browser.Events.Visible }
+            , Cmd.none
+            )
+
         PasswordInputChanged value ->
             ( { model | password = value }
             , setLocalStorage ( "apdk-password", value )
@@ -1767,7 +1804,8 @@ update msg model =
                     Tuple.first (init Encode.null)
             in
             ( { model
-                | animationsEnabled = defaults.animationsEnabled
+                | additiveTraps = defaults.additiveTraps
+                , animationsEnabled = defaults.animationsEnabled
                 , autoFillCandidatesOnUnlock = defaults.autoFillCandidatesOnUnlock
                 , autoRemoveInvalidCandidates = defaults.autoRemoveInvalidCandidates
                 , candidateLayout = defaults.candidateLayout
@@ -1779,6 +1817,7 @@ update msg model =
                 , showInputErrors = defaults.showInputErrors
                 , showToastMessages = defaults.showToastMessages
                 , trapDuration = defaults.trapDuration
+                , trapsWaitForActivity = defaults.trapsWaitForActivity
               }
             , clearLocalStorage ()
             )
@@ -2261,17 +2300,30 @@ update msg model =
             , setLocalStorage ( "apdk-trap-duration", value )
             )
 
+        TrapGateChecked now ->
+            if trapGateIsOpen model now then
+                releasePendingTraps model
+
+            else
+                ( model, Cmd.none )
+
+        TrapsWaitForActivityChanged value ->
+            ( { model | trapsWaitForActivity = value }
+            , setLocalStorage ( "apdk-traps-wait-for-activity", if value then "1" else "0" )
+            )
+                |> andThenIf (not value) releasePendingTraps
+
         TriggerDiscoTrapPressed ->
-            ( model
+            ( { model | discoTrapReceived = model.discoTrapReceived + 1 }
             , Cmd.none
             )
-                |> andThen triggerDiscoTrap
+                |> andThen (triggerOrDefer triggerDiscoTrap)
 
         TriggerEmojiTrapPressed ->
-            ( model
+            ( { model | emojiTrapReceived = model.emojiTrapReceived + 1 }
             , Cmd.none
             )
-                |> andThen triggerEmojiTrap
+                |> andThen (triggerOrDefer triggerEmojiTrap)
 
         TriggerFireworksPressed ->
             ( { model | fireworksTimer = model.trapDuration }
@@ -2279,10 +2331,10 @@ update msg model =
             )
 
         TriggerTunnelVisionTrapPressed ->
-            ( model
+            ( { model | tunnelVisionTrapReceived = model.tunnelVisionTrapReceived + 1 }
             , Cmd.none
             )
-                |> andThen triggerTunnelVisionTrap
+                |> andThen (triggerOrDefer triggerTunnelVisionTrap)
 
         TunnelVisionTrapRatioChanged value ->
             ( { model
@@ -4080,6 +4132,11 @@ updateFromLocalStorage storage model =
 updateFromLocalStorageValue : String -> String -> Model -> ( Model, Cmd Msg )
 updateFromLocalStorageValue key value model =
     case key of
+        "apdk-additive-traps" ->
+            ( { model | additiveTraps = value == "1" }
+            , Cmd.none
+            )
+
         "apdk-animations-enabled" ->
             ( { model | animationsEnabled = value == "1" }
             , Cmd.none
@@ -4163,6 +4220,11 @@ updateFromLocalStorageValue key value model =
 
         "apdk-show-toast-messages" ->
             ( { model | showToastMessages = value == "1" }
+            , Cmd.none
+            )
+
+        "apdk-traps-wait-for-activity" ->
+            ( { model | trapsWaitForActivity = value == "1" }
             , Cmd.none
             )
 
@@ -5161,21 +5223,21 @@ updateStateItem triggerAnimations item model =
                 |> addLocalMessage model.gameIsLocal "Unlocked a Disco Trap."
             , Cmd.none
             )
-                |> andThenIf (model.discoTrapReceived >= model.discoTrapTriggers) triggerDiscoTrap
+                |> andThenIf (model.discoTrapReceived >= model.discoTrapTriggers) (triggerOrDefer triggerDiscoTrap)
 
         EmojiTrap ->
             ( { model | emojiTrapReceived = model.emojiTrapReceived + 1 }
                 |> addLocalMessage model.gameIsLocal "Unlocked an Emoji Trap."
             , Cmd.none
             )
-                |> andThenIf (model.emojiTrapReceived >= model.emojiTrapTriggers) triggerEmojiTrap
+                |> andThenIf (model.emojiTrapReceived >= model.emojiTrapTriggers) (triggerOrDefer triggerEmojiTrap)
 
         TunnelVisionTrap ->
             ( { model | tunnelVisionTrapReceived = model.tunnelVisionTrapReceived + 1 }
                 |> addLocalMessage model.gameIsLocal "Unlocked a Tunnel Vision Trap."
             , Cmd.none
             )
-                |> andThenIf (model.tunnelVisionTrapReceived >= model.tunnelVisionTrapTriggers) triggerTunnelVisionTrap
+                |> andThenIf (model.tunnelVisionTrapReceived >= model.tunnelVisionTrapTriggers) (triggerOrDefer triggerTunnelVisionTrap)
 
         NothingItem ->
             ( model
@@ -6049,6 +6111,134 @@ itemClassification item =
             Filler
 
 
+trackActivity : Msg -> ( Model, Cmd Msg ) -> ( Model, Cmd Msg )
+trackActivity msg =
+    andThenIf (isGameInput msg)
+        (\model ->
+            ( model
+            , if model.trapsWaitForActivity then
+                Task.perform ActivityRegistered Time.now
+
+              else
+                Cmd.none
+            )
+        )
+
+
+isGameInput : Msg -> Bool
+isGameInput msg =
+    case msg of
+        CandidateModeChanged _ ->
+            True
+
+        CellSelected _ ->
+            True
+
+        ClearBoardPressed ->
+            True
+
+        ClearCellPressed ->
+            True
+
+        FillBoardCandidatesPressed ->
+            True
+
+        FillCellCandidatesPressed ->
+            True
+
+        NumberPressed _ ->
+            True
+
+        RemoveInvalidCandidatesPressed ->
+            True
+
+        RemoveRandomCandidatePressed ->
+            True
+
+        SelectSingleCandidateCellPressed ->
+            True
+
+        SelectSolvableBoardPressed ->
+            True
+
+        SolveRandomCellPressed ->
+            True
+
+        SolveSelectedCellPressed ->
+            True
+
+        SolveSingleCandidatesPressed ->
+            True
+
+        ToggleCandidateModePressed ->
+            True
+
+        ToggleHighlightModePressed ->
+            True
+
+        UndoPressed ->
+            True
+
+        UnlockSelectedBlockPressed ->
+            True
+
+        _ ->
+            False
+
+
+queuedTraps : Model -> Int -> Int -> Int
+queuedTraps model received triggers =
+    if model.trapsWaitForActivity then
+        max 0 (received - triggers)
+
+    else
+        0
+
+
+trapGateIsOpen : Model -> Time.Posix -> Bool
+trapGateIsOpen model now =
+    case model.lastActivity of
+        Just lastActivity ->
+            (Time.posixToMillis now - Time.posixToMillis lastActivity <= activityTimeoutMillis)
+                && model.pageVisible
+
+        Nothing ->
+            False
+
+
+activityTimeoutMillis : Int
+activityTimeoutMillis =
+    2 * 60 * 1000
+
+
+triggerOrDefer : (Model -> ( Model, Cmd Msg )) -> Model -> ( Model, Cmd Msg )
+triggerOrDefer trigger model =
+    if model.trapsWaitForActivity then
+        ( model
+        , Task.perform TrapGateChecked Time.now
+        )
+
+    else
+        trigger model
+
+
+releasePendingTraps : Model -> ( Model, Cmd Msg )
+releasePendingTraps model =
+    ( model, Cmd.none )
+        |> applyList (\_ -> triggerDiscoTrap) (List.range 1 (model.discoTrapReceived - model.discoTrapTriggers))
+        |> applyList (\_ -> triggerEmojiTrap) (List.range 1 (model.emojiTrapReceived - model.emojiTrapTriggers))
+        |> applyList (\_ -> triggerTunnelVisionTrap) (List.range 1 (model.tunnelVisionTrapReceived - model.tunnelVisionTrapTriggers))
+
+
+trapTimerAfterTrigger : Model -> Int -> Int
+trapTimerAfterTrigger model currentTimer =
+    if model.additiveTraps then
+        currentTimer + model.trapDuration
+
+    else
+        model.trapDuration
+
+
 timers : Model -> List Int
 timers model =
     [ model.discoTrapTimer
@@ -6060,9 +6250,15 @@ timers model =
 
 triggerDiscoTrap : Model -> ( Model, Cmd Msg )
 triggerDiscoTrap model =
+    let
+        newTimer : Int
+        newTimer =
+            trapTimerAfterTrigger model model.discoTrapTimer
+    in
     ( { model
         | discoTrapOffset = 0
-        , discoTrapTimer = model.trapDuration
+        , discoTrapMax = newTimer
+        , discoTrapTimer = newTimer
         , discoTrapTriggers = model.discoTrapTriggers + 1
       }
     , Cmd.none
@@ -6105,8 +6301,14 @@ updateDiscoTrapMap model =
 
 triggerEmojiTrap : Model -> ( Model, Cmd Msg )
 triggerEmojiTrap model =
+    let
+        newTimer : Int
+        newTimer =
+            trapTimerAfterTrigger model model.emojiTrapTimer
+    in
     ( { model
-        | emojiTrapTimer = model.trapDuration
+        | emojiTrapMax = newTimer
+        , emojiTrapTimer = newTimer
         , emojiTrapTriggers = model.emojiTrapTriggers + 1
       }
     , Cmd.none
@@ -6214,8 +6416,14 @@ emojiTrapVariantFromString str =
 
 triggerTunnelVisionTrap : Model -> ( Model, Cmd Msg )
 triggerTunnelVisionTrap model =
+    let
+        newTimer : Int
+        newTimer =
+            trapTimerAfterTrigger model model.tunnelVisionTrapTimer
+    in
     ( { model
-        | tunnelVisionTrapTimer = model.trapDuration
+        | tunnelVisionTrapMax = newTimer
+        , tunnelVisionTrapTimer = newTimer
         , tunnelVisionTrapTriggers = model.tunnelVisionTrapTriggers + 1
       }
     , Cmd.none
@@ -8540,6 +8748,36 @@ viewMenuOptionsStats model puzzleAreas =
         ]
 
 
+viewCheckboxWithHint :
+    { checked : Bool
+    , hint : String
+    , hintId : String
+    , label : String
+    , onCheck : Bool -> Msg
+    }
+    -> Html Msg
+viewCheckboxWithHint args =
+    Html.div
+        [ HA.class "row gap-m"
+        , HA.style "align-items" "center"
+        , HA.style "justify-content" "space-between"
+        ]
+        [ Html.label
+            [ HA.class "row gap-s"
+            , HA.style "align-items" "center"
+            ]
+            [ Html.input
+                [ HA.type_ "checkbox"
+                , HA.checked args.checked
+                , HE.onCheck args.onCheck
+                ]
+                []
+            , Html.text args.label
+            ]
+        , viewOptionHint args.hintId args.hint
+        ]
+
+
 viewOptionHint : String -> String -> Html Msg
 viewOptionHint id text =
     Html.div
@@ -8788,58 +9026,93 @@ viewZoomControls =
 
 viewTrapTimers : Model -> Html Msg
 viewTrapTimers model =
-    if List.all ((==) 0) (timers model) then
+    let
+        entries : List { label : String, maxTime : Int, queued : Int, timeLeft : Int }
+        entries =
+            [ { label = "Disco trap"
+              , maxTime = model.discoTrapMax
+              , queued = queuedTraps model model.discoTrapReceived model.discoTrapTriggers
+              , timeLeft = model.discoTrapTimer
+              }
+            , { label = "Emoji trap"
+              , maxTime = model.emojiTrapMax
+              , queued = queuedTraps model model.emojiTrapReceived model.emojiTrapTriggers
+              , timeLeft = model.emojiTrapTimer
+              }
+            , { label = "Tunnel vision trap"
+              , maxTime = model.tunnelVisionTrapMax
+              , queued = queuedTraps model model.tunnelVisionTrapReceived model.tunnelVisionTrapTriggers
+              , timeLeft = model.tunnelVisionTrapTimer
+              }
+            , { label = "Fireworks"
+              , maxTime = model.trapDuration
+              , queued = 0
+              , timeLeft = model.fireworksTimer
+              }
+            ]
+    in
+    if List.all (\entry -> entry.timeLeft == 0 && entry.queued == 0) entries then
         Html.text ""
 
     else
         Html.div
             [ HA.class "trap-timer-panel"
             ]
-            (List.map
-                (\timer ->
-                    if timer.timeLeft == 0 then
+            (List.concatMap
+                (\entry ->
+                    [ if entry.timeLeft == 0 then
                         Html.text ""
 
-                    else
-                        Html.div
-                            [ HA.class "column gap-s"
-                            ]
-                            [ Html.text
-                                (String.concat
-                                    [ timer.label
+                      else
+                        viewTrapTimer
+                            { dimmed = False
+                            , percent = entry.timeLeft * 100 // max 1 entry.maxTime
+                            , text = entry.label ++ ": " ++ String.fromInt entry.timeLeft ++ "s"
+                            }
+                    , if entry.queued == 0 then
+                        Html.text ""
+
+                      else
+                        viewTrapTimer
+                            { dimmed = True
+                            , percent = 100
+                            , text =
+                                String.concat
+                                    [ entry.label
                                     , ": "
-                                    , String.fromInt timer.timeLeft
+                                    , String.fromInt (model.trapDuration * entry.queued)
                                     , "s"
+                                    , " (queued)"
                                     ]
-                                )
-                            , Html.div
-                                [ HA.class "trap-timer-track" ]
-                                [ Html.div
-                                    [ HA.class "trap-timer-fill"
-                                    , HA.style "width"
-                                        (String.fromInt
-                                            (timer.timeLeft * 100 // model.trapDuration)
-                                            ++ "%"
-                                        )
-                                    ]
-                                    []
-                                ]
-                            ]
+                            }
+                    ]
                 )
-                [ { label = "Disco trap"
-                  , timeLeft = model.discoTrapTimer
-                  }
-                , { label = "Emoji trap"
-                  , timeLeft = model.emojiTrapTimer
-                  }
-                , { label = "Tunnel vision trap"
-                  , timeLeft = model.tunnelVisionTrapTimer
-                  }
-                , { label = "Fireworks"
-                  , timeLeft = model.fireworksTimer
-                  }
-                ]
+                entries
             )
+
+
+viewTrapTimer : { dimmed : Bool, percent : Int, text : String } -> Html Msg
+viewTrapTimer args =
+    Html.div
+        [ HA.class "column gap-s"
+        ]
+        [ Html.text args.text
+        , Html.div
+            [ HA.class "trap-timer-track" ]
+            [ Html.div
+                [ HA.class "trap-timer-fill"
+                , HA.style "width" (String.fromInt args.percent ++ "%")
+                , HA.style "opacity"
+                    (if args.dimmed then
+                        "0.4"
+
+                     else
+                        "1"
+                    )
+                ]
+                []
+            ]
+        ]
 
 
 viewInfoPanel : Model -> Html Msg
@@ -9463,6 +9736,20 @@ viewInfoPanelSettings model =
                     []
                 , Html.text "Show toast messages"
                 ]
+            , viewCheckboxWithHint
+                { checked = model.additiveTraps
+                , hint = "When a trap triggers while it is already active its remaining time is extended by the trap duration instead of being reset to it."
+                , hintId = "additive-traps-hint"
+                , label = "Additive traps"
+                , onCheck = AdditiveTrapsChanged
+                }
+            , viewCheckboxWithHint
+                { checked = model.trapsWaitForActivity
+                , hint = "After 2 minutes without input any received traps are held back until you interact with the game."
+                , hintId = "traps-wait-for-activity-hint"
+                , label = "Traps wait for activity"
+                , onCheck = TrapsWaitForActivityChanged
+                }
             , Html.label
                 [ HA.class "row gap-s" ]
                 [ Html.text "Trap duration:"
